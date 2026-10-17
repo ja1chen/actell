@@ -42,7 +42,7 @@ import Darwin
                 .task {
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
                     if !streamProbe { PairingFlow.shared.restoreConnection() }
-                    model.liveActivities.setBackgroundResident(settings.residentEnabled)
+                    model.liveActivities.setBackgroundResident(settings.reservesStandbyActivity)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
@@ -61,7 +61,7 @@ import Darwin
                     } else { await PairingFlow.shared.runBackgroundProbeIfRequested() }
                     #endif
                 }
-                .onChange(of: settings.residentEnabled) { _, enabled in
+                .onChange(of: settings.reservesStandbyActivity) { _, enabled in
                     model.liveActivities.setBackgroundResident(enabled)
                 }
                 .alert(String(localized: "Enable location for background execution?"), isPresented: Binding(get: { background.locationExplanation && !background.locationExplanationInSettings }, set: { _ in })) {

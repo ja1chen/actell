@@ -113,6 +113,14 @@ private struct BackgroundSettingsView: View {
                     }
                 }
             }
+            Section {
+                Toggle(String(localized: "Show Live Activity while waiting"), isOn: Binding(
+                    get: { settings.standbyActivityEnabled }, set: { settings.setStandbyActivity($0) }))
+                    .disabled(!settings.residentEnabled || settings.futureSchema)
+                    .accessibilityIdentifier("backgroundStandbyActivityEnabled")
+            } footer: {
+                Text(String(localized: "Keep a Live Activity available so tasks received in the background can update the Dynamic Island."))
+            }
             if let warning = settings.warning {
                 Section { Text(warning).foregroundStyle(.orange) }
             }

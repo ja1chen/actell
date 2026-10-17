@@ -162,6 +162,26 @@ import ActivityKit
         await controller.waitForPendingUpdates()
         XCTAssertEqual(handle.ended.count, 1)
     }
+    func testDisablingStandbyPreservesRunningActivityAndEndsItAfterCompletion() async {
+        let handle = RecordingActivityHandle()
+        var requests = 0
+        let controller = AgentLiveActivityController(createActivity: { _ in requests += 1; return handle })
+        controller.setBackgroundResident(true)
+        await controller.waitForPendingUpdates()
+        let run = UUID()
+        controller.submit(snapshot(.thinking, run: run))
+        await controller.waitForPendingUpdates()
+        controller.setBackgroundResident(false)
+        await controller.waitForPendingUpdates()
+        XCTAssertTrue(handle.ended.isEmpty)
+        controller.submit(snapshot(.executing, run: run))
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(handle.states.last?.phase, .executing)
+        controller.submit(snapshot(.completed, run: run))
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(handle.ended.count, 1)
+        XCTAssertEqual(requests, 1)
+    }
     func testResidentDoesNotRequestStandbyInBackgroundOrAfterDisable() async {
         var requests = 0
         let controller = AgentLiveActivityController(createActivity: { _ in requests += 1; return RecordingActivityHandle() })
@@ -193,17 +213,72 @@ import ActivityKit
         let working = snapshot(.working, run: run)
         controller.submit(working)
         await controller.waitForPendingUpdates()
-        XCTAssertEqual(handle.alerts, 1)
+        XCTAssertEqual(handle.alerts, 0, "moving a foreground-started task to the background must not expand")
         controller.submit(working)
         controller.submit(snapshot(.executing, run: run))
         await controller.waitForPendingUpdates()
-        XCTAssertEqual(handle.alerts, 1, "duplicate and progress updates cannot repeatedly expand")
+        XCTAssertEqual(handle.alerts, 0)
         controller.submit(snapshot(.stopped, run: run))
         await controller.waitForPendingUpdates()
-        XCTAssertEqual(handle.alerts, 1)
-        controller.submit(snapshot(.thinking, run: UUID()))
+        XCTAssertEqual(handle.alerts, 0)
+        let backgroundRun = UUID()
+        controller.submit(snapshot(.thinking, run: backgroundRun))
         await controller.waitForPendingUpdates()
-        XCTAssertEqual(handle.alerts, 2, "the next task gets its own expansion")
+        XCTAssertEqual(handle.alerts, 1, "the next task started in the background gets its own expansion")
+        let progress = snapshot(.working, run: backgroundRun)
+        controller.submit(progress); controller.submit(progress)
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(handle.alerts, 1, "duplicate and progress updates cannot repeatedly expand")
+    }
+    func testForegroundRunStaysSilentWhenItsFirstWriteWaitsUntilBackground() async {
+        for resident in [false, true] {
+            let handle = RecordingActivityHandle()
+            let controller = AgentLiveActivityController(createActivity: { _ in handle })
+            controller.setBackgroundResident(resident)
+            await controller.waitForPendingUpdates()
+            let run = UUID()
+            controller.submit(snapshot(.thinking, run: run))
+            // The scene changes and progress supersedes the first snapshot
+            // before ActivityKit gets to process either queued write.
+            controller.setForeground(false)
+            controller.submit(snapshot(.working, run: run))
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.alerts, 0)
+            controller.submit(snapshot(.executing, run: run))
+            await controller.waitForPendingUpdates()
+            let completed = snapshot(.completed, run: run)
+            controller.submit(completed); controller.submit(completed)
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.states.last?.phase, .completed, "silent tasks must still update their status")
+            XCTAssertEqual(handle.alerts, 0, "foreground-origin execution and completion remain silent for both handle types")
+            XCTAssertTrue(handle.ended.isEmpty)
+        }
+    }
+    func testBackgroundRunKeepsItsOriginAcrossQueuedForegroundWrites() async {
+        for resident in [false, true] {
+            let handle = RecordingActivityHandle()
+            let controller = AgentLiveActivityController(createActivity: { _ in handle })
+            controller.setBackgroundResident(resident)
+            await controller.waitForPendingUpdates()
+            controller.setForeground(false)
+            let run = UUID()
+            controller.submit(snapshot(.thinking, run: run))
+            controller.setForeground(true)
+            controller.submit(snapshot(.working, run: run))
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.alerts, 0, "background-origin tasks do not alert while the app is visible")
+            controller.setForeground(false)
+            controller.submit(snapshot(.executing, run: run))
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.alerts, 1, "the first submission determines origin despite queued scene changes")
+            controller.submit(snapshot(.working, run: run))
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.alerts, 1)
+            let completed = snapshot(.completed, run: run)
+            controller.submit(completed); controller.submit(completed)
+            await controller.waitForPendingUpdates()
+            XCTAssertEqual(handle.alerts, 2, "background-origin start and completion each alert once")
+        }
     }
     func testResidentSkipsIdenticalProgressButRefreshesExpiryAndApprovalChanges() async {
         let handle = RecordingActivityHandle()
@@ -296,7 +371,7 @@ import ActivityKit
         XCTAssertEqual(decoded.route(attributes: attributes), AgentActivityRoute(sessionID: attributes.sessionID, runID: attributes.runID))
         var standby = decoded; standby.phase = .standby
         XCTAssertNil(standby.route(attributes: attributes))
-        XCTAssertEqual(standby.title, "后台待命")
+        XCTAssertEqual(standby.title, "等待任务")
         XCTAssertEqual(standby.compactTitle, "待命")
     }
     func testBackgroundCompletionAlertsOnceAndRemainsUntilForeground() async throws {
@@ -304,19 +379,22 @@ import ActivityKit
         var created = 0
         let controller = AgentLiveActivityController(createActivity: { _ in created += 1; return handle })
         let run = UUID()
-        controller.submit(snapshot(.working, run: run))
-        try await waitUntil { created == 1 }
         controller.setForeground(false)
+        controller.submit(snapshot(.working, run: run))
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(created, 1)
+        XCTAssertEqual(handle.alerts, 1)
         let completed = snapshot(.completed, run: run)
         controller.submit(completed); controller.submit(completed)
-        try await waitUntil { handle.updates.count == 2 }
-        XCTAssertEqual(handle.alerts, 1)
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(handle.updates.count, 3)
+        XCTAssertEqual(handle.alerts, 2)
         XCTAssertEqual(handle.updates.last, .completed)
         XCTAssertTrue(handle.ended.isEmpty, "Ending immediately would hide the completion island")
         controller.setForeground(true)
         try await waitUntil { handle.ended.count == 1 }
         XCTAssertEqual(handle.ended, [.completed])
-        XCTAssertEqual(handle.alerts, 1)
+        XCTAssertEqual(handle.alerts, 2)
     }
     func testNextRunDismissesCompletedIslandWithoutEndingAnotherActiveRun() async throws {
         var handles: [UUID: RecordingActivityHandle] = [:]
@@ -330,14 +408,18 @@ import ActivityKit
         try await waitUntil { handles[b] != nil }
         controller.setForeground(false)
         controller.submit(snapshot(.completed, run: a))
-        try await waitUntil { handles[a]?.alerts == 1 }
+        try await waitUntil { handles[a]?.updates.last == .completed }
+        XCTAssertEqual(handles[a]?.alerts, 0)
         controller.submit(snapshot(.thinking, run: b))
         try await waitUntil { handles[b]?.updates.last == .thinking }
         XCTAssertTrue(handles[a]?.ended.isEmpty == true)
         controller.submit(snapshot(.working, run: c))
         try await waitUntil { handles[c] != nil }
+        await controller.waitForPendingUpdates()
         XCTAssertEqual(handles[a]?.ended, [.completed])
         XCTAssertTrue(handles[b]?.ended.isEmpty == true)
+        XCTAssertEqual(handles[b]?.alerts, 0, "another active foreground-origin run stays silent")
+        XCTAssertEqual(handles[c]?.alerts, 1, "a new background-origin run alerts independently")
     }
     func testRunKeepsExecutionUntilCompletionActivityUpdateReturns() async throws {
         let handle = RecordingActivityHandle()
@@ -357,10 +439,9 @@ import ActivityKit
         handle.releaseCompletion()
         try await waitUntil { !model.running }
         XCTAssertEqual(model.activitySnapshot?.state.phase, .completed)
-        // A very short background continuation can finish before its coalesced
-        // progress is shown. Completion still alerts and cannot release early.
-        XCTAssertGreaterThanOrEqual(handle.alerts, 1)
-        XCTAssertLessThanOrEqual(handle.alerts, 2)
+        // A foreground-origin completion stays silent, but its ActivityKit
+        // update still has to finish before releasing the execution lease.
+        XCTAssertEqual(handle.alerts, 0)
         XCTAssertTrue(handle.ended.isEmpty)
     }
     func testSiriSubmissionWaitsForActivityCreationBehindAnOlderWrite() async throws {

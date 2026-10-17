@@ -1,6 +1,46 @@
 import XCTest
 
 @MainActor final class ConversationUITests: XCTestCase {
+    func testCollapsedReasoningAndToolHeadersHaveEqualSpacing() {
+        verifyCollapsedActivitySpacing(active: false)
+    }
+    func testActiveCollapsedReasoningAndToolHeadersHaveEqualSpacing() {
+        verifyCollapsedActivitySpacing(active: true)
+    }
+    private func verifyCollapsedActivitySpacing(active: Bool) {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-test-collapsed-activity-spacing"]
+        if active { app.launchArguments.append("--ui-test-spacing-active") }
+        app.launch()
+        app.staticTexts["Collapsed activity spacing"].firstMatch.tap()
+        if !active {
+            let summary = app.buttons["3 次工具调用 · 1 段思考"]
+            XCTAssertTrue(summary.waitForExistence(timeout: 5), app.debugDescription)
+            summary.tap()
+        }
+        let thought = app.buttons.matching(NSPredicate(format: "label == %@", "思考")).firstMatch
+        let tools = app.otherElements.matching(identifier: "tool-invocation-succeeded-wait")
+        XCTAssertEqual(tools.count, 3)
+        XCTAssertEqual(thought.value as? String, "已收起")
+        func assertEqualGaps(file: StaticString = #filePath, line: UInt = #line) {
+            let first = tools.element(boundBy: 0).buttons.firstMatch.frame
+            let second = tools.element(boundBy: 1).buttons.firstMatch.frame
+            let third = tools.element(boundBy: 2).buttons.firstMatch.frame
+            let reasoningGap = first.minY - thought.frame.maxY
+            let toolGap = second.minY - first.maxY
+            XCTAssertGreaterThan(toolGap, 0, file: file, line: line)
+            XCTAssertEqual(reasoningGap, toolGap, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(third.minY - second.maxY, toolGap, accuracy: 1, file: file, line: line)
+        }
+        assertEqualGaps()
+        thought.tap()
+        XCTAssertTrue(app.staticTexts["Reasoning without reply text"].exists)
+        thought.tap()
+        XCTAssertFalse(app.staticTexts["Reasoning without reply text"].exists)
+        assertEqualGaps()
+        XCTAssertTrue(app.staticTexts["Final reply"].exists)
+    }
     func testCompletedTurnSummariesCountCollapseAndKeepAnswerVisible() {
         continueAfterFailure = false
         let app = XCUIApplication()

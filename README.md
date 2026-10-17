@@ -26,6 +26,8 @@ Enabling idle residency retains only selected continuous sources; system-task-on
 
 These statements reflect the current source and validation records in the project. Results from different routes, devices, and historical stages are not interchangeable. See [project tasks and validation](docs/PROJECT-TODOS.md), [video geometry and frame completeness](docs/ncm-coredevice/VIDEO-GEOMETRY.md), and [VPN loopback setup and validation](docs/ncm-coredevice/LOCALDEVVPN.md).
 
+Idle residency includes a separate **Show Live Activity while waiting** switch, enabled by default. It reserves a minimal star activity so tasks received in the background can update the Dynamic Island. Turning it off removes the idle activity without disabling task activities. System task subtitles describe current or recent work instead of counting responses or tool calls.
+
 ## Setup and running
 
 The current minimum deployment target is **iOS 27**, and builds use **Xcode 27**. Configure your own valid signing for a physical device; the unsigned build below only produces artifacts and cannot be installed directly. Model-driven tasks require your own compatible provider, model, and credentials. Screenshots and explicitly sent attachments are transmitted to the selected model.

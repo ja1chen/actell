@@ -37,6 +37,7 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
 @MainActor final class BackgroundSettingsStore: ObservableObject {
     static let key = "backgroundExecutionConfiguration"
     static let residentKey = "backgroundResidentEnabled"
+    static let standbyActivityKey = "backgroundStandbyActivityEnabled"
     static let legacyKey = "backgroundPlaybackMode" // Retained for one-version diagnostics.
     static let shared: BackgroundSettingsStore = {
         #if DEBUG
@@ -57,6 +58,8 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
     }()
     @Published private(set) var configuration = BackgroundConfiguration(selected: [])
     @Published private(set) var residentEnabled = false
+    @Published private(set) var standbyActivityEnabled = true
+    var reservesStandbyActivity: Bool { residentEnabled && standbyActivityEnabled }
     @Published private(set) var warning: String?
     private(set) var futureSchema = false
     var selection: Set<BackgroundMechanism> { configuration.knownSelection }
@@ -69,6 +72,7 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
         self.defaults = defaults; self.domain = domain; self.writer = writer
         let saved = defaults.persistentDomain(forName: domain) ?? [:]
         residentEnabled = saved[Self.residentKey] as? Bool ?? false
+        standbyActivityEnabled = saved[Self.standbyActivityKey] as? Bool ?? true
         if let raw = saved[Self.key] {
             if let data = raw as? Data {
                 if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -103,6 +107,12 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
         var saved = defaults.persistentDomain(forName: domain) ?? [:]
         saved[Self.residentKey] = enabled; defaults.setPersistentDomain(saved, forName: domain)
         residentEnabled = enabled
+    }
+    func setStandbyActivity(_ enabled: Bool) {
+        guard !futureSchema else { return }
+        var saved = defaults.persistentDomain(forName: domain) ?? [:]
+        saved[Self.standbyActivityKey] = enabled; defaults.setPersistentDomain(saved, forName: domain)
+        standbyActivityEnabled = enabled
     }
     private func persist(_ value: BackgroundConfiguration) -> Bool {
         guard let data = try? JSONEncoder().encode(value) else { return false }

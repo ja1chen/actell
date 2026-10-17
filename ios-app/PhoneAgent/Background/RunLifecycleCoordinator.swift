@@ -132,6 +132,7 @@ extension RunCheckpointStorage {
     private var watchdog: Task<Void, Never>?
     private var storageHealthy = true
     private var ownsRun = false
+    private var taskSubtitle = String(localized: "Preparing task")
 
     init(scheduler: any RunBackgroundScheduler, storage: any RunCheckpointStorage,
          identifierPrefix: String = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".backgroundRun",
@@ -159,6 +160,7 @@ extension RunCheckpointStorage {
     func begin(identity: RunIdentity, generation: UUID, allowBackgroundStart: Bool = false) throws {
         guard foreground || allowBackgroundStart, storageHealthy, !ownsRun else { throw AppError.stopped }
         activeToolBackgroundCapable = true
+        taskSubtitle = String(localized: "Preparing task")
         checkpoint = RunCheckpoint(runID: identity.runID, conversationID: identity.conversationID, generation: generation)
         try persist(); ownsRun = true; requestSegment(allowBackgroundStart: allowBackgroundStart)
         guard storageHealthy else { throw AppError.unavailable(String(localized: "Could not save progress")) }
@@ -221,7 +223,7 @@ extension RunCheckpointStorage {
             }
         }
         backgroundStatus = incoming.backgroundReady ? String(localized: "Background execution is available. Device controls still need verification.") : String(localized: "Waiting for a background option to become available. No device action has been sent.")
-        incoming.report(completed: checkpoint?.milestones.count ?? 0, subtitle: String(localized: "Waiting for a model response or tool result. The total number of steps is unknown."))
+        incoming.report(completed: checkpoint?.milestones.count ?? 0, subtitle: taskSubtitle)
     }
     func setForeground(_ active: Bool) {
         foreground = active
@@ -313,8 +315,14 @@ extension RunCheckpointStorage {
         lastActivity = now()
         if let milestone, checkpoint?.milestones.insert(milestone).inserted == true {
             saveOrPause()
-            lease?.report(completed: checkpoint?.milestones.count ?? 0, subtitle: String(localized: "Received \(checkpoint?.milestones.count ?? 0) responses or tool results. The total number of steps is unknown."))
+            lease?.report(completed: checkpoint?.milestones.count ?? 0, subtitle: taskSubtitle)
         }
+    }
+    /// Presentation only: never advances checkpoints, timeout receipts, or execution authority.
+    func reportStatus(_ subtitle: String, generation: UUID) {
+        guard ownsRun, checkpoint?.generation == generation, checkpoint?.phase == .running, taskSubtitle != subtitle else { return }
+        taskSubtitle = subtitle
+        lease?.report(completed: checkpoint?.milestones.count ?? 0, subtitle: subtitle)
     }
     func checkInactivity() {
         guard let inactivityTimeout, checkpoint?.phase == .running, now().timeIntervalSince(lastActivity) >= inactivityTimeout else { return }

@@ -300,19 +300,14 @@ struct ConversationView: View {
                 MessageAttachmentsView(message: message, presentation: presentation)
             }
         case .assistant:
-            VStack(alignment: .leading, spacing: 6) {
-                if includeReasoning, let reasoning = message.reasoning, !reasoning.text.isEmpty {
-                    ReasoningMessageView(reasoning: reasoning, messageID: message.id)
-                }
-                if !message.text.isEmpty {
-                    Markdown(message.text).markdownTheme(.basic)
-                        .markdownImageProvider(NoRemoteMarkdownImages()).markdownInlineImageProvider(NoRemoteInlineImages())
-                        .textSelection(.enabled)
-                } else if message.state == .streaming && message.reasoning == nil { Text(String(localized: "Preparing a reply…")).foregroundStyle(.secondary) }
-                if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? String(localized: "Reasoning interrupted") : String(localized: "Reply interrupted")).font(.caption).foregroundStyle(.secondary) }
-                if message.state == .failed { Text(String(localized: "Reply incomplete")).font(.caption).foregroundStyle(.secondary) }
-                MessageAttachmentsView(message: message, presentation: presentation)
-            }.frame(maxWidth: .infinity, alignment: .leading)
+            // Keep reasoning at the same row level as tools. A reasoning-only
+            // message must not leave an empty reply stack in the completed fold.
+            if includeReasoning, let reasoning = message.reasoning, !reasoning.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ReasoningMessageView(reasoning: reasoning, messageID: message.id)
+            }
+            if !message.text.isEmpty || message.attachments?.isEmpty == false || message.state == .interrupted || message.state == .failed || (message.state == .streaming && message.reasoning == nil) {
+                assistantReply(message)
+            }
         case .tool:
             if let item = presentation.presentation(for: message) {
                 ToolInvocationView(configuration: ToolInvocationConfiguration(tool: item.tool)) { toolPreview(item) }
@@ -322,6 +317,18 @@ struct ConversationView: View {
                 .font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
                 .padding(.vertical, 2).frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+    private func assistantReply(_ message: ChatMessage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !message.text.isEmpty {
+                Markdown(message.text).markdownTheme(.basic)
+                    .markdownImageProvider(NoRemoteMarkdownImages()).markdownInlineImageProvider(NoRemoteInlineImages())
+                    .textSelection(.enabled)
+            } else if message.state == .streaming && message.reasoning == nil { Text(String(localized: "Preparing a reply…")).foregroundStyle(.secondary) }
+            if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? String(localized: "Reasoning interrupted") : String(localized: "Reply interrupted")).font(.caption).foregroundStyle(.secondary) }
+            if message.state == .failed { Text(String(localized: "Reply incomplete")).font(.caption).foregroundStyle(.secondary) }
+            MessageAttachmentsView(message: message, presentation: presentation)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var composer: some View {
         VStack(spacing: 10) {

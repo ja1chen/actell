@@ -15,8 +15,9 @@ pub use idevice::remote_pairing::{RpPairingFile, VerifiedPeerIdentity};
 use idevice::{
     RemoteXpcClient, RsdService,
     core_device::{
-        AppServiceClient, ButtonState, HardwareButton, ImageFormat, IndigoHidClient,
-        PasteboardServiceClient, ScreenCaptureServiceClient,
+        AppServiceClient, ButtonState, HardwareButton, HidError, ImageFormat, IndigoHidClient,
+        KeyboardServiceConfiguration, KeyboardUsage, PasteboardServiceClient,
+        ScreenCaptureServiceClient, UniversalHidServiceClient,
     },
     remote_pairing::{RemotePairingClient, RpPairingSocket, connect_tls_psk_tunnel_native},
     rsd::RsdHandshake,
@@ -461,8 +462,8 @@ impl Session {
         Ok(())
     }
     pub async fn type_text(&mut self, text: &str) -> Result<(), Error> {
-        // Always paste the complete string: physical typing is input-method dependent
-        // and registering a virtual keyboard can suppress the software keyboard.
+        // Paste the complete Unicode string through a registered keyboard so iOS
+        // can attach key-command authentication to the receiving app's read.
         if !valid_input_text(text) {
             return Err(error(Stage::Input, Cause::InvalidParameters));
         }
@@ -470,35 +471,50 @@ impl Session {
             return Err(error(Stage::Input, Cause::MediaInactive));
         }
         self.require("com.apple.coredevice.pasteboardservice", Stage::Input)?;
-        self.require("com.apple.coredevice.hid.indigo", Stage::Input)?;
+        self.require("com.apple.coredevice.hid.universalhidservice", Stage::Input)?;
         let mut pasteboard = bounded(
             Stage::Input,
             PasteboardServiceClient::connect_rsd(&mut self.adapter, &mut self.handshake),
         )
         .await?;
-        if self.indigo.is_none() {
-            self.indigo = Some(
-                bounded(
-                    Stage::Input,
-                    IndigoHidClient::connect_rsd(&mut self.adapter, &mut self.handshake),
-                )
-                .await?,
-            );
-        }
-        let keyboard = self.indigo.as_mut().unwrap();
-        // Paste the entire text once, including ASCII. No virtual keyboard service.
-        // Do not read the previous clipboard or retry pending paste consent.
+        // Keep the keyboard connection local: retaining it in Session would keep
+        // the software keyboard suppressed after this operation finishes.
+        let mut keyboard = bounded(
+            Stage::Input,
+            UniversalHidServiceClient::connect_rsd(&mut self.adapter, &mut self.handshake),
+        )
+        .await?;
+        let config = KeyboardServiceConfiguration {
+            service_id: (1u64 << 32) | u64::from(uuid::Uuid::new_v4().as_u128() as u32),
+            product: "Actell keyboard".into(),
+            manufacturer: "Actell".into(),
+            ..Default::default()
+        };
+        // Cancellation or an uncertain result still revokes this transport
+        // generation. Never read the previous clipboard or replay the paste.
         let mut guard = OperationGuard(Some(self.owner.0.clone()));
-        bounded(Stage::Input, async {
+        let result = bounded(Stage::Input, async {
+            let command = KeyboardUsage::new(0xe3)?;
+            let v = KeyboardUsage::new(0x19)?;
+            let service_id = keyboard.create_keyboard_service(&config).await?;
+            // Preserve the delays from the successful independent-device probe
+            // until the normal app path has been accepted on hardware.
+            tokio::time::sleep(Duration::from_millis(400)).await;
             pasteboard.set_text(text, "general").await?;
-            keyboard.send_keyboard(0xe3, ButtonState::Down).await?;
-            keyboard.send_keyboard(0x19, ButtonState::Down).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            keyboard.send_keyboard(0x19, ButtonState::Up).await?;
-            keyboard.send_keyboard(0xe3, ButtonState::Up).await
+            for held in [vec![command], vec![command, v], vec![command], vec![]] {
+                keyboard
+                    .set_keyboard_usages(service_id, held.into_iter().collect(), None)
+                    .await?;
+                tokio::time::sleep(Duration::from_millis(80)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            Ok::<(), HidError>(())
         })
-        .await
-        .map_err(|_| error(Stage::Input, Cause::DeliveryUncertain))?;
+        .await;
+        // StreamHandle::drop requests closure of just this HID connection.
+        // A cancelled future also drops it; no global stopAll is sent.
+        drop(keyboard);
+        result.map_err(|_| error(Stage::Input, Cause::DeliveryUncertain))?;
         guard.0 = None;
         Ok(())
     }

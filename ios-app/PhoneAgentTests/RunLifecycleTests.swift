@@ -24,9 +24,10 @@ import ProviderCore
     var requiresRunPause = false
     private(set) var completions: [Bool] = []
     private(set) var reports: [Int] = []
+    private(set) var subtitles: [String] = []
     // The protocol's concrete lease adapter also gates duplicate completion.
     func complete(success: Bool) { if completions.isEmpty { completions.append(success) } }
-    func report(completed: Int, subtitle: String) { reports.append(completed) }
+    func report(completed: Int, subtitle: String) { reports.append(completed); subtitles.append(subtitle) }
 }
 @MainActor private final class FakeScheduler: RunBackgroundScheduler {
     var reject = false
@@ -661,6 +662,27 @@ import ProviderCore
         XCTAssertEqual(Set(scheduler.identifiers).count, 2); XCTAssertFalse(c.hasLease)
         XCTAssertEqual(c.checkpoint?.segment, 2)
         c.stop(message: "cleanup")
+    }
+    func testTaskStatusSurvivesLateLeaseAndDoesNotAdvanceReceiptsOrReviveStoppedRun() throws {
+        let scheduler = FakeScheduler()
+        var clock = Date()
+        let c = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore(), inactivityTimeout: 10, now: { clock })
+        try c.begin(identity: identity, generation: token)
+        c.reportStatus("Viewing screen", generation: token)
+        let lease = scheduler.grant()
+        XCTAssertEqual(lease.subtitles, ["Viewing screen"])
+        c.reportStatus("Tap sent", generation: token)
+        c.reportStatus("Tap sent", generation: token)
+        c.reportStatus("old run", generation: UUID())
+        XCTAssertEqual(lease.subtitles, ["Viewing screen", "Tap sent"])
+        XCTAssertEqual(lease.reports, [0, 0])
+        XCTAssertTrue(c.checkpoint?.milestones.isEmpty == true)
+        clock.addTimeInterval(11)
+        c.reportStatus("Waiting for reply", generation: token)
+        c.checkInactivity()
+        XCTAssertEqual(c.checkpoint?.phase, .paused, "Presentation updates must not reset the inactivity timer")
+        c.reportStatus("late event", generation: token)
+        XCTAssertEqual(lease.subtitles.last, "Waiting for reply")
     }
     func testProgressFreezesWithoutRealReceiptsAndPausesOnConfigurableTimeout() throws {
         let scheduler = FakeScheduler(); var clock = Date()

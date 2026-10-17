@@ -104,6 +104,20 @@ import Foundation
                     runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()))
             }
             let sessions = ConversationStore(inMemory: true)
+            if arguments.contains("--ui-test-collapsed-activity-spacing") {
+                let id = sessions.create(mode: .live)
+                if let run = sessions.begin(in: id, query: "Collapsed activity spacing") {
+                    sessions.beginAssistantTurn(run)
+                    sessions.completeAssistantTurn("", reasoning: "Reasoning without reply text", identity: run)
+                    for index in 1...3 {
+                        sessions.updateTool(callID: "spacing-\(index)", name: "wait", state: .succeeded, result: "Waited", identity: run)
+                    }
+                    sessions.beginAssistantTurn(run)
+                    sessions.completeAssistantTurn("Final reply", identity: run)
+                    if !arguments.contains("--ui-test-spacing-active") { sessions.finish(run, phase: .completed, summary: "") }
+                }
+                return AgentViewModel(sessions: sessions, loadPersistentState: false)
+            }
             if arguments.contains("--ui-test-turn-summaries") {
                 let id = sessions.create(mode: .live)
                 if let run = sessions.begin(in: id, query: "汇总验收") {

@@ -79,6 +79,7 @@ struct AgentActivitySnapshot: Equatable {
     private let createActivity: ((AgentActivitySnapshot) throws -> any AgentActivityHandle)?
     private var terminalPresented: Set<UUID> = []
     private var executionPresented: Set<UUID> = []
+    private var backgroundStartedRuns: Set<UUID> = []
     private var writtenContent: [ObjectIdentifier: ActivityContent<AgentActivityAttributes.ContentState>] = [:]
     private var tail: Task<Void, Never>?
     private var submissionRevision = 0
@@ -150,11 +151,26 @@ struct AgentActivitySnapshot: Equatable {
 
     private func executionAlert(_ snapshot: AgentActivitySnapshot) -> AlertConfiguration? {
         let run = snapshot.attributes.runID
-        guard !foreground, snapshot.state.phase != .standby, !snapshot.state.phase.isTerminal,
+        guard !foreground, backgroundStartedRuns.contains(run),
+              snapshot.state.phase != .standby, !snapshot.state.phase.isTerminal,
               executionPresented.insert(run).inserted else { return nil }
         // An alerting update requests a brief expanded presentation. The system
         // owns its duration; progress updates must not repeatedly interrupt it.
         return AlertConfiguration(title: "Task started", body: "\(snapshot.state.title)", sound: .default)
+    }
+
+    private func completionAlert(_ snapshot: AgentActivitySnapshot) -> AlertConfiguration? {
+        let run = snapshot.attributes.runID
+        guard !foreground, backgroundStartedRuns.contains(run),
+              snapshot.state.phase == .completed, !terminalPresented.contains(run) else { return nil }
+        return AlertConfiguration(title: "Task completed", body: "Tap to view the result", sound: .default)
+    }
+
+    private func forgetRun(_ run: UUID) {
+        latest.removeValue(forKey: run)
+        terminalPresented.remove(run)
+        executionPresented.remove(run)
+        backgroundStartedRuns.remove(run)
     }
 
     private func update(_ activity: any AgentActivityHandle,
@@ -226,9 +242,7 @@ struct AgentActivitySnapshot: Equatable {
         }
         for snapshot in Array(latest.values) where snapshot.state.phase.isTerminal &&
             activities[snapshot.attributes.runID] == nil && snapshot.attributes.runID != residentRunID {
-            latest.removeValue(forKey: snapshot.attributes.runID)
-            terminalPresented.remove(snapshot.attributes.runID)
-            executionPresented.remove(snapshot.attributes.runID)
+            forgetRun(snapshot.attributes.runID)
         }
     }
 
@@ -236,8 +250,7 @@ struct AgentActivitySnapshot: Equatable {
         let run = snapshot.attributes.runID
         if snapshot.state.phase.isTerminal {
             if residentRunID == run, let activity = residentActivity {
-                let alert = !foreground && snapshot.state.phase == .completed && !terminalPresented.contains(run)
-                    ? AlertConfiguration(title: "Task completed", body: "Tap to view the result", sound: .default) : nil
+                let alert = completionAlert(snapshot)
                 await update(activity, content: ActivityContent(state: projectedState(snapshot), staleDate: nil, relevanceScore: 100), alert: alert)
                 terminalPresented.insert(run)
             }
@@ -248,7 +261,14 @@ struct AgentActivitySnapshot: Equatable {
     }
 
     func submit(_ snapshot: AgentActivitySnapshot) {
-        latest[snapshot.attributes.runID] = snapshot
+        let run = snapshot.attributes.runID
+        // The first snapshot is submitted synchronously when the task starts.
+        // Capture its origin before queued writes or scene changes can run.
+        if latest[run] == nil, !foreground,
+           snapshot.state.phase != .standby, !snapshot.state.phase.isTerminal {
+            backgroundStartedRuns.insert(run)
+        }
+        latest[run] = snapshot
         guard enabled else {
             BackgroundExecutionTrace.record("activity.skipped disabled=true")
             return
@@ -296,8 +316,7 @@ struct AgentActivitySnapshot: Equatable {
                 if !foreground, snapshot.state.phase != .stopped {
                     // end(.after) only retains the Lock Screen card. Keep the
                     // terminal island until foreground or the next run instead.
-                    let alert = snapshot.state.phase == .completed && !terminalPresented.contains(run)
-                        ? AlertConfiguration(title: "Task completed", body: "Tap to view the result", sound: .default) : nil
+                    let alert = completionAlert(snapshot)
                     await update(current, content: ActivityContent(state: snapshot.state, staleDate: nil, relevanceScore: 100), alert: alert)
                     terminalPresented.insert(run)
                     BackgroundExecutionTrace.record("activity.terminalUpdateReturned phase=\(snapshot.state.phase) alertRequested=\(alert != nil)")
@@ -306,13 +325,11 @@ struct AgentActivitySnapshot: Equatable {
                     BackgroundExecutionTrace.record("activity.ended phase=\(snapshot.state.phase) foreground=\(foreground)")
                     writtenContent.removeValue(forKey: ObjectIdentifier(current))
                     activities.removeValue(forKey: run)
-                    latest.removeValue(forKey: run)
-                    terminalPresented.remove(run)
-                    executionPresented.remove(run)
+                    forgetRun(run)
                 }
             } else {
                 BackgroundExecutionTrace.record("activity.terminalSkipped phase=\(snapshot.state.phase) reason=noActivity")
-                latest.removeValue(forKey: run)
+                forgetRun(run)
             }
             return
         }
@@ -325,7 +342,7 @@ struct AgentActivitySnapshot: Equatable {
                     await activity.end(ActivityContent(state: previous.state, staleDate: nil), dismissAt: Date().addingTimeInterval(300))
                     writtenContent.removeValue(forKey: ObjectIdentifier(activity))
                 }
-                latest.removeValue(forKey: previousRun); terminalPresented.remove(previousRun); executionPresented.remove(previousRun)
+                forgetRun(previousRun)
             }
         }
         let content = ActivityContent(state: snapshot.state, staleDate: snapshot.staleDate, relevanceScore: 100)

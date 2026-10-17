@@ -8,6 +8,23 @@ import XCTest
         defaults.setPersistentDomain(values, forName: name)
         return (BackgroundSettingsStore(defaults: defaults, domain: name), defaults, name)
     }
+    func testStandbyActivityDefaultsOnAndChoiceSurvivesResidencyChangesAndReload() {
+        let (settings, defaults, name) = store([BackgroundSettingsStore.residentKey: true])
+        defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertTrue(settings.standbyActivityEnabled)
+        XCTAssertTrue(settings.reservesStandbyActivity)
+        settings.setStandbyActivity(false)
+        XCTAssertTrue(settings.residentEnabled)
+        XCTAssertFalse(settings.reservesStandbyActivity)
+        let restored = BackgroundSettingsStore(defaults: defaults, domain: name)
+        XCTAssertFalse(restored.standbyActivityEnabled)
+        restored.setResident(false)
+        restored.setStandbyActivity(true)
+        XCTAssertFalse(restored.reservesStandbyActivity)
+        restored.setResident(true)
+        XCTAssertTrue(restored.reservesStandbyActivity)
+        XCTAssertTrue(BackgroundSettingsStore(defaults: defaults, domain: name).reservesStandbyActivity)
+    }
     func testAllSixteenSelectionsAndEmptySurviveReload() throws {
         for mask in 0..<16 {
             let (settings, defaults, name) = store()

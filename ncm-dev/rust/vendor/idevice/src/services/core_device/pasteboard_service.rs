@@ -15,7 +15,13 @@
 //! or `{error: ...}` when resolution failed. These map to
 //! [`PasteboardPayload`].
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{
+        OnceLock,
+        atomic::{AtomicI64, Ordering},
+    },
+};
 
 use crate::{
     IdeviceError, ReadWrite, RemoteXpcClient, obf, xpc,
@@ -31,6 +37,34 @@ const UTI_PLAIN_TEXT: &str = "public.plain-text";
 const UTI_TEXT: &str = "public.text";
 
 const TEXT_UTIS: [&str; 3] = [UTI_UTF8_PLAIN_TEXT, UTI_PLAIN_TEXT, UTI_TEXT];
+
+// Locally authored text has a process-scoped source identity and revision.
+// This counter is not the destination iOS pasteboard's changeCount. Metadata
+// identifies the source for synchronization; it does not establish paste consent.
+static TEXT_SOURCE_NONCE: OnceLock<String> = OnceLock::new();
+static TEXT_SOURCE_CHANGE_COUNT: AtomicI64 = AtomicI64::new(0);
+
+fn text_set_request(text: &str, pasteboard_name: &str) -> XPCObject {
+    let mut data = Dictionary::new();
+    for uti in TEXT_UTIS {
+        data.insert(uti.into(), xpc!({ "data": text.as_bytes() }));
+    }
+    let nonce = TEXT_SOURCE_NONCE.get_or_init(|| uuid::Uuid::new_v4().to_string());
+    let change_count = TEXT_SOURCE_CHANGE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    xpc!({
+        "command": "SET",
+        "pasteboardName": pasteboard_name,
+        "items": [{
+            "types": TEXT_UTIS.to_vec(),
+            "data": XPCObject::Dictionary(data),
+        }],
+        "sourceMetadata": {
+            "nonce": nonce.as_str(),
+            "pasteboardName": pasteboard_name,
+            "changeCount": XPCObject::Int64(change_count),
+        },
+    })
+}
 
 /// Image UTIs we recognise on the pasteboard, in priority order. PNG first
 /// (lossless, what we write back), then JPEG and TIFF.
@@ -320,22 +354,9 @@ impl<R: ReadWrite> PasteboardServiceClient<R> {
         text: &str,
         pasteboard_name: &str,
     ) -> Result<(), IdeviceError> {
-        let mut data = Dictionary::new();
-        for uti in TEXT_UTIS {
-            data.insert(uti.into(), xpc!({ "data": text.as_bytes() }));
-        }
-
-        let msg = xpc!({
-            "command": "SET",
-            "pasteboardName": pasteboard_name,
-            "items": [{
-                "types": TEXT_UTIS.to_vec(),
-                "data": XPCObject::Dictionary(data),
-            }],
-            "sourceMetadata": XPCObject::Null,
-        });
-
-        self.inner.send_object(msg, true).await?;
+        self.inner
+            .send_object(text_set_request(text, pasteboard_name), true)
+            .await?;
         // Drain the SET_REPLY ack; it carries no information we surface.
         self.inner.recv().await?;
         Ok(())
@@ -441,5 +462,59 @@ impl<R: ReadWrite> PasteboardServiceClient<R> {
     pub async fn recv_push(&mut self) -> Result<PasteboardSnapshot, IdeviceError> {
         let push = self.inner.recv_root().await?;
         Ok(PasteboardSnapshot::from_message(&push)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dictionary(value: &XPCObject) -> &Dictionary {
+        let XPCObject::Dictionary(value) = value else {
+            panic!("expected XPC dictionary")
+        };
+        value
+    }
+
+    #[test]
+    fn text_requests_preserve_unicode_payload_and_use_typed_source_metadata() {
+        let text = "ASCII 你好 🌟\n";
+        let request = text_set_request(text, GENERAL_PASTEBOARD);
+        let request = dictionary(&request);
+        assert_eq!(request["command"], XPCObject::String("SET".into()));
+        assert_eq!(request["pasteboardName"], XPCObject::String("general".into()));
+        let XPCObject::Array(items) = &request["items"] else {
+            panic!("expected items")
+        };
+        assert_eq!(items.len(), 1);
+        let item = dictionary(&items[0]);
+        assert_eq!(item["types"], XPCObject::Array(
+            TEXT_UTIS.iter().map(|v| XPCObject::String((*v).into())).collect()
+        ));
+        for uti in TEXT_UTIS {
+            let datum = dictionary(&dictionary(&item["data"])[uti]);
+            assert_eq!(datum["data"], XPCObject::Data(text.as_bytes().to_vec()));
+        }
+        let metadata = dictionary(&request["sourceMetadata"]);
+        assert_eq!(metadata.len(), 3);
+        assert_eq!(metadata["pasteboardName"], request["pasteboardName"]);
+        let XPCObject::String(nonce) = &metadata["nonce"] else {
+            panic!("expected string nonce")
+        };
+        assert_eq!(uuid::Uuid::parse_str(nonce).unwrap().get_version_num(), 4);
+        assert!(matches!(metadata["changeCount"], XPCObject::Int64(n) if n > 0));
+    }
+
+    #[test]
+    fn separate_writes_share_source_nonce_but_advance_revision() {
+        let first = text_set_request("first", "general");
+        let second = text_set_request("second", "general");
+        let first = dictionary(&dictionary(&first)["sourceMetadata"]);
+        let second = dictionary(&dictionary(&second)["sourceMetadata"]);
+        assert_eq!(first["nonce"], second["nonce"]);
+        let (XPCObject::Int64(a), XPCObject::Int64(b)) = (&first["changeCount"], &second["changeCount"]) else {
+            panic!("expected Int64 revisions")
+        };
+        assert!(b > a);
     }
 }

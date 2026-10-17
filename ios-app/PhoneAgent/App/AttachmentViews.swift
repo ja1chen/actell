@@ -73,12 +73,16 @@ struct MessageAttachmentsView: View {
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach((message.attachments ?? []).filter { $0.sourceURL == nil }) { attachment in
-                AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID)
-            }
-            ForEach(Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? [], id: \.self) { url in
-                RemoteMessageImage(url: url, message: message, presentation: presentation)
+        let attachments = (message.attachments ?? []).filter { $0.sourceURL == nil }
+        let imageURLs = Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? []
+        if !attachments.isEmpty || !imageURLs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(attachments) { attachment in
+                    AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID)
+                }
+                ForEach(imageURLs, id: \.self) { url in
+                    RemoteMessageImage(url: url, message: message, presentation: presentation)
+                }
             }
         }
     }

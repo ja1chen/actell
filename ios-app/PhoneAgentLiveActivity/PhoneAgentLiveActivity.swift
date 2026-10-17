@@ -20,12 +20,14 @@ struct PhoneAgentLiveActivity: Widget {
             let _ = traceActivityContext(context, destination: "card")
             Group {
                 if context.state.phase == .standby {
-                    Color.clear.frame(height: 1).accessibilityHidden(true)
+                    Label(String(localized: "Waiting for tasks"), systemImage: "sparkles")
+                        .font(.subheadline).foregroundStyle(.cyan)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 } else {
                     ActivityCard(context: context)
                 }
             }
-                .activityBackgroundTint(context.state.phase == .standby ? Color.clear : Color.black)
+                .activityBackgroundTint(Color.black)
                 .activitySystemActionForegroundColor(.white)
                 .widgetURL(activityURL(context))
         } dynamicIsland: { context in
@@ -34,25 +36,25 @@ struct PhoneAgentLiveActivity: Widget {
             let stale = context.isStale && !context.state.phase.isTerminal
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    if !standby {
-                        Label((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName, systemImage: "sparkles")
-                            .font(.caption).foregroundStyle(.secondary)
+                    if standby {
+                        IslandSymbol(name: "sparkles").foregroundStyle(.cyan)
+                    } else {
+                        Label {
+                            Text((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName)
+                        } icon: {
+                            IslandSymbol(name: "sparkles")
+                        }.font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    if !standby {
-                        Label(stale ? String(localized: "View") : context.state.title,
-                              systemImage: stale ? "exclamationmark.circle" : context.state.symbol)
-                            .font(.headline).foregroundStyle(activityTint(context)).lineLimit(2)
-                    }
+                    IslandStatus(title: stale ? String(localized: "View") : context.state.compactTitle,
+                                 symbol: stale ? "exclamationmark.circle" : context.state.symbol,
+                                 expanded: true)
+                        .foregroundStyle(activityTint(context))
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if !standby {
                         VStack(alignment: .leading, spacing: 8) {
-                            if context.state.completedTools > 0 {
-                                Text(String(localized: "Completed \(context.state.completedTools) steps"))
-                                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                            }
                             if stale || !context.state.phase.detail.isEmpty {
                                 Text(stale ? String(localized: "This status is out of date. Check execution in the app.") : context.state.phase.detail)
                                     .font(.caption).foregroundStyle(.secondary)
@@ -66,23 +68,45 @@ struct PhoneAgentLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                if !standby {
-                    Image(systemName: "sparkles").foregroundStyle(.cyan)
-                }
+                IslandSymbol(name: "sparkles").foregroundStyle(.cyan)
             } compactTrailing: {
                 if !standby {
-                    HStack(spacing: 3) {
-                        Image(systemName: stale ? "exclamationmark.circle" : context.state.symbol)
-                        Text(stale ? String(localized: "View") : context.state.compactTitle).lineLimit(1)
-                    }.font(.caption2).foregroundStyle(activityTint(context))
+                    IslandStatus(title: stale ? String(localized: "View") : context.state.compactTitle,
+                                 symbol: stale ? "exclamationmark.circle" : context.state.symbol)
+                        .foregroundStyle(activityTint(context))
                 }
             } minimal: {
-                if !standby {
-                    Image(systemName: stale ? "exclamationmark.circle" : context.state.symbol).foregroundStyle(activityTint(context))
-                }
+                IslandSymbol(name: standby ? "sparkles" : (stale ? "exclamationmark.circle" : context.state.symbol))
+                    .foregroundStyle(activityTint(context))
+                    .accessibilityLabel(stale ? String(localized: "View") : context.state.compactTitle)
             }
             .widgetURL(activityURL(context))
-            .keylineTint(standby ? Color.clear : activityTint(context))
+            .keylineTint(activityTint(context))
+        }
+    }
+}
+
+private struct IslandSymbol: View {
+    let name: String
+
+    var body: some View {
+        Image(systemName: name)
+            .resizable().scaledToFit()
+            .frame(width: 16, height: 16)
+    }
+}
+
+private struct IslandStatus: View {
+    let title: String
+    let symbol: String
+    var expanded = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            IslandSymbol(name: symbol).accessibilityHidden(true)
+            Text(title)
+                .font(expanded ? .headline : .caption2)
+                .lineLimit(1).minimumScaleFactor(0.8)
         }
     }
 }

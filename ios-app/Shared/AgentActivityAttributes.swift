@@ -28,16 +28,17 @@ struct AgentActivityAttributes: ActivityAttributes {
         var title: String {
             [.working, .executing].contains(phase) ? (operation?.title ?? phase.title) : phase.title
         }
+        // Dynamic Island status labels stay two characters in Simplified Chinese.
         var compactTitle: String {
             switch phase {
             case .standby: return String(localized: "Standby")
             case .thinking: return String(localized: "Thinking")
-            case .working, .executing: return operation?.compactTitle ?? String(localized: "Processing")
+            case .working, .executing: return (operation ?? .processing).compactTitle
             case .awaitingApproval: return String(localized: "Confirm")
-            case .approved: return String(localized: "Approved")
+            case .approved: return String(localized: "Approved (Dynamic Island)", defaultValue: "Approved")
             case .completed: return String(localized: "Done")
             case .stopped: return String(localized: "Stop")
-            case .interrupted: return String(localized: "Interrupted")
+            case .interrupted: return String(localized: "Interrupted (Dynamic Island)", defaultValue: "Interrupted")
             case .blocked: return String(localized: "View")
             }
         }
@@ -76,7 +77,7 @@ struct AgentActivityAttributes: ActivityAttributes {
             case .launch: return String(localized: "Launch")
             case .text: return String(localized: "Type")
             case .skill: return String(localized: "Skill")
-            case .processing: return String(localized: "Processing")
+            case .processing: return String(localized: "Processing (Dynamic Island)", defaultValue: "Processing")
             }
         }
         var title: String {
@@ -101,7 +102,7 @@ struct AgentActivityAttributes: ActivityAttributes {
         var isTerminal: Bool { [.completed, .stopped, .interrupted, .blocked].contains(self) }
         var title: String {
             switch self {
-            case .standby: return String(localized: "Background standby")
+            case .standby: return String(localized: "Waiting for tasks")
             case .thinking: return String(localized: "Thinking")
             case .working: return String(localized: "Processing")
             case .awaitingApproval: return String(localized: "Waiting for confirmation")

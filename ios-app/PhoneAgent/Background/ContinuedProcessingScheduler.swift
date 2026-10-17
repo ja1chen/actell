@@ -49,7 +49,7 @@ import UIKit
         }
     }
     private nonisolated static func submitRequest(identifier: String) async throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: String(localized: "Processing your task"), subtitle: String(localized: "Waiting for a response. You can cancel at any time."))
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: String(localized: "\(AppIdentity.displayName) is processing your task"), subtitle: String(localized: "Preparing task"))
         request.strategy = .fail
         request.requiredResources = [] // CPU/network only; no GPU entitlement.
         // iOS 27's asynchronous API reports errors missed by deprecated submit.
@@ -73,7 +73,7 @@ import UIKit
     init(task: BGContinuedProcessingTask) {
         self.task = task
         // An adaptive agent does not know the final number of steps. Keep
-        // Progress indeterminate, while the subtitle reports real receipts.
+        // Progress indeterminate; the subtitle describes the current operation.
         task.progress.totalUnitCount = -1
         task.progress.completedUnitCount = 0
         task.expirationHandler = { [weak self] in
@@ -87,7 +87,6 @@ import UIKit
     }
     func report(completed: Int, subtitle: String) {
         guard !self.completed else { return }
-        task.progress.completedUnitCount = Int64(completed)
         task.updateTitle(String(localized: "\(AppIdentity.displayName) is processing your task"), subtitle: subtitle)
     }
     func complete(success: Bool) {

@@ -989,6 +989,7 @@ struct AgentRunServices {
             }
         case .llmCallCompleted(let turn, let response):
             lifecycle.activity(generation: token, milestone: "model:\(turn)")
+            if activeActionCallID == nil { lifecycle.reportStatus(String(localized: "Waiting for a reply"), generation: token) }
             mutate { r in
                 if let total = response.usage?.totalTokens { r.reportedTokens += max(0, total) }
                 else if r.mode == .live { r.usageComplete = false }
@@ -1013,7 +1014,20 @@ struct AgentRunServices {
         do { try approvalRecords.finish(callID: call.id, run: identity) }
         catch { stop(message: String(localized: "The approval result could not be saved. Check the device. This run was interrupted."), interrupted: true); return }
         if activeActionCallID == call.id { activeActionCallID = nil }
-        if activeActionCallID == nil { publishActivity(.working) }
+        if activeActionCallID == nil {
+            publishActivity(.working)
+            let subtitle: String
+            if result.isError { subtitle = String(localized: "Reviewing the result") }
+            else {
+                switch AgentActivityAttributes.Operation.tool(call.name) {
+                case .screenshot: subtitle = String(localized: "Screen received")
+                case .tap: subtitle = String(localized: "Tap sent")
+                case .drag: subtitle = String(localized: "Swipe sent")
+                default: subtitle = String(localized: "Waiting for a reply")
+                }
+            }
+            lifecycle.reportStatus(subtitle, generation: token)
+        }
         if result.isError { log(String(localized: "\(call.name) failed. The error result was returned to the model.")) }
     }
     private func publishStreamActivity(_ phase: AgentActivityAttributes.Phase) {
@@ -1050,6 +1064,8 @@ struct AgentRunServices {
                          operation: phase.isTerminal || phase == .thinking ? nil : tool.map(AgentActivityAttributes.Operation.tool)),
             staleDate: phase == .awaitingApproval ? (approval?.expiresAt ?? now) : now.addingTimeInterval(30))
         activitySnapshot = snapshot; liveActivities.submit(snapshot)
+        let subtitle = phase == .working && tool == nil ? String(localized: "Replying") : snapshot.state.title
+        lifecycle.reportStatus(subtitle, generation: generation)
     }
 
     /// URL contents only select a page. No URL parameter approves, denies or
