@@ -33,9 +33,11 @@ protocol DeviceBridge: Sendable {
     func bringApplicationToForeground(bundleID: String) async throws -> Bool
     func cancelTransport()
     func stop() async
+    func finishRemoteRun() async
 }
 
 extension DeviceBridge {
+    func finishRemoteRun() async { await stop() }
     func inputDisplaySnapshot() async throws -> InputDisplaySnapshot { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws { throw RemoteRPCError("geometry_unavailable", "Independent input is unavailable on this route") }
     func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) async throws { throw RemoteRPCError("geometry_unavailable", "Independent input is unavailable on this route") }

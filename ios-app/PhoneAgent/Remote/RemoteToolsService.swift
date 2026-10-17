@@ -101,7 +101,10 @@ struct RemoteRPCError: LocalizedError {
     private var generation = 0
     private var draining = false
 
-    init(model: AgentViewModel) { self.model = model }
+    private let releaseIdleMedia: @MainActor () async -> Bool
+    init(model: AgentViewModel, releaseIdleMedia: @escaping @MainActor () async -> Bool = { await PairingFlow.shared.releaseIdleMuseMediaAndWait() }) {
+        self.model = model; self.releaseIdleMedia = releaseIdleMedia
+    }
 
     func recordPairing(_ stage: String, request: String?, client: String?, code: String?) {
         (diagnostics ?? model.museDiagnostics).record(stage, request: request, client: client, code: code,
@@ -291,7 +294,7 @@ struct RemoteRPCError: LocalizedError {
                 }
                 operationID = hint // Unauthenticated diagnostic hint; never authorization or deduplication.
             }
-            let traced = ["companion.hello", "capabilities", "runs.open", "runs.get", "runs.cancel", "calls.get", "tools.call", "images.get"]
+            let traced = ["companion.release_idle", "companion.hello", "capabilities", "runs.open", "runs.get", "runs.cancel", "calls.get", "tools.call", "images.get"]
             traceOperation = traced.contains(op) ? op : "unknown"
             admissionClient = client
             admissionRun = try? identifier(params["run_id"])
@@ -306,14 +309,14 @@ struct RemoteRPCError: LocalizedError {
                 }
                 let result = try companionHello(client, name)
                 trace("result", code: result["state"] as? String)
-                return try reply(requestID, result: result)
+                return try reply(requestID, result: result).authenticated(as: client)
             }
             guard authorizeRequest?(client, op, params) ?? false else { throw RemoteRPCError("forbidden", "Client scope does not permit this operation") }
             authenticatedRequest?(client)
             if op == "images.get" {
                 let response = try imageResponse(params, client: client, requestID: requestID)
                 trace("result")
-                return response
+                return response.authenticated(as: client)
             }
             let request = requestID, run = admissionRun, call = traceCall, operation = operationID
             let result = try await NativePerformanceTrace.$observer.withValue({ [weak self] sample in
@@ -329,7 +332,7 @@ struct RemoteRPCError: LocalizedError {
                 }
             }) { try await self.operation(op, params, client: client) }
             trace("result", code: result["state"] as? String)
-            return try reply(requestID, result: result)
+            return try reply(requestID, result: result).authenticated(as: client)
         } catch let error as RemoteRPCError {
             if admissionClient != nil {
                 var fields: [String: String] = [:]
@@ -364,11 +367,16 @@ struct RemoteRPCError: LocalizedError {
     private func operation(_ op: String, _ p: [String: Any], client: String) async throws -> [String: Any] {
         guard healthy else { throw RemoteRPCError("journal_unavailable", "Writes disabled; local reconciliation required") }
         switch op {
+        case "companion.release_idle":
+            guard p.isEmpty else { throw RemoteRPCError("bad_request", "Unexpected idle release parameters") }
+            // Advisory only: local/remote owners are checked again by PairingFlow.
+            guard activeRun == nil, !draining, !model.hasBusySessions else { return ["released": false] }
+            return ["released": await releaseIdleMedia()]
         case "capabilities":
             guard p.isEmpty else { throw RemoteRPCError("bad_request", "Unexpected capability parameters") }
             // DeviceTool schemas do not depend on its coordinator. Avoid constructing
             // a dummy bridge/coordinator by exposing the exact shared schema below.
-            return ["performance": ["http_keep_alive": true, "tools_call_wait_ms_max": 1500, "runs_cancel_wait_ms_max": 500], "tools": RemoteToolSchema.capabilities, "input_contracts": ["image-pixels-v1", InputDisplaySnapshot.contract], "independent_input": true, "input_tools": [InputDisplaySnapshot.contract: RemoteToolSchema.tools(inputContract: InputDisplaySnapshot.contract)], "image_retention_seconds": 1800, "transport": "https", "approval": "paired-device-scopes", "image_encoding": "binary", "routes": ["ncmDeveloper", "localDevVPN"], "background": "existing-delivered-lease-required", "input_approval": "not-required", "max_image_bytes": 8 * 1024 * 1024, "image_contracts": ["original-v1", RemoteImageGeometry.contract], "thumbnail_max_dimension": RemoteImageGeometry.maxDimension, "thumbnail_max_bytes": RemoteImageGeometry.maxBytes]
+            return ["performance": ["idle_release": true, "http_keep_alive": true, "tools_call_wait_ms_max": 1500, "runs_cancel_wait_ms_max": 500], "tools": RemoteToolSchema.capabilities, "input_contracts": ["image-pixels-v1", InputDisplaySnapshot.contract], "independent_input": true, "input_tools": [InputDisplaySnapshot.contract: RemoteToolSchema.tools(inputContract: InputDisplaySnapshot.contract)], "image_retention_seconds": 1800, "transport": "https", "approval": "paired-device-scopes", "image_encoding": "binary", "routes": ["ncmDeveloper", "localDevVPN"], "background": "existing-delivered-lease-required", "input_approval": "not-required", "max_image_bytes": 8 * 1024 * 1024, "image_contracts": ["original-v1", RemoteImageGeometry.contract], "thumbnail_max_dimension": RemoteImageGeometry.maxDimension, "thumbnail_max_bytes": RemoteImageGeometry.maxBytes]
         case "runs.open":
             guard Set(p.keys).isSubset(of: Set(["run_id", "deadline_ms", "image_contract", "input_contract"])) else { throw RemoteRPCError("bad_request", "Invalid run parameters") }
             let id = try identifier(p["run_id"]), deadline = try integer(p["deadline_ms"])
@@ -410,7 +418,11 @@ struct RemoteRPCError: LocalizedError {
             guard Set(p.keys).isSubset(of: ["run_id", "wait_ms"]) else { throw RemoteRPCError("bad_request", "Invalid cancel parameters") }
             let wait = try waitMilliseconds(p, maximum: 500)
             let run = try ownedRun(p, client: client)
-            if run.state == "open" { closeRun(run.runID, state: "cancelled") }
+            if run.state == "open" {
+                let calls = journal.calls.values.filter { $0.runID == run.runID && $0.clientID == client }
+                let completed = !calls.isEmpty && calls.allSatisfy { $0.state == "succeeded" }
+                closeRun(run.runID, state: "cancelled", retainingMedia: completed)
+            }
             try await waitForReceipt(milliseconds: wait, deadline: run.deadline) { self.activeRun != run.runID }
             guard activated, authorizeRequest?(client, op, p) ?? false else { throw RemoteRPCError("forbidden", "Client scope no longer permits this result") }
             return journal.runs[run.runID]!.wire.merging(["execution_released": activeRun != run.runID], uniquingKeysWith: { _, new in new })
@@ -674,7 +686,7 @@ struct RemoteRPCError: LocalizedError {
         model.endRemoteContinuity(); continuityClient = nil
         closeRun(id, state: "cancelled", stopWorker: false)
     }
-    private func closeRun(_ id: String, state: String, stopWorker: Bool = true) {
+    private func closeRun(_ id: String, state: String, stopWorker: Bool = true, retainingMedia: Bool = false) {
         guard activeRun == id, !draining else { return }
         draining = true; journal.runs[id]?.state = state
         let releaseStarted = ProcessInfo.processInfo.systemUptime
@@ -691,7 +703,7 @@ struct RemoteRPCError: LocalizedError {
         expiry?.cancel(); expiry = nil; callExpiry?.cancel(); callExpiry = nil
         execution?.cancel()
         let oldWorker = worker, oldExecution = execution
-        if stopWorker { oldWorker?.stop(message: String(localized: "Muse task stopped. Check the device for actions already sent.")) }
+        if stopWorker { oldWorker?.stop(message: String(localized: "Muse task stopped. Check the device for actions already sent."), retainingMedia: retainingMedia) }
         images.removeAll()
         Task { [weak self] in
             await oldExecution?.value

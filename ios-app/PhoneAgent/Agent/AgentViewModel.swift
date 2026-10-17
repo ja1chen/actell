@@ -128,13 +128,14 @@ struct AgentRunServices {
     @Published private var remoteLeaseID: String?
     private var remoteRuntime: RemoteToolRuntime?
     private var remoteContinuityDemand: UUID?
-    func endRemoteContinuity() {
+    func endRemoteContinuity(releaseMedia: Bool = true) {
+        if releaseMedia { PairingFlow.shared.revokeMuseMediaRetention() }
         if let remoteContinuityDemand { executionBackground.releaseDemand(remoteContinuityDemand) }
         remoteContinuityDemand = nil
     }
     private func retainRemoteContinuity() {
         guard allowSystemProcessing else { return }
-        endRemoteContinuity()
+        endRemoteContinuity(releaseMedia: false)
         let allowed = executionBackground.selection.intersection(BackgroundMechanism.continuous)
         guard !allowed.isEmpty else { return }
         remoteContinuityDemand = executionBackground.acquireDemand(runID: UUID(), allowed: allowed, userInitiated: false)

@@ -97,7 +97,7 @@ import SwiftAgentKit
         protectedDataAvailable = available
         if !available { stop(message: String(localized: "The device is locked or its data is unavailable. Muse input has stopped."), interrupted: true) }
     }
-    func stop(message: String, interrupted: Bool = false) {
+    func stop(message: String, interrupted: Bool = false, retainingMedia: Bool = false) {
         guard running, !stopping else { return }
         running = false; stopping = true
         onStop?() // Fence the remote journal before transport cancellation.
@@ -105,13 +105,15 @@ import SwiftAgentKit
         if let healthObserver { bridge.executionContext?.removeHealthObserver(healthObserver) }
         healthObserver = nil
         lifecycle.stop(message: message)
-        bridge.executionContext?.revoke(); bridge.cancelTransport()
+        bridge.executionContext?.revoke()
+        if !retainingMedia { bridge.cancelTransport() }
         scheduler.configure(context: nil, allowSystemProcessing: false)
         do { try approvalRecords.invalidate(run: identity) }
         catch { diagnostics.record("remote.approval.invalidate_failed") }
         let action = action, bridge = bridge
         cleanup = Task { [weak self] in
-            if let action { await action.stop() } else { await bridge.stop() }
+            if let action { await action.stop(retainingMedia: retainingMedia) }
+            else if retainingMedia { await bridge.finishRemoteRun() } else { await bridge.stop() }
             self?.stopping = false
         }
     }

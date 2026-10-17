@@ -52,6 +52,8 @@ enum DeviceControlRoute: String, Sendable {
     var connectionFailure: String? { get }
     var running: Bool { get }
     var agentReserved: Bool { get }
+    var mediaStopping: Bool { get }
+    var mediaRetentionGeneration: UUID? { get }
     var controlSessionID: UUID { get }
     var connectionStopID: UUID? { get }
     func connectIfNeeded() throws
@@ -71,9 +73,11 @@ enum DeviceControlRoute: String, Sendable {
     func releaseConnection(owner: UUID)
     func registerAgent(owner: UUID, session: UUID)
     func releaseAgent(owner: UUID, session: UUID)
+    func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?)
 }
 
 extension NCMControlConnection {
+    func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?) { releaseAgent(owner: owner, session: session) }
     func agentInputGeometry(owner: UUID, session: UUID) async throws -> String { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
 
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
@@ -84,6 +88,8 @@ extension NCMControlConnection {
 
     func canActivateApplication(owner: UUID, session: UUID) -> Bool { !running && !agentReserved }
     var connectionStopID: UUID? { nil }
+    var mediaStopping: Bool { false }
+    var mediaRetentionGeneration: UUID? { nil }
     func connectIfNeeded() throws {
         guard ready else { throw NCMControlError.unavailable(connectionFailure ?? String(localized: "ESP32 not connected")) }
     }
@@ -202,18 +208,20 @@ private final class NCMRunFence: @unchecked Sendable {
     private var approvedImageID: String?
     private var systemAuthorizationID: String?
     private let connectionTimeout: Duration
+    private let mediaRetentionGeneration: UUID?
     private let remoteExclusive: Bool
     private let connectionDiagnostic: (@MainActor (String) -> Void)?
     init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20), remoteExclusive: Bool = false,
          connectionDiagnostic: (@MainActor (String) -> Void)? = nil) throws {
+        self.mediaRetentionGeneration = flow.mediaRetentionGeneration
         self.flow = flow; self.connectionTimeout = connectionTimeout
         self.remoteExclusive = remoteExclusive; self.connectionDiagnostic = connectionDiagnostic
         if remoteExclusive {
             // Reserve a ready route atomically. An in-flight connection setup is
             // awaited by the tool, after the run has configured background demand.
-            guard !flow.running || !flow.ready else { throw NCMRemoteAdmissionError.busy }
+            guard !flow.running || !flow.ready || flow.mediaStopping else { throw NCMRemoteAdmissionError.busy }
             guard !flow.agentReserved else { throw NCMRemoteAdmissionError.reserved }
-            if flow.ready {
+            if flow.ready && !flow.mediaStopping {
                 session = flow.controlSessionID
                 flow.registerAgent(owner: owner, session: flow.controlSessionID)
             }
@@ -262,6 +270,7 @@ private final class NCMRunFence: @unchecked Sendable {
             }
             try await Task.sleep(for: .milliseconds(50))
         }
+        if flow.mediaStopping { await flow.awaitControlRelease() }
         try Task.checkCancellation(); try fence.check()
         guard stopID == flow.connectionStopID else { throw AppError.unavailable(String(localized: "Stopped waiting for the phone control connection")) }
         if session != flow.controlSessionID {
@@ -467,10 +476,13 @@ private final class NCMRunFence: @unchecked Sendable {
             self.flow.releaseConnection(owner: self.owner)
         }
     }
-    func stop() async {
+    func finishRemoteRun() async { await release(retainingMedia: remoteExclusive) }
+    func stop() async { await release(retainingMedia: false) }
+    private func release(retainingMedia: Bool) async {
         fence.cancel(); imageID = nil; approvedImageID = nil; systemAuthorizationID = nil
         if let session {
-            flow.releaseAgent(owner: owner, session: session)
+            if retainingMedia { flow.finishRemoteAgent(owner: owner, session: session, retentionGeneration: mediaRetentionGeneration) }
+            else { flow.releaseAgent(owner: owner, session: session) }
             if flow.controlSessionID == session { await flow.awaitControlRelease() }
         }
         flow.releaseConnection(owner: owner)
@@ -484,11 +496,42 @@ private final class NCMRunFence: @unchecked Sendable {
     private(set) var stopping = false
     private var generation = UUID()
     private var cleanup: Task<Void, Never>?
+    private var idleTask: Task<Void, Never>?
+    private var idleEpoch = UUID()
+    private(set) var idleUntil: ContinuousClock.Instant?
+    static let museIdleTimeout: Duration = .seconds(600)
+    private let now: () -> ContinuousClock.Instant
+    private let sleep: (Duration) async throws -> Void
+    init(now: @escaping () -> ContinuousClock.Instant = { .now },
+         sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.now = now; self.sleep = sleep
+    }
     func didOpen() { active = true }
+    func suspendIdle() {
+        idleEpoch = UUID(); idleTask?.cancel(); idleTask = nil
+    }
+    func clearIdle() { suspendIdle(); idleUntil = nil }
+    func refreshMuseIdle() {
+        suspendIdle(); idleUntil = now().advanced(by: Self.museIdleTimeout)
+    }
+    func scheduleIdle(_ expired: @escaping @MainActor () -> Void) {
+        suspendIdle()
+        guard active, !stopping, let until = idleUntil else { return }
+        let epoch = idleEpoch, generation = generation
+        let delay = max(.zero, now().duration(to: until)), sleep = sleep
+        idleTask = Task { @MainActor [weak self] in
+            do { try await sleep(delay) } catch { return }
+            guard let self, !Task.isCancelled, self.idleEpoch == epoch,
+                  self.generation == generation, self.active, !self.stopping else { return }
+            self.idleTask = nil
+            expired()
+        }
+    }
     @discardableResult func finishIfIdle(hasUsers: Bool,
         stop: @escaping @MainActor () async throws -> Void,
         completed: @escaping @MainActor (Bool) -> Void) -> Bool {
         guard active, !hasUsers, !stopping else { return false }
+        clearIdle()
         stopping = true
         let epoch = generation
         cleanup = Task { [weak self] in
@@ -502,6 +545,7 @@ private final class NCMRunFence: @unchecked Sendable {
     }
     func wait() async { await cleanup?.value }
     func revoke() {
+        clearIdle()
         generation = UUID(); active = false; stopping = false
         cleanup?.cancel(); cleanup = nil
     }

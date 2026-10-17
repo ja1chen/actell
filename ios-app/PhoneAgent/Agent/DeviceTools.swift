@@ -327,10 +327,12 @@ actor ActionCoordinator {
             remoteFailureDiagnostics = geometry.diagnosticFields
         }
     }
-    func stop() async {
+    func stop(retainingMedia: Bool = false) async {
         if let stopTask { await stopTask.value; return }
         stopped = true; image = nil
-        let task = Task { await bridge.stop() }
+        let task = Task {
+            if retainingMedia { await bridge.finishRemoteRun() } else { await bridge.stop() }
+        }
         stopTask = task
         await task.value
     }

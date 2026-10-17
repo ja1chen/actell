@@ -110,14 +110,16 @@ private final class TraceTestTrust: NSObject, URLSessionDelegate, @unchecked Sen
     var calls = 0
     var releases = 0
     init(requestTimeout: UInt64 = 10_000_000_000, writeTimeout: UInt64 = 10_000_000_000, operationTimeout: UInt64 = 30_000_000_000,
-         handler: RemoteHTTPTransport.Handler? = nil) {
+         idleTimeout: UInt64 = RemoteHTTPTransport.idleTimeoutNanoseconds, authenticated: Bool = true, handler: RemoteHTTPTransport.Handler? = nil) {
         session = RemoteHTTPTransport.Session(connection: connection,
             source: RemoteSourceAddress(literal: "127.0.0.1")!, handler: { [weak self] body, headers, source in
                 self?.calls += 1
-                if let handler { return try await handler(body, headers, source) }
-                return RemoteHTTPResponse(body: Data(repeating: 0x5a, count: 256 * 1_024))
+                let response: RemoteHTTPResponse
+                if let handler { response = try await handler(body, headers, source) }
+                else { response = RemoteHTTPResponse(body: Data(repeating: 0x5a, count: 256 * 1_024)) }
+                return authenticated ? response.authenticated(as: "fixture") : response
             }, pairingHandler: nil, diagnostic: { [weak self] stage, fields in self?.events.append((stage, fields)) },
-            timeouts: .init(request: requestTimeout, operation: operationTimeout, write: writeTimeout),
+            timeouts: .init(request: requestTimeout, operation: operationTimeout, write: writeTimeout, idle: idleTimeout),
             onClose: { [weak self] in self?.releases += 1 })
     }
     func has(_ stage: String) -> Bool { events.contains { $0.0 == stage } }
@@ -492,7 +494,7 @@ extension RemoteTransportTraceTests {
         try await waitUntil { h.releases == 1 }
     }
     func testReuseIdleAndRequestCountAreBounded() async throws {
-        let idle = TraceSessionHarness(requestTimeout: 150_000_000)
+        let idle = TraceSessionHarness(idleTimeout: 150_000_000)
         defer { idle.session.close() }
         idle.session.start(); try await waitUntil { idle.connection.reader != nil }
         try idle.connection.feed(reusableRequest)
@@ -543,7 +545,7 @@ extension RemoteTransportTraceTests {
             connections.insert(RemoteHTTPTrace.connectionID ?? "missing")
             try verifier.verify(clientID: "client", requestID: "request", headers: headers, body: body)
             calls += 1
-            return RemoteHTTPResponse(body: bytes)
+            return RemoteHTTPResponse(body: bytes).authenticated(as: "client")
         }
         let client = TraceTLSClient(port: port, der: identity.certificateDER, host: host)
         defer { client.connection.cancel(); transport.stop() }
@@ -566,5 +568,61 @@ extension RemoteTransportTraceTests {
         let rejected = try await client.readResponseSlowly()
         XCTAssertTrue(String(decoding: rejected, as: UTF8.self).hasPrefix("HTTP/1.1 401"))
         XCTAssertEqual(calls, 2); XCTAssertEqual(connections.count, 1)
+    }
+}
+
+extension RemoteTransportTraceTests {
+    func testAuthenticatedIdleHasSeparateBudgetAndFirstByteStartsShortReadDeadline() async throws {
+        XCTAssertEqual(RemoteHTTPTransport.idleTimeoutNanoseconds, 600_000_000_000)
+        let h = TraceSessionHarness(requestTimeout: 100_000_000, idleTimeout: 1_000_000_000)
+        defer { h.session.close() }
+        h.session.start(); try await waitUntil { h.connection.reader != nil }
+        try h.connection.feed(reusableRequest)
+        try await waitUntil { h.connection.sent.count == 1 }
+        h.connection.sendCompletion?(nil)
+        try await waitUntil { h.session.idleSince != nil }
+        try await Task.sleep(for: .milliseconds(180))
+        XCTAssertEqual(h.releases, 0, "Idle does not use the short read deadline")
+        try h.connection.feed(Data("POST /v1/".utf8))
+        try await waitUntil { h.session.idleSince == nil }
+        XCTAssertFalse(h.session.closeIfIdle(), "A partial reader cannot be evicted")
+        try await Task.sleep(for: .milliseconds(60))
+        try h.connection.feed(Data("rpc".utf8))
+        try await waitUntil { h.releases == 1 }
+        XCTAssertEqual(h.calls, 1)
+        XCTAssertTrue(h.events.contains { $0.0 == "http.deadline" && $0.1["phase"] == "read" })
+    }
+
+    func testUnauthenticatedSuccessCannotAcquireLongIdleSlot() async throws {
+        let h = TraceSessionHarness(authenticated: false)
+        defer { h.session.close() }
+        h.session.start(); try await waitUntil { h.connection.reader != nil }
+        try h.connection.feed(reusableRequest)
+        try await waitUntil { h.connection.sent.count == 1 }
+        XCTAssertEqual(h.connection.finals, [true])
+        h.connection.sendCompletion?(nil)
+        try await waitUntil { h.has("http.response.processed") }
+        XCTAssertNil(h.session.idleSince); XCTAssertFalse(h.has("http.connection.reusable"))
+    }
+
+    func testSlotPressureEvictsOnlyOldestIdleAndNeverHandlerOrWrite() async throws {
+        let idle = TraceSessionHarness(), active = TraceSessionHarness()
+        defer { idle.session.close(); active.session.close() }
+        for h in [idle, active] {
+            h.session.start(); try await waitUntil { h.connection.reader != nil }
+            try h.connection.feed(reusableRequest)
+            try await waitUntil { h.connection.sent.count == 1 }
+        }
+        XCTAssertFalse(RemoteHTTPTransport.evictOldestIdle(in: [active.session]))
+        idle.connection.sendCompletion?(nil)
+        try await waitUntil { idle.session.idleSince != nil }
+        XCTAssertTrue(RemoteHTTPTransport.evictOldestIdle(in: [active.session, idle.session]))
+        XCTAssertEqual(idle.releases, 1); XCTAssertEqual(active.releases, 0)
+        XCTAssertFalse(active.session.closeIfIdle())
+        active.connection.sendCompletion?(nil)
+        try await waitUntil { active.session.idleSince != nil }
+        try active.connection.feed(Data("POST".utf8))
+        try await waitUntil { active.session.idleSince == nil }
+        XCTAssertFalse(RemoteHTTPTransport.evictOldestIdle(in: [active.session]))
     }
 }

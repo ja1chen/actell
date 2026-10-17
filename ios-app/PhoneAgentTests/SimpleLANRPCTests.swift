@@ -523,6 +523,8 @@ private actor SimpleLANImageBridge: DeviceBridge {
 }
 
 private actor PerformanceWaitBridge: DeviceBridge {
+    private(set) var normalCompletions = 0
+    func finishRemoteRun() async { normalCompletions += 1; await stop() }
     private let demo = DemoBridge()
     private(set) var captures = 0
     var delay: Duration = .milliseconds(180)
@@ -539,6 +541,7 @@ private actor PerformanceWaitBridge: DeviceBridge {
 
 @MainActor private final class PerformanceRPCFixture {
     let bridge = PerformanceWaitBridge()
+    let idleReleaseCount = NSMutableArray()
     let service: RemoteToolsService
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let provider = RemoteGeneratedIdentityProvider(namespace: "actell.tests.performance." + UUID().uuidString)
@@ -550,7 +553,8 @@ private actor PerformanceWaitBridge: DeviceBridge {
         let bridge = bridge
         let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: BackgroundExecutionCoordinator.testing(selection: []), makeRemoteBridge: { bridge })
         model.setForeground(true); model.setProtectedDataAvailable(true)
-        service = RemoteToolsService(model: model)
+        let idleReleaseCount = idleReleaseCount
+        service = RemoteToolsService(model: model, releaseIdleMedia: { idleReleaseCount.add(true); return true })
         let identity = try provider.provision(host: "actell-performance-test.local")
         service.authorizeRequest = { [weak self] _, _, _ in self?.allowed == true }
         let key = key
@@ -688,5 +692,57 @@ extension SimpleLANRPCTests {
         let cancelled = try f.result(await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500]))
         XCTAssertEqual(cancelled["execution_released"] as? Bool, true)
         let captures = await f.bridge.captures; XCTAssertLessThanOrEqual(captures, 1)
+    }
+}
+
+extension SimpleLANRPCTests {
+    func testIdleReleaseHintAuthenticatesAndNeverCreatesOrCancelsRun() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        let capabilities = try f.result(await f.call("capabilities"))
+        XCTAssertEqual((capabilities["performance"] as? [String: Any])?["idle_release"] as? Bool, true)
+        let first = try f.result(await f.call("companion.release_idle"))
+        XCTAssertEqual(first["released"] as? Bool, true)
+        XCTAssertEqual(f.idleReleaseCount.count, 1)
+        let malformed = try await f.call("companion.release_idle", ["run_id": "other"])
+        XCTAssertEqual(f.error(malformed), "bad_request")
+        f.allowed = false
+        let forbidden = try await f.call("companion.release_idle")
+        XCTAssertEqual(f.error(forbidden), "forbidden")
+        XCTAssertEqual(f.idleReleaseCount.count, 1)
+        f.allowed = true
+        try await f.open()
+        let busy = try f.result(await f.call("companion.release_idle"))
+        XCTAssertEqual(busy["released"] as? Bool, false)
+        XCTAssertEqual(f.idleReleaseCount.count, 1)
+        let run = try f.result(await f.call("runs.get", ["run_id": "run"]))
+        XCTAssertEqual(run["state"] as? String, "open")
+        _ = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": 0])
+        let draining = try f.result(await f.call("companion.release_idle"))
+        XCTAssertEqual(draining["released"] as? Bool, false)
+        _ = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500])
+        let idle = try f.result(await f.call("companion.release_idle"))
+        XCTAssertEqual(idle["released"] as? Bool, true)
+        XCTAssertEqual(f.idleReleaseCount.count, 2)
+        XCTAssertTrue(MuseCompanionAuthorization.permits(op: "companion.release_idle", params: [:], scopes: [.control]))
+        XCTAssertFalse(MuseCompanionAuthorization.permits(op: "companion.release_idle", params: [:], scopes: []))
+    }
+}
+
+extension SimpleLANRPCTests {
+    func testSuccessfulRunCleanupUsesReusableCompletionButPendingCancellationDoesNot() async throws {
+        let normal = try PerformanceRPCFixture(); defer { normal.close() }
+        try await normal.open()
+        let receipt = try normal.result(await normal.call("tools.call", normal.screenshot(wait: 1500)))
+        XCTAssertEqual(receipt["state"] as? String, "succeeded")
+        let release = try normal.result(await normal.call("runs.cancel", ["run_id": "run", "wait_ms": 500]))
+        XCTAssertEqual(release["execution_released"] as? Bool, true)
+        let completions = await normal.bridge.normalCompletions
+        XCTAssertEqual(completions, 1)
+        let cancelled = try PerformanceRPCFixture(); defer { cancelled.close() }
+        try await cancelled.open()
+        _ = try await cancelled.call("tools.call", cancelled.screenshot())
+        _ = try await cancelled.call("runs.cancel", ["run_id": "run", "wait_ms": 500])
+        let interruptedCompletions = await cancelled.bridge.normalCompletions
+        XCTAssertEqual(interruptedCompletions, 0)
     }
 }

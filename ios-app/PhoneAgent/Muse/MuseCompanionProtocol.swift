@@ -32,7 +32,7 @@ enum MuseCompanionAuthorization {
     static func permits(op: String, params: [String: Any], scopes: Set<MuseCompanionScope>) -> Bool {
         guard !scopes.isEmpty else { return false }
         switch op {
-        case "capabilities", "runs.open", "runs.get", "runs.cancel", "calls.get": return true
+        case "companion.release_idle", "capabilities", "runs.open", "runs.get", "runs.cancel", "calls.get": return true
         case "images.get": return scopes.contains(.screenshot)
         case "tools.call":
             guard let tool = params["tool"] as? String else { return false }

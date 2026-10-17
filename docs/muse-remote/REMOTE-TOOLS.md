@@ -16,7 +16,7 @@ This document defines the direct Muse Gadget tool interface, the Actell executio
 | `actell.wait` | `duration_ms` | Wait locally in Gadget without opening a phone run or sending input. |
 | `actell.call_status` | `operation_id` | Query the original call and any retained image without replaying it. |
 
-`actell.rpc`, `actell.image` and `actell.view` are not model-facing tools. The authenticated RPC operations remain `capabilities`, `runs.open`, `runs.get`, `runs.cancel`, `tools.call`, `calls.get` and `images.get`.
+`actell.rpc`, `actell.image` and `actell.view` are not model-facing tools. The authenticated RPC operations are `capabilities`, `runs.open`, `runs.get`, `runs.cancel`, `tools.call`, `calls.get`, `images.get` and the optional `companion.release_idle` hint.
 
 Optional application launch arguments are not exposed by Gadget until platform array transport is verified. Internal Actell support does not establish platform transport support.
 
@@ -62,6 +62,39 @@ Actell serializes cleanup on the main actor. Draining remains set across asynchr
 Gadget closes its owned screenshot run after capture reaches a terminal state, then downloads the historical image. Image transfer therefore does not retain phone ownership. Failure, unknown and malformed-receipt paths also perform ownership-aware cleanup. A busy response or a different run ID never authorizes cancelling another run. Historical status queries neither acquire nor release execution ownership.
 
 If `runs.open` loses its reply, recovery queries the original run ID read-only. Cleanup requires confirmed ownership. Neither `runs.open` nor `tools.call` is resent as a recovery action.
+
+### Muse media reuse and idle release
+
+Successful Muse runs release execution ownership immediately while retaining their
+healthy video/HID session for up to **600 seconds of business idleness**. The next
+media-using call reuses it and refreshes the idle deadline after completion.
+Queries, hello and non-media operations do not extend that deadline. This is a
+cache lifetime, not a run or call deadline. Local Agent runs retain their existing
+run-scoped behavior. Active/registered/queued users prevent media teardown.
+
+Normal Gadget cleanup still uses `runs.cancel`: retention is allowed only when
+that run has accepted calls and every call has already succeeded. Pending,
+failed, unknown, expired or explicitly interrupted work takes the immediate
+cleanup path. Service shutdown, revocation, protected-data loss and user stop
+invalidate pending retention; late completion cannot recreate the idle cache.
+Background scene changes alone do not release it.
+
+`capabilities.performance.idle_release = true` advertises the optional HMAC-authenticated
+`companion.release_idle` operation with exactly `params: {}`. It creates no run and
+never cancels a run. Its result is `{ "released": bool }`: `true` means the idle
+Muse media was stopped successfully; `false` covers busy, already absent, or no
+eligible retained media. Actell independently checks remote draining and all local
+owners/queued operations. A new request invalidates a timer that has not started
+cleanup; once native STOP starts, new media acquisition waits for it to finish.
+Cleanup and timers are fenced to their connection/retention generations.
+
+Muse may send this hint after an observed `task.status=completed` when its own
+invoke queue is idle. The hint may be missing, duplicated or refer to another
+platform task; it only discards reconstructible idle resources. Actell neither
+subscribes to platform chat nor depends on its lifetime or task IDs. Ten-minute
+idle expiry works independently. The normal HTTP response must finish before
+Muse closes that idle TLS connection. Pairing, the authenticated CoreDevice
+connection, deduplication records and historical results survive media release.
 
 ### Timing
 
@@ -116,20 +149,21 @@ The existing exact five-key envelope (`v`, `client_id`, `request_id`, `op`, `par
 ```json
 "performance": {
   "http_keep_alive": true,
+  "idle_release": true,
   "tools_call_wait_ms_max": 1500,
   "runs_cancel_wait_ms_max": 500
 }
 ```
 
-Clients negotiate these fields before using them. A missing field means the legacy immediate-receipt / close-after-response behavior; do not infer support from an app version. Muse scopes connection reuse to one outer invoke. Hostname verification, the saved certificate pin, HMAC, nonce, permission checks, deadlines and deduplication apply independently to every request on that connection.
+Clients negotiate these fields before using them. A missing field means the legacy immediate-receipt / close-after-response behavior; do not infer support from an app version. Muse may reuse one idle TLS connection across invokes; its business idle policy is independent of chat subscriptions. Hostname verification, the saved certificate pin, HMAC, nonce, permission checks, deadlines and deduplication apply independently to every request on that connection.
 
 `tools.call.params.wait_ms` is an optional integer from 0 through 1500. Actell validates it, persists and enqueues the action once, then waits up to the smaller of that duration and the remaining call/run deadline. A terminal call returns the existing receipt; a timeout returns the same pending receipt for `calls.get` using the original run/call IDs. This option is a response preference and is excluded from the action digest, so changing or omitting it on an otherwise identical call cannot create a second execution. It remains covered by the exact-body HMAC. Cancelling the HTTP wait does not cancel an accepted action. Invalid types, fractions, negative or oversized values fail before enqueueing.
 
-`runs.cancel.params.wait_ms` is an optional integer from 0 through 500. The run is closed once before waiting for its execution and media ownership to be released. The wait is also bounded by the remaining run deadline. It never reports `execution_released:true` until cleanup has actually completed. Timeout returns `false`; reconcile with `runs.get`. Neither wait adds an automatic retry or extends an execution deadline. Missing/zero waits return immediately, as before. Permission and service state are checked again before a delayed receipt is returned.
+`runs.cancel.params.wait_ms` is an optional integer from 0 through 500. The run is closed once before waiting for its execution and media ownership to be released. The wait is also bounded by the remaining run deadline. It never reports `execution_released:true` until execution ownership cleanup has actually completed; successful media may remain in the independent idle cache. Timeout returns `false`; reconcile with `runs.get`. Neither wait adds an automatic retry or extends an execution deadline. Missing/zero waits return immediately, as before. Permission and service state are checked again before a delayed receipt is returned.
 
 ### HTTP response completion and reuse
 
-RPC uses exact `Content-Length` framing. HTTP/1.1 requests without a `Connection` header, or with `Connection: keep-alive`, can receive `Connection: keep-alive` responses. Explicit `Connection: close`, pairing routes, non-200 responses and the 32nd request on a connection end the write side in protocol order. Authentication failures cannot reuse the connection. Limits remain four connections, ten seconds to read a request or await the next request, thirty seconds for a handler, and ten seconds for a backpressured write. Partial reads never restart the read deadline. This is an idle/resource bound, not a fixed delay between requests.
+RPC uses exact `Content-Length` framing. HTTP/1.1 requests without a `Connection` header, or with `Connection: keep-alive`, can receive `Connection: keep-alive` responses. Explicit `Connection: close`, pairing routes, non-200 responses and the 32nd request on a connection end the write side in protocol order. Authentication failures cannot reuse the connection. Limits remain four connections and 32 requests per connection. Only a verified HMAC RPC response can enter the separate 600-second idle window. Initial connection/request reading takes at most ten seconds; the first byte of a reused request starts a new ten-second read budget. A handler retains its thirty-second bound and a backpressured write its ten-second bound. Partial reads never restart the read deadline. When all four slots are occupied, a new connection may evict the oldest fully idle socket, never a partial reader, handler or writer. This is an idle/resource bound, not a fixed delay between requests.
 
 Reusable responses use a nonfinal Network.framework context. A following request cannot dispatch until both the preceding handler and its send callback have finished. Because a peer can consume a complete response before the send callback reaches MainActor, the transport can temporarily buffer one bounded next request during writing; it is still independently parsed and authenticated. Coalesced extra requests and pipelining during the handler are rejected. A handler ignoring cancellation keeps its slot until it exits, even after socket closure.
 

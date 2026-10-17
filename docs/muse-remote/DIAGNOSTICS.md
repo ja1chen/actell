@@ -225,3 +225,20 @@ also stay unchanged. An analyzer must allowlist those additional recovery names
 to include their distributions; they must not be inferred from the aggregate
 `control_prepare` duration. Raw request UUIDs can be hashed with the same SHA-256
 prefix rule to match `diagnostic_id` without logging them on Actell.
+
+### Media idle retention
+
+Normal successful Muse cleanup releases run ownership without waiting for the
+600-second media idle window. `control.mediaIdle timeoutSeconds=600` records idle
+retention and `control.mediaReused` records a later media user. Native
+`performance.media_start` occurs only when a new video/HID session is required.
+`companion.release_idle.received/result` follows the existing hashed RPC trace;
+the HMAC-authorized hint is ignored while Actell has a run or local media user.
+A false `released` result is expected for busy or already absent idle media.
+`control.mediaStopRequested` and `control.mediaReleased` still describe actual
+native teardown; run release alone no longer implies that the idle cache closed.
+
+HTTP `idle` has a separate 600-second deadline after authenticated responses.
+`read`, `handler`, `write` and `drain` retain their short budgets. A new connection
+can evict an idle slot under pressure; that never interrupts active request work.
+These mechanisms are independent of platform chat events and subscriptions.

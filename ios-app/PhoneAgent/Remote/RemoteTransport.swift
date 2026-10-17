@@ -75,6 +75,11 @@ struct RemoteHTTPResponse: Sendable {
     let status: Int
     let headers: [String: String]
     let body: Data
+    // Set only by the RPC handler after HMAC verification; never a wire header.
+    private(set) var authenticatedClient: String?
+    func authenticated(as client: String) -> Self {
+        var response = self; response.authenticatedClient = client; return response
+    }
 
     init(status: Int = 200, headers: [String: String] = [:], body: Data) {
         self.status = status; self.headers = headers; self.body = body
@@ -262,6 +267,7 @@ final class RemoteHTTPTransport {
     static let maximumConnections = 4
     static let maximumResponseBytes = 25 * 1_024 * 1_024
     nonisolated static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
+    nonisolated static let idleTimeoutNanoseconds: UInt64 = 600_000_000_000
     nonisolated static let operationTimeoutNanoseconds: UInt64 = 30_000_000_000
     nonisolated static let writeTimeoutNanoseconds: UInt64 = 10_000_000_000
 
@@ -365,11 +371,16 @@ final class RemoteHTTPTransport {
 
     private func accept(_ connection: NWConnection, generation: UUID) {
         guard self.generation == generation, listener != nil,
-              sessions.count < Self.maximumConnections,
               let source = RemoteSourceAddress(endpoint: connection.endpoint),
               (configuration.allowedSources.contains(source) || (configuration.allowCompanionLAN && source.isRFC1918)) else {
             connection.cancel(); return
         }
+        // Idle authenticated sockets cannot monopolize all four slots. Evict
+        // only a fully drained idle socket; never an active reader/handler/write.
+        if sessions.count >= Self.maximumConnections {
+            Self.evictOldestIdle(in: Array(sessions.values))
+        }
+        guard sessions.count < Self.maximumConnections else { connection.cancel(); return }
         let id = UUID()
         let session = Session(connection: connection, source: source, handler: handler, pairingHandler: pairingHandler, diagnostic: diagnostic) { [weak self] in
             self?.sessions.removeValue(forKey: id)
@@ -378,12 +389,18 @@ final class RemoteHTTPTransport {
         session.start()
     }
 
+    @discardableResult static func evictOldestIdle(in sessions: [Session]) -> Bool {
+        guard let idle = sessions.filter({ $0.idleSince != nil }).min(by: { $0.idleSince! < $1.idleSince! }) else { return false }
+        return idle.closeIfIdle()
+    }
+
     @MainActor
     final class Session {
         struct Timeouts {
             var request = RemoteHTTPTransport.requestTimeoutNanoseconds
             var operation = RemoteHTTPTransport.operationTimeoutNanoseconds
             var write = RemoteHTTPTransport.writeTimeoutNanoseconds
+            var idle = RemoteHTTPTransport.idleTimeoutNanoseconds
         }
         private let connection: any RemoteHTTPConnection
         private let timeouts: Timeouts
@@ -406,8 +423,9 @@ final class RemoteHTTPTransport {
         private var requestCount = 0
         private var nextBytes = Data()
         private var nextReadBegan: ContinuousClock.Instant?
-        // Idle reuse is bounded by the same 10s read budget. Partial headers
-        // never restart it. The current write keeps its own original deadline.
+        private(set) var idleSince: ContinuousClock.Instant?
+        // The first byte ends authenticated idle and starts a fresh short read
+        // budget. Later bytes cannot restart it; writes keep their own deadline.
 
         private var phase = "read"
         private let traceID = MuseDiagnosticsLog.tag(UUID().uuidString)
@@ -490,6 +508,10 @@ final class RemoteHTTPTransport {
                     }
                     do {
                         if let data, !data.isEmpty {
+                            if self.phase == "idle" {
+                                self.idleSince = nil
+                                self.armDeadline(self.timeouts.request)
+                            }
                             self.phase = "read"
                             if let request = try self.parser.append(data) {
                                 self.dispatch(request)
@@ -575,7 +597,7 @@ final class RemoteHTTPTransport {
 
         private func send(_ response: RemoteHTTPResponse) {
             guard !closed, !sending else { return }
-            keepAlive = keepAlive && !peerEnded && response.status == 200
+            keepAlive = keepAlive && !peerEnded && response.status == 200 && response.authenticatedClient != nil
             sending = true; phase = "write"
             report("http.response.queued", ["status": String(response.status), "body_bytes": String(response.body.count)])
             armDeadline(timeouts.write)
@@ -615,7 +637,8 @@ final class RemoteHTTPTransport {
             let bytes = nextBytes; nextBytes.removeAll(keepingCapacity: false)
             let elapsed = nextReadBegan.map { $0.duration(to: .now) } ?? .zero
             nextReadBegan = nil
-            let budget = Duration.nanoseconds(Int64(timeouts.request)) - elapsed
+            idleSince = bytes.isEmpty ? .now : nil
+            let budget = Duration.nanoseconds(Int64(bytes.isEmpty ? timeouts.idle : timeouts.request)) - elapsed
             if budget <= .zero { close(); return }
             let parts = budget.components
             armDeadline(UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000))
@@ -626,9 +649,14 @@ final class RemoteHTTPTransport {
             receive()
         }
 
+        @discardableResult func closeIfIdle() -> Bool {
+            guard !closed, idleSince != nil, phase == "idle", !receivedRequest,
+                  !sending, !operationInFlight, nextBytes.isEmpty else { return false }
+            close(); return true
+        }
         func close() {
             guard !closed else { return }
-            closed = true
+            closed = true; idleSince = nil
             report("http.connection.closed", ["handler_in_flight": String(operationInFlight)])
             deadline?.cancel(); deadline = nil
             operation?.cancel()

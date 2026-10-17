@@ -1063,3 +1063,165 @@ private struct DisconnectedChatProvider: ModelProvider {
         }
     }
 }
+
+/// Manual monotonic clock: exercise ten-minute boundaries without real waits.
+@MainActor private final class MediaIdleClock {
+    var instant = ContinuousClock.now
+    var sleeps: [(Duration, CheckedContinuation<Void, Never>)] = []
+    func sleep(_ duration: Duration) async {
+        await withCheckedContinuation { sleeps.append((duration, $0)) }
+    }
+    func fire(_ index: Int) { sleeps[index].1.resume() }
+}
+
+extension NCMDeviceBridgeTests {
+    func testMuseMediaReuseReleasesOwnersRefreshesOnlyBusinessUseAndExpiresAtTenMinutes() async throws {
+        let clock = MediaIdleClock()
+        let lifetime = ControlMediaLifetime(now: { clock.instant }, sleep: { await clock.sleep($0) })
+        var starts = 0, stops = 0
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let flow = PairingFlow(store: RemotePairRecordStore(url: url), mediaLifetime: lifetime,
+            startMedia: { _ in starts += 1 }, stopMedia: { _ in stops += 1 })
+        flow.ready = true
+        let session = flow.controlSessionID, retention = flow.mediaRetentionGeneration
+        func use(_ owner: UUID) async throws {
+            flow.registerAgent(owner: owner, session: session)
+            try await flow.agentOperation(owner: owner, session: session) { try await flow.prepareAgentInput($0) }
+            flow.finishRemoteAgent(owner: owner, session: session, retentionGeneration: retention)
+            await flow.mediaLifetimeWait() // Does NOT wait for the idle grace.
+        }
+        try await use(UUID())
+        XCTAssertFalse(flow.agentReserved); XCTAssertFalse(flow.running)
+        XCTAssertEqual(starts, 1); XCTAssertEqual(stops, 0)
+        let firstExpiry = try XCTUnwrap(lifetime.idleUntil)
+        XCTAssertEqual(clock.instant.duration(to: firstExpiry), .seconds(600))
+        for _ in 0..<20 { await Task.yield() }
+        clock.instant = clock.instant.advanced(by: .seconds(599))
+        try await use(UUID())
+        XCTAssertEqual(starts, 1, "Warm calls reuse video/HID")
+        XCTAssertEqual(lifetime.idleUntil, clock.instant.advanced(by: .seconds(600)))
+        for _ in 0..<20 { await Task.yield() }
+        clock.fire(0) // Old timer wakes after the renewed business use.
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(stops, 0)
+        let expiry = lifetime.idleUntil
+        clock.instant = clock.instant.advanced(by: .seconds(10))
+        let readOwner = UUID()
+        flow.registerAgent(owner: readOwner, session: session)
+        let _: Int = try await flow.agentOperation(owner: readOwner, session: session) { _ in 1 }
+        flow.finishRemoteAgent(owner: readOwner, session: session, retentionGeneration: retention)
+        XCTAssertEqual(lifetime.idleUntil, expiry, "Non-media work cannot extend the idle window")
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(clock.sleeps.last?.0, .seconds(590))
+        clock.fire(1)
+        clock.instant = try XCTUnwrap(expiry)
+        clock.fire(2)
+        for _ in 0..<20 { await Task.yield() }
+        await flow.mediaLifetimeWait()
+        XCTAssertEqual(stops, 1); XCTAssertFalse(lifetime.active)
+        XCTAssertTrue(flow.ready); XCTAssertEqual(flow.controlSessionID, session)
+    }
+
+    func testMuseHintNeverReleasesRegisteredOrQueuedLocalRunAndStopIsSerialized() async throws {
+        let lifetime = ControlMediaLifetime()
+        var stops = 0
+        var stopGate: CheckedContinuation<Void, Never>?
+        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            mediaLifetime: lifetime, startMedia: { _ in }, stopMedia: { _ in
+                stops += 1; await withCheckedContinuation { stopGate = $0 }
+            })
+        flow.ready = true
+        let session = flow.controlSessionID, remote = UUID(), local = UUID(), queued = UUID()
+        flow.registerAgent(owner: remote, session: session)
+        try await flow.agentOperation(owner: remote, session: session) { try await flow.prepareAgentInput($0) }
+        flow.registerAgent(owner: local, session: session)
+        let next = Task { try await flow.agentOperation(owner: local, session: session) { _ in 42 } }
+        for _ in 0..<20 { await Task.yield() }
+        flow.finishRemoteAgent(owner: remote, session: session, retentionGeneration: flow.mediaRetentionGeneration)
+        XCTAssertFalse(flow.releaseIdleMuseMedia())
+        let value = try await next.value; XCTAssertEqual(value, 42)
+        flow.registerAgent(owner: queued, session: session)
+        flow.releaseAgent(owner: local, session: session)
+        XCTAssertFalse(flow.releaseIdleMuseMedia()); XCTAssertEqual(stops, 0)
+        flow.releaseAgent(owner: queued, session: session)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(flow.mediaStopping); XCTAssertEqual(stops, 1)
+        // A new Muse run can reserve its own execution scope while native STOP
+        // finishes. It must not report busy or bind the stopping media session.
+        let bridge = try NCMDeviceBridge(flow: flow, remoteExclusive: true)
+        let read = Task { try await bridge.installedApplications() }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(flow.agentReserved)
+        stopGate?.resume(); stopGate = nil
+        _ = try? await read.value // Native app query has no backend in this fixture.
+        await bridge.stop()
+        XCTAssertEqual(stops, 1)
+    }
+
+    func testExplicitStopGenerationPreventsLateNormalCompletionFromRetainingMedia() async throws {
+        let lifetime = ControlMediaLifetime()
+        var stops = 0
+        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            mediaLifetime: lifetime, startMedia: { _ in }, stopMedia: { _ in stops += 1 })
+        flow.ready = true
+        let owner = UUID(), session = flow.controlSessionID, old = flow.mediaRetentionGeneration
+        flow.registerAgent(owner: owner, session: session)
+        try await flow.agentOperation(owner: owner, session: session) { try await flow.prepareAgentInput($0) }
+        flow.revokeMuseMediaRetention()
+        XCTAssertEqual(stops, 0, "Revocation cannot tear down active input")
+        flow.finishRemoteAgent(owner: owner, session: session, retentionGeneration: old)
+        await flow.mediaLifetimeWait()
+        XCTAssertEqual(stops, 1); XCTAssertNil(lifetime.idleUntil)
+        XCTAssertFalse(flow.agentReserved); XCTAssertTrue(flow.ready)
+    }
+
+    func testIdleHintIsIdempotentAndOldGenerationTimerCannotCloseNewMedia() async {
+        let clock = MediaIdleClock()
+        let lifetime = ControlMediaLifetime(now: { clock.instant }, sleep: { await clock.sleep($0) })
+        var expired = 0
+        lifetime.didOpen(); lifetime.refreshMuseIdle(); lifetime.scheduleIdle { expired += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        lifetime.revoke(); lifetime.didOpen()
+        clock.fire(0)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(expired, 0); XCTAssertTrue(lifetime.active)
+        XCTAssertNil(lifetime.idleUntil)
+    }
+}
+
+extension NCMDeviceBridgeTests {
+    func testCancelledIdleHintWaitDoesNotCancelNativeStopOrNextRun() async throws {
+        let lifetime = ControlMediaLifetime()
+        var starts = 0, stops = 0
+        var gate: CheckedContinuation<Void, Never>?
+        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            mediaLifetime: lifetime, startMedia: { _ in starts += 1 }, stopMedia: { _ in
+                stops += 1; await withCheckedContinuation { gate = $0 }
+            })
+        flow.ready = true
+        let session = flow.controlSessionID, old = UUID()
+        flow.registerAgent(owner: old, session: session)
+        try await flow.agentOperation(owner: old, session: session) { try await flow.prepareAgentInput($0) }
+        flow.finishRemoteAgent(owner: old, session: session, retentionGeneration: flow.mediaRetentionGeneration)
+        let hint = Task { await flow.releaseIdleMuseMediaAndWait() }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(stops, 1); XCTAssertTrue(flow.mediaStopping)
+        XCTAssertFalse(flow.releaseIdleMuseMedia(), "Duplicate hints never start another STOP")
+        hint.cancel() // Simulates the caller giving up its HTTP response wait.
+        let owner = UUID()
+        let next = Task {
+            await flow.mediaLifetimeWait()
+            flow.registerAgent(owner: owner, session: session)
+            try await flow.agentOperation(owner: owner, session: session) { try await flow.prepareAgentInput($0) }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(starts, 1)
+        gate?.resume(); gate = nil
+        _ = await hint.value
+        try await next.value
+        XCTAssertEqual(starts, 2); XCTAssertEqual(stops, 1)
+        XCTAssertTrue(flow.ready); XCTAssertTrue(lifetime.active); XCTAssertTrue(flow.agentReserved)
+        flow.finishRemoteAgent(owner: owner, session: session, retentionGeneration: flow.mediaRetentionGeneration)
+        flow.cancel()
+    }
+}
