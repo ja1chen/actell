@@ -5,6 +5,12 @@ import XCTest
 
 private actor SimpleLANImageBridge: DeviceBridge {
     private let demo = DemoBridge()
+    private(set) var geometryQueries = 0
+    func inputDisplaySnapshot() throws -> InputDisplaySnapshot {
+        geometryQueries += 1
+        throw RemoteRPCError("geometry_unavailable", "Synthetic geometry failure",
+            underlying: NativeInputGeometryError(.metadataQuery, stage: 11, cause: 2))
+    }
     func setRemoteDeadline(_ deadline: Date) throws { guard deadline > Date() else { throw AppError.stopped } }
     func screenshot() async throws -> FrameImage { try await demo.screenshot() }
     func tap(x: Int, y: Int, imageID: String) throws { throw AppError.stopped }
@@ -68,7 +74,10 @@ private actor SimpleLANImageBridge: DeviceBridge {
     }
 
     func testFormalHMACAcknowledgesWithDefaultScopesAndPreservesRevocation() async throws {
-        let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: BackgroundExecutionCoordinator.testing(selection: []), makeRemoteBridge: { SimpleLANImageBridge() })
+        var lastBridge: SimpleLANImageBridge?
+        let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: BackgroundExecutionCoordinator.testing(selection: []), makeRemoteBridge: {
+            let bridge = SimpleLANImageBridge(); lastBridge = bridge; return bridge
+        })
         model.setForeground(true); model.setProtectedDataAvailable(true)
         let store = RemoteConnectionStore(vault: RemoteMemoryVault(), defaults: nil)
         try store.prepareCompanion()
@@ -226,6 +235,34 @@ private actor SimpleLANImageBridge: DeviceBridge {
         let outOfBounds = try await call("tools.call", key: key, parameters: ["run_id": imageRun, "call_id": "bounds", "deadline_ms": imageDeadline,
             "tool": "tap", "arguments": ["x": 1001, "y": 0, "purpose": "Synthetic input"]])
         XCTAssertEqual(((try JSONSerialization.jsonObject(with: outOfBounds.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "coordinate_out_of_bounds")
+        let geometryCall = UUID().uuidString.lowercased()
+        let geometryParams: [String: Any] = ["run_id": imageRun, "call_id": geometryCall, "deadline_ms": imageDeadline,
+            "tool": "tap", "arguments": ["x": 394, "y": 571, "purpose": "Private synthetic purpose"]]
+        _ = try await call("tools.call", key: key, parameters: geometryParams)
+        var failedReceipt: [String: Any]?
+        for _ in 0..<100 {
+            let status = try await call("calls.get", key: key, parameters: ["run_id": imageRun, "call_id": geometryCall])
+            let result = (try JSONSerialization.jsonObject(with: status.body) as? [String: Any])?["result"] as? [String: Any]
+            if result?["state"] as? String == "failed" { failedReceipt = result; break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let failure = try XCTUnwrap(failedReceipt)
+        XCTAssertEqual(failure["effect"] as? String, "not_sent")
+        let failureError = try XCTUnwrap(failure["error"] as? [String: Any])
+        XCTAssertEqual(failureError["code"] as? String, "geometry_unavailable")
+        XCTAssertEqual(failureError["message"] as? String, String(localized: "Could not verify the current screen layout. No input was sent."))
+        let restoredLog = MuseDiagnosticsLog(directory: directory)
+        let failureEvent = try XCTUnwrap(restoredLog.events.last { $0.stage == "tool.execution.failed" })
+        XCTAssertEqual(failureEvent.run, MuseDiagnosticsLog.tag(imageRun))
+        XCTAssertEqual(failureEvent.state["call"], MuseDiagnosticsLog.tag(geometryCall))
+        XCTAssertEqual(failureEvent.state["geometry_reason"], "metadata_query")
+        XCTAssertEqual(failureEvent.state["native_stage"], "11")
+        XCTAssertEqual(failureEvent.state["native_cause"], "2")
+        XCTAssertFalse(restoredLog.report().contains("Private synthetic purpose"))
+        _ = try await call("tools.call", key: key, parameters: geometryParams)
+        let queries = await lastBridge?.geometryQueries
+        XCTAssertEqual(queries, 1, "Reading the terminal receipt must never replay input preparation")
+        // A subsequent independent call in the same run can still execute.
         _ = try await call("tools.call", key: key, parameters: ["run_id": imageRun, "call_id": imageCall, "deadline_ms": imageDeadline,
             "tool": "screenshot", "arguments": [:]])
         var imageReceipt: [String: Any]?

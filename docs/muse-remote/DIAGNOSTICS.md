@@ -117,6 +117,24 @@ events add no cooldown. `image.result_unavailable` retains the underlying fixed
 cache error code locally while the original terminal call receipt stays readable
 with unavailable pixels; do not replay the screenshot to repair its history.
 
+For asynchronous tool failures, `tool.execution.failed` records the hashed run and
+call IDs, delivery state and fixed error code before the terminal receipt is read.
+`geometry_unavailable` means input geometry preparation failed, not that the
+requested coordinate was out of bounds. `geometry_reason` distinguishes metadata
+query/parse errors, missing or failed decoding, size mismatch, pending frames and
+geometry changes. `native_stage` and `native_cause` retain protocol categories;
+for metadata queries, cause 2 means timeout, 1 protocol failure and 3 invalid
+metadata. No peer payload, coordinates, purpose or geometry credential is logged.
+The same typed geometry failure is written to the background trace as
+`input.geometry.failed ... connectionRetained=true`. It leaves the authenticated
+phone-control session available. `control.operation.failed` with stage 12 or
+`reason=closed` records
+actual session closure and follows the normal disconnect path. Cancellation,
+malformed ABI events and uncertain input delivery are not converted to recoverable
+geometry errors. Geometry checks retain their existing deadlines and never replay
+an input action. A failure before dispatch has `effect=not_sent`; later failures
+continue to use the existing conservative delivery receipt.
+
 Local pre-authentication 401 reasons are malformed, clock_skew, key_unavailable,
 signature_mismatch, replayed, cache_full and monotonic_clock_unavailable. The
 network response remains generic. clock_skew means the parsed request timestamp

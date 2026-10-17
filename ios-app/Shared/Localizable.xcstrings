@@ -3467,6 +3467,23 @@
         }
       }
     },
+    "Could not verify the current screen layout. No input was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify the current screen layout. No input was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法确认当前屏幕布局，未发送操作。"
+          }
+        }
+      }
+    },
     "Could not allocate the status frame": {
       "extractionState": "manual",
       "localizations": {

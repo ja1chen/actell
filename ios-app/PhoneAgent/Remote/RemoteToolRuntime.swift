@@ -85,6 +85,7 @@ import SwiftAgentKit
         return result
     }
     func remoteFailureCode() async -> String? { await action?.remoteFailureCode }
+    func remoteFailureDiagnostics() async -> [String: String] { await action?.remoteFailureDiagnostics ?? [:] }
     func remoteDelivery(_ callID: String) -> RunCheckpoint.Delivery? {
         lifecycle.checkpoint?.tools.first(where: { $0.callID == callID })?.delivery
     }

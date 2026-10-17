@@ -18,6 +18,7 @@ STATE_FIELDS = {
     'control_failure_present', 'background_enabled', 'background_selected',
     'background_desired', 'background_effective', 'background_continuity',
     'release_elapsed_ms',
+    'call', 'delivery', 'geometry_reason', 'native_stage', 'native_cause',
 }
 
 

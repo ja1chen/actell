@@ -42,22 +42,23 @@ impl RsdService for DisplayInfoClient {
         ))
     }
 }
-async fn read_display_geometry(info: &mut DisplayInfoClient, id: i64) -> Option<(u32, u32)> {
-    let value = tokio::time::timeout(
+async fn read_display_geometry(info: &mut DisplayInfoClient, id: i64) -> Result<(u32, u32), Error> {
+    resolve_display_geometry(info.0.invoke_with_plist(
+        "com.apple.coredevice.feature.getdisplayinfo",
+        plist::Dictionary::new(),
+    ), id).await
+}
+async fn resolve_display_geometry<E>(reply: impl std::future::Future<Output = Result<plist::Value, E>>, id: i64) -> Result<(u32, u32), Error> {
+    let value = crate::bounded_for(
+        Stage::Input,
         Duration::from_secs(2),
-        info.0.invoke_with_plist(
-            "com.apple.coredevice.feature.getdisplayinfo",
-            plist::Dictionary::new(),
-        ),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    display_geometry(&value, id)
+        reply,
+    ).await?;
+    display_geometry(&value, id).ok_or(error(Stage::Input, Cause::InvalidParameters))
 }
 pub(crate) async fn query_display_geometry(adapter: &mut AdapterHandle, handshake: &mut RsdHandshake) -> Result<(u32, u32), Error> {
     let mut info = bounded(Stage::Media, DisplayInfoClient::connect_rsd(adapter, handshake)).await?;
-    read_display_geometry(&mut info, 1).await.ok_or(error(Stage::Input, Cause::InvalidParameters))
+    read_display_geometry(&mut info, 1).await
 }
 fn display_geometry(value: &plist::Value, id: i64) -> Option<(u32, u32)> {
     let root = value.as_dictionary()?;
@@ -161,7 +162,7 @@ impl Media {
         .await
         .ok();
         let initial_geometry = if let Some(info) = &mut display_info {
-            read_display_geometry(info, DISPLAY_ID).await
+            read_display_geometry(info, DISPLAY_ID).await.ok()
         } else {
             None
         };
@@ -207,7 +208,7 @@ impl Media {
             drains.0.push(tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                    let size = read_display_geometry(&mut info, DISPLAY_ID).await;
+                    let size = read_display_geometry(&mut info, DISPLAY_ID).await.ok();
                     geometry_mailbox.set_visible_size(size);
                     // A timed-out XPC request cannot safely reuse this channel.
                     if size.is_none() { break; }
@@ -592,6 +593,16 @@ fn extract_answer(value: &plist::Value) -> Result<&[u8], Error> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn display_query_preserves_timeout_protocol_and_invalid_metadata_causes() {
+        use super::*;
+        let malformed = async { Ok::<_, ()>(plist::Value::Dictionary(Default::default())) };
+        assert_eq!(resolve_display_geometry(malformed, 1).await, Err(error(Stage::Input, Cause::InvalidParameters)));
+        let failed = async { Err::<plist::Value, _>(()) };
+        assert_eq!(resolve_display_geometry(failed, 1).await, Err(error(Stage::Input, Cause::Protocol)));
+        let pending = std::future::pending::<Result<plist::Value, ()>>();
+        assert_eq!(resolve_display_geometry(pending, 1).await, Err(error(Stage::Input, Cause::Timeout)));
+    }
     #[test]
     fn changed_geometry_is_rejected_at_last_pre_down_gate() {
         let video = crate::video::VideoMailbox::default(); video.begin_stream();

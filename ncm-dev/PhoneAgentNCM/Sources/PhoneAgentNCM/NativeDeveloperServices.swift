@@ -43,6 +43,33 @@ public enum NativeBackendError: Error, Equatable {
     case applicationQueryFailure(stage: UInt32, cause: UInt32)
     case screenshotFailure(stage: UInt32, cause: UInt32)
 }
+/// Read-only input preparation failed; no HID report has been submitted.
+/// These failures do not invalidate the authenticated control session.
+public struct NativeInputGeometryError: Error, Equatable, Sendable {
+    public enum Reason: String, Sendable {
+        case metadataQuery = "metadata_query"
+        case metadataInvalid = "metadata_invalid"
+        case decoderUnavailable = "decoder_unavailable"
+        case decoderFailed = "decoder_failed"
+        case invalidToken = "invalid_token"
+        case generationChanged = "generation_changed"
+        case snapshotUnavailable = "snapshot_unavailable"
+        case decoderChanged = "decoder_changed"
+        case streamChanged = "stream_changed"
+        case sizeMismatch = "size_mismatch"
+        case framePending = "frame_pending"
+    }
+    public let reason: Reason
+    public let stage: UInt32
+    public let cause: UInt32
+    public init(_ reason: Reason, stage: UInt32 = 0, cause: UInt32 = 0) {
+        self.reason = reason; self.stage = stage; self.cause = cause
+    }
+    /// Fixed categories only; no peer payload, image, coordinates or credential.
+    public var diagnosticFields: [String: String] {
+        ["geometry_reason": reason.rawValue, "native_stage": String(stage), "native_cause": String(cause)]
+    }
+}
 public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified }
 
 /// Owns one native worker, its two relay streams and media. The caller closes
@@ -165,43 +192,59 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     public private(set) var capturedVideoGeometryToken: String?
     /// Reads the existing decoded stream only; never requests another screenshot.
     public func validateVideoGeometry(_ expected: String) async throws {
-        guard videoDecodeFailure == nil, ready, handle != 0, let decoder = videoDecoder else { throw NativeBackendError.closed }
-        guard let separator = expected.lastIndex(of: "|"),
-              let credential = UInt64(expected[expected.index(after: separator)...]), credential != 0 else { throw NativeBackendError.malformedEvent }
-        let decodedGeometry = String(expected[..<separator])
+        guard ready, handle != 0 else { throw NativeBackendError.closed }
         let token = handle
-        guard ncm_backend_video_geometry_generation(token) == credential else { throw NativeBackendError.malformedEvent }
         var before = ncm_video_snapshot()
-        guard ncm_backend_video_get_snapshot(token, &before) == 0,
-              let geometry = await decoder.currentGeometryToken(), geometry == decodedGeometry else { throw NativeBackendError.malformedEvent }
+        let snapshotStatus = ncm_backend_video_get_snapshot(token, &before)
+        if snapshotStatus == 3 { throw NativeBackendError.closed }
+        guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+        guard let decoder = videoDecoder else { throw NativeInputGeometryError(.decoderUnavailable) }
+        guard let separator = expected.lastIndex(of: "|"),
+              let credential = UInt64(expected[expected.index(after: separator)...]), credential != 0 else { throw NativeInputGeometryError(.invalidToken) }
+        let decodedGeometry = String(expected[..<separator])
+        guard ncm_backend_video_geometry_generation(token) == credential else { throw NativeInputGeometryError(.generationChanged) }
+        guard snapshotStatus == 0 else { throw NativeInputGeometryError(.snapshotUnavailable) }
+        let geometry = await decoder.currentGeometryToken()
+        guard token == handle, ready else { throw NativeBackendError.closed }
+        guard geometry == decodedGeometry else { throw NativeInputGeometryError(.decoderChanged) }
         var after = ncm_video_snapshot()
-        guard token == handle, videoDecoder === decoder, videoDecodeFailure == nil, ready,
-              ncm_backend_video_get_snapshot(token, &after) == 0,
+        let afterStatus = ncm_backend_video_get_snapshot(token, &after)
+        if afterStatus == 3 { throw NativeBackendError.closed }
+        guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+        guard videoDecoder === decoder else { throw NativeInputGeometryError(.decoderChanged) }
+        guard afterStatus == 0,
               before.epoch == after.epoch,
               ncm_backend_video_geometry_generation(token) == credential,
-              decodedGeometry.hasPrefix("\(after.epoch):") else { throw NativeBackendError.malformedEvent }
+              decodedGeometry.hasPrefix("\(after.epoch):") else { throw NativeInputGeometryError(.streamChanged) }
     }
     /// Read authenticated display metadata and existing decoder geometry only.
     /// No JPEG encoding, screenshot request or image publication occurs here.
     public func inputDisplayGeometry() async throws -> String {
         let data = try await operation(12, expectedKind: 15)
-        guard let size = try JSONSerialization.jsonObject(with: data) as? [String: Int],
-              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeBackendError.malformedEvent }
+        guard let size = (try? JSONSerialization.jsonObject(with: data)) as? [String: Int],
+              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
+        let handleAtStart = handle
         let until = ContinuousClock.now.advanced(by: .seconds(3))
         while ContinuousClock.now < until {
-            guard ready, let decoder = videoDecoder, videoDecodeFailure == nil else { throw NativeBackendError.closed }
+            try Task.checkCancellation()
+            guard ready, handle != 0, handle == handleAtStart else { throw NativeBackendError.closed }
+            var snapshot = ncm_video_snapshot()
+            if ncm_backend_video_get_snapshot(handle, &snapshot) == 3 { throw NativeBackendError.closed }
+            guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+            guard let decoder = videoDecoder else { throw NativeInputGeometryError(.decoderUnavailable) }
             if let published = publishedDecoderGeometry,
                published.credential == ncm_backend_video_geometry_generation(handle),
                let token = await decoder.currentGeometryToken(), token == published.token {
                 let parts = token.split(separator: ":")
-                guard parts.count == 8, Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeBackendError.malformedEvent }
+                guard parts.count == 8 else { throw NativeInputGeometryError(.invalidToken) }
+                guard Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeInputGeometryError(.sizeMismatch) }
                 let result = "\(token)|\(published.credential)"
                 try await validateVideoGeometry(result)
                 return result
             }
             try await Task.sleep(for: .milliseconds(20))
         }
-        throw NativeBackendError.malformedEvent
+        throw NativeInputGeometryError(.framePending)
     }
     public func captureVideoJPEG() async throws -> Data {
         capturedVideoGeometryToken = nil
@@ -354,6 +397,13 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             guard header.kind == expectedKind else { throw NativeBackendError.malformedEvent }
             return data
         } catch {
+            // Display metadata uses its own read-only service stream. A query
+            // error is not a tunnel failure; Rust checks the owner again before
+            // returning it. Closed sessions and malformed ABI events stay fatal.
+            if action == 12, case NativeBackendError.protocolFailure(let stage, let cause) = error,
+               [UInt32(10), 11].contains(stage) {
+                throw NativeInputGeometryError(.metadataQuery, stage: stage, cause: cause)
+            }
             // A screenshot owns a fresh, read-only service stream. Dropping that
             // stream does not revoke the authenticated tunnel or replay any input.
             // Cancellation, worker closure and malformed ABI events remain fatal.
@@ -393,6 +443,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     }
     #if NCM_OFFLINE_FIXTURES
     /// Compiled only into the separately built host test target.
+    func closeWorkerFixture() { if handle != 0 { ncm_backend_close(handle) } }
     func connectMediaFailureFixture() async throws {
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         var started: UInt64 = 0

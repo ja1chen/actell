@@ -303,6 +303,9 @@ impl Session {
         self.check()?;
         let size = media::query_display_geometry(&mut self.adapter, &mut self.handshake).await;
         self.video.set_visible_size(size.as_ref().ok().copied());
+        // A failed read-only query can retain this session, but a transport
+        // closure during that query must still be reported as Closed.
+        self.check()?;
         let (width, height) = size?;
         serde_json::to_vec(&serde_json::json!({"width": width, "height": height}))
             .map_err(|_| error(Stage::Input, Cause::Protocol))

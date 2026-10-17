@@ -8,6 +8,11 @@ spec.loader.exec_module(collector)
 
 
 class CollectorTests(unittest.TestCase):
+    def test_geometry_failure_keeps_categories_and_hashed_call_without_payload(self):
+        events = collector.extract('stage=tool.execution.failed run=1111111111111111 code=geometry_unavailable state=["call": "2222222222222222", "geometry_reason": "metadata_query", "native_stage": "11", "native_cause": "2", "delivery": "failed", "purpose": "private", "geometry_token": "private"]')
+        self.assertEqual(events[0]['state'], {'call': '2222222222222222', 'geometry_reason': 'metadata_query', 'native_stage': '11', 'native_cause': '2', 'delivery': 'failed'})
+        self.assertNotIn('private', str(events))
+
     def test_native_json_preserves_rejection_and_connection_without_raw_data(self):
         sample = {'items': [{'message': 'stage=rpc.authentication.rejected diagnostic=1111111111111111 code=clock_skew state=["connection": "2222222222222222", "authenticated": "false", "signature": "private-signature", "secret": "private-key", "address": "192.168.1.8"]'}]}
         events = collector.extract(sample)

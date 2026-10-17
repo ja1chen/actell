@@ -29,8 +29,10 @@ import ProviderCore
     var reservations = 0
     var captures = 0
     var geometryToken: String?
+    var geometryError: Error?
     var geometryChecks = 0
     func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+        if let geometryError { throw geometryError }
         guard let geometryToken else { throw RemoteRPCError("geometry_unavailable", "No synthetic geometry") }
         return geometryToken
     }
@@ -103,6 +105,52 @@ import ProviderCore
 }
 
 @MainActor final class NCMDeviceBridgeTests: XCTestCase {
+    func testGeometryFailurePreservesReasonWithoutInputAndCancellationIsNotRewritten() async throws {
+        let flow = NCMConnectionSpy()
+        let bridge = try NCMDeviceBridge(flow: flow)
+        flow.geometryError = NativeInputGeometryError(.metadataQuery, stage: 11, cause: 2)
+        do { _ = try await bridge.inputDisplaySnapshot(); XCTFail("Expected metadata failure") }
+        catch {
+            let failure = try XCTUnwrap(error as? RemoteRPCError)
+            XCTAssertEqual(failure.code, "geometry_unavailable")
+            XCTAssertEqual(failure.diagnosticFields["geometry_reason"], "metadata_query")
+            XCTAssertEqual(failure.diagnosticFields["native_cause"], "2")
+        }
+        flow.geometryError = CancellationError()
+        do { _ = try await bridge.inputDisplaySnapshot(); XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(flow.taps, 0); XCTAssertEqual(flow.captures, 0)
+        await bridge.stop()
+    }
+
+    func testReadOnlyGeometryFailureRetainsFlowButClosedTransportRevokesIt() async throws {
+        let flow = PairingFlow(), owner = UUID()
+        flow.ready = true
+        let session = flow.controlSessionID
+        flow.registerAgent(owner: owner, session: session)
+        for reason: NativeInputGeometryError.Reason in [.metadataQuery, .metadataInvalid, .decoderUnavailable, .decoderFailed, .sizeMismatch, .framePending, .generationChanged, .streamChanged] {
+            let failure = NativeInputGeometryError(reason)
+            do {
+                let _: Void = try await flow.agentOperation(owner: owner, session: session) { _ in throw failure }
+                XCTFail("Expected geometry failure")
+            } catch { XCTAssertEqual(error as? NativeInputGeometryError, failure) }
+            XCTAssertTrue(flow.ready)
+            XCTAssertEqual(flow.controlSessionID, session)
+            XCTAssertFalse(flow.running)
+            let next = try await flow.agentOperation(owner: owner, session: session) { _ in 42 }
+            XCTAssertEqual(next, 42)
+            XCTAssertNil(flow.lastFailure)
+        }
+        do {
+            let _: Void = try await flow.agentOperation(owner: owner, session: session) { _ in
+                throw NativeBackendError.protocolFailure(stage: 12, cause: 5)
+            }
+            XCTFail("Closed transport must fail")
+        } catch {}
+        XCTAssertFalse(flow.ready)
+        XCTAssertNotEqual(flow.controlSessionID, session)
+    }
+
     func testIndependentInputUsesGeometryWithoutCaptureAndConsumesGrant() async throws {
         let flow = NCMConnectionSpy(); flow.geometryToken = "first"
         let bridge = try NCMDeviceBridge(flow: flow)

@@ -300,7 +300,10 @@ private final class NCMRunFence: @unchecked Sendable {
         let session = try requireSession()
         let token: String
         do { token = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
-        catch { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable", underlying: error) }
+        catch {
+            if error is CancellationError || (error as? AppError) == .stopped { throw error }
+            throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable", underlying: error)
+        }
         try check()
         return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: token, sampledAt: Date())
     }

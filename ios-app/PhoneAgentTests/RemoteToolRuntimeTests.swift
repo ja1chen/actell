@@ -5,11 +5,16 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
     private let demo = DemoBridge()
     private(set) var inputs = 0
     private(set) var stops = 0
+    private var geometryFailsAtDelivery = false
+    func failGeometryAtDelivery() { geometryFailsAtDelivery = true }
     func supportsBackgroundExecution(tool: String) -> Bool { true }
     func setRemoteDeadline(_ deadline: Date) throws { guard deadline > Date() else { throw AppError.stopped } }
     func inputDisplaySnapshot() -> InputDisplaySnapshot { .init(context: "synthetic-remote-control", token: "v1", sampledAt: Date()) }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) {}
-    func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) { inputs += 1 }
+    func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) throws {
+        if geometryFailsAtDelivery { throw NativeInputGeometryError(.generationChanged) }
+        inputs += 1
+    }
     func screenshot() async throws -> FrameImage { try await demo.screenshot() }
     func validateRemoteObservation(_ frame: FrameImage) {}
     func tap(x: Int, y: Int, imageID: String) throws { throw AppError.stopped }
@@ -23,6 +28,26 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
 }
 
 @MainActor final class RemoteToolRuntimeTests: XCTestCase {
+    func testGeometryFailureAfterDispatchKeepsConservativeReceiptAndDiagnostic() async throws {
+        let bridge = RemoteRuntimeTestBridge()
+        await bridge.failGeometryAtDelivery()
+        let model = AgentViewModel(loadPersistentState: false, makeRemoteBridge: { bridge })
+        model.setForeground(true); model.setProtectedDataAvailable(true)
+        let runtime = try model.acquireRemoteRun("geometry-delivery", onImage: { _ in XCTFail("No screenshot") }, onStop: {})
+        let result = try await runtime.executeRemoteTool(name: "tap", arguments: ["x": 394, "y": 571, "purpose": "Synthetic input", "_input_contract": InputDisplaySnapshot.contract], callID: "tap", imageID: nil, deadline: Date().addingTimeInterval(20))
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(runtime.remoteDelivery("tap"), .outcomeUnknown)
+        let code = await runtime.remoteFailureCode()
+        let diagnostic = await runtime.remoteFailureDiagnostics()
+        XCTAssertEqual(code, "geometry_unavailable")
+        XCTAssertEqual(diagnostic["geometry_reason"], "generation_changed")
+        XCTAssertFalse(result.result.contains(String(localized: "Could not verify the current screen layout. No input was sent.")))
+        let inputs = await bridge.inputs
+        XCTAssertEqual(inputs, 0)
+        runtime.stop(message: "Synthetic stop")
+        await runtime.waitForRemoteRelease(); model.releaseRemoteRun("geometry-delivery")
+    }
+
     func testPerInvokeReleaseRetainsSelectedContinuationWithoutHoldingPhoneOwnership() async throws {
         let background = BackgroundExecutionCoordinator.testing(selection: [.audio])
         let receipt = BackgroundSourceToken(mechanism: .audio, owner: UUID())

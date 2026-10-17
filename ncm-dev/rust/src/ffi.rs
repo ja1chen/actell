@@ -1182,6 +1182,7 @@ unsafe fn start_media_fixture(
                                 e.header.kind = 10;
                                 e
                             }
+                            12 => Event::failed(request.id, Error { stage: Stage::Input, cause: Cause::Timeout }),
                             4 | 6 => Event::failed(
                                 request.id,
                                 Error {

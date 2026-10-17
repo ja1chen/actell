@@ -322,6 +322,11 @@ final class NativeBackendTests: XCTestCase {
             let source=try XCTUnwrap(CGImageSourceCreateWithData(jpeg as CFData,nil))
             let image=try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
             XCTAssertEqual(image.width,64); XCTAssertEqual(image.height,96)
+            let geometry = try XCTUnwrap(client.capturedVideoGeometryToken)
+            try await client.validateVideoGeometry(geometry)
+            do { try await client.validateVideoGeometry("invalid-token"); XCTFail("Invalid token must fail") }
+            catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.invalidToken)) }
+            try await client.validateVideoGeometry(geometry)
             // Only non-sync frames follow the initial keyframe. Repeated idle
             // screenshots after the old one-second expiry must still work.
             try await Task.sleep(for: .milliseconds(1200))
@@ -370,6 +375,21 @@ final class NativeBackendTests: XCTestCase {
         do { _ = try await client.listServices(); XCTFail("uncertain touch must close") }
         catch { XCTAssertEqual(error as? NativeBackendError, .closed) }
         client.close()
+    }
+    @MainActor func testInputGeometryQueryTimeoutRetainsNativeSession() async throws {
+        let client = NativeDeveloperServices()
+        try await client.connectMediaFailureFixture()
+        defer { client.close() }
+        do { _ = try await client.inputDisplayGeometry(); XCTFail("Expected metadata timeout") }
+        catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.metadataQuery, stage: 11, cause: 2)) }
+        // Cross the native worker again, not merely its cached ready flag.
+        try await client.checkDeveloperReadiness()
+        do { try await client.validateVideoGeometry("synthetic|1"); XCTFail("No decoder") }
+        catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.decoderUnavailable)) }
+        try await client.checkDeveloperReadiness()
+        client.closeWorkerFixture() // Worker can close while Swift still caches ready=true.
+        do { try await client.validateVideoGeometry("synthetic|1"); XCTFail("Closed worker is fatal") }
+        catch { XCTAssertEqual(error as? NativeBackendError, .closed) }
     }
     @MainActor func testDragCrossesNativeABIAndUncertainDeliveryClosesSession() async throws {
         let client = NativeDeveloperServices()

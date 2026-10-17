@@ -9,10 +9,12 @@ struct RemoteRPCError: LocalizedError {
     let message: String
     let underlyingDomain: String?
     let underlyingCode: Int?
+    let diagnosticFields: [String: String]
     init(_ code: String, _ message: String, underlying: Error? = nil) {
         self.code = code; self.message = message
         underlyingDomain = underlying.map { ($0 as NSError).domain }
         underlyingCode = underlying.map { ($0 as NSError).code }
+        diagnosticFields = (underlying as? NativeInputGeometryError)?.diagnosticFields ?? [:]
     }
     var errorDescription: String? { message }
 }
@@ -492,6 +494,14 @@ struct RemoteRPCError: LocalizedError {
                 imageID: imageID, deadline: Date(timeIntervalSince1970: Double(deadline) / 1000))
             let failureCode = await worker.remoteFailureCode()
             let delivery = worker.remoteDelivery(callID)
+            if result.isError {
+                var state = diagnosticSnapshot
+                state.merge(await worker.remoteFailureDiagnostics()) { _, new in new }
+                state["call"] = MuseDiagnosticsLog.tag(callID)
+                state["delivery"] = delivery?.rawValue ?? "unprepared"
+                (diagnostics ?? model.museDiagnostics).record("tool.execution.failed", client: journal.calls[id]?.clientID,
+                    run: run, code: failureCode ?? "tool_failed", state: state)
+            }
             // Closing a run already froze a conservative terminal result. Never
             // upgrade unknown/cancelled from late callbacks or resurrect a run.
             if journal.calls[id]?.state == "running" {

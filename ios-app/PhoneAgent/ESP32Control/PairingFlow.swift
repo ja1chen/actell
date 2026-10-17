@@ -347,6 +347,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             return value
         } catch {
             guard controlSessionID == session else { throw NCMControlError.stopped }
+            if let geometry = error as? NativeInputGeometryError {
+                BackgroundExecutionTrace.record("input.geometry.failed reason=\(geometry.reason.rawValue) stage=\(geometry.stage) cause=\(geometry.cause) connectionRetained=true")
+                message = String(localized: "Could not verify the current screen layout. No input was sent.")
+                lastFailure = message
+                throw geometry
+            }
             if case NativeBackendError.touchPreparationFailure = error {
                 mediaStarted = false; message = String(localized: "\(failure(error)). No input was sent."); lastFailure = message
                 throw NCMControlError.unavailable(message)
@@ -363,6 +369,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             }
             if error is CancellationError || (error as? NCMControlError) != nil {
                 cancel(); throw NCMControlError.stopped
+            }
+            if case NativeBackendError.protocolFailure(let stage, let cause) = error {
+                BackgroundExecutionTrace.record("control.operation.failed stage=\(stage) cause=\(cause) connectionRetained=false")
+            } else if case NativeBackendError.closed = error {
+                BackgroundExecutionTrace.record("control.operation.failed reason=closed connectionRetained=false")
             }
             message = String(localized: "\(failure(error)); reconnect to \(route.connectionName)"); lastFailure = message
             stopHeartbeat(); ready = false; mediaStarted = false; backend.close()

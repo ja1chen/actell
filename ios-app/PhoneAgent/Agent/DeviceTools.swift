@@ -79,6 +79,7 @@ actor ActionCoordinator {
     private var pendingCallID: String?
     private var authorizationStage = "none"
     private(set) var remoteFailureCode: String?
+    private(set) var remoteFailureDiagnostics: [String: String] = [:]
     private let diagnostics: USBDiagnosticsLog?
 
     init(bridge: any DeviceBridge, limits: AgentLimits, approve: @escaping @Sendable (Approval) async -> Bool,
@@ -215,13 +216,13 @@ actor ActionCoordinator {
                 else if name == "drag" { try await bridge.drag(fromX: nx, fromY: ny, toX: tx, toY: ty, durationMS: duration, imageID: reference) }
                 else { try await bridge.systemAction(name: name, text: text, arguments: arguments, imageID: reference) }
             } catch {
-                remoteFailureCode = (error as? RemoteRPCError)?.code
+                rememberRemoteFailure(error)
                 image = nil
                 await lifecycle?.toolFailed(callID: callID, generation: generation)
                 if Task.isCancelled || error is CancellationError || (error as? AppError) == .stopped { throw error }
                 // Keep the unknown receipt durable, consume its old image, and
                 // return control to the model. Never resend this dispatch here.
-                let message = Self.safeToolError(error)
+                let message = Self.safeToolError(error, beforeDispatch: false)
                 throw AppError.unavailable((error as? AppError) == .unknownOutcome
                     ? message : String(localized: "\(message)\nThe action outcome is unknown. It was not resent automatically."))
             }
@@ -253,6 +254,7 @@ actor ActionCoordinator {
                        expectedImageID: String?, deadline: Date) async throws -> AgentToolResult {
         guard !remoteCallInFlight else { throw AppError.unavailable(String(localized: "A remote tool is running. Wait for it to finish.")) }
         remoteFailureCode = nil
+        remoteFailureDiagnostics = [:]
         remoteCallInFlight = true; remoteDeadline = deadline
         defer { remoteCallInFlight = false; remoteDeadline = nil }
         do {
@@ -301,14 +303,29 @@ actor ActionCoordinator {
         return RunCheckpoint.Tool(callID: callID, name: name, parameterSummary: summary, argumentDigest: digest)
     }
     func recordFailure(_ error: Error) -> String {
-        remoteFailureCode = (error as? RemoteRPCError)?.code
+        rememberRemoteFailure(error)
         image = nil
         return Self.safeToolError(error)
     }
-    private static func safeToolError(_ error: Error) -> String {
+    private static func safeToolError(_ error: Error, beforeDispatch: Bool = true) -> String {
+        if (error as? RemoteRPCError)?.code == "geometry_unavailable" || error is NativeInputGeometryError {
+            return beforeDispatch ? String(localized: "Could not verify the current screen layout. No input was sent.")
+                : String(localized: "This connection cannot verify the current screen layout.")
+        }
         // Bridge/validation AppErrors contain local public messages, never raw
         // remote responses, credentials or arbitrary NSError diagnostics.
-        String(((error as? AppError)?.localizedDescription ?? String(localized: "The tool failed. It was not retried automatically. Check the device connection or adjust the request.")).prefix(1_000))
+        return String(((error as? AppError)?.localizedDescription ?? String(localized: "The tool failed. It was not retried automatically. Check the device connection or adjust the request.")).prefix(1_000))
+    }
+    private func rememberRemoteFailure(_ error: Error) {
+        if let rpc = error as? RemoteRPCError {
+            remoteFailureCode = rpc.code
+            remoteFailureDiagnostics = rpc.diagnosticFields
+            remoteFailureDiagnostics["underlying_domain"] = rpc.underlyingDomain
+            remoteFailureDiagnostics["underlying_code"] = rpc.underlyingCode.map(String.init)
+        } else if let geometry = error as? NativeInputGeometryError {
+            remoteFailureCode = "geometry_unavailable"
+            remoteFailureDiagnostics = geometry.diagnosticFields
+        }
     }
     func stop() async {
         if let stopTask { await stopTask.value; return }
