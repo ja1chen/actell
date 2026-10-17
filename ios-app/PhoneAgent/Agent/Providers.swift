@@ -44,16 +44,16 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         // A plain bearer/API key must never impersonate a subscription grant.
         guard providerKind != .chatGPTSubscription else { throw AppError.unavailable(ChatGPTSubscriptionPolicy.mobileLoginNotice) }
         let endpoint = try providerKind.inferenceBase(settings.baseURL)
-        guard !settings.model.isEmpty else { throw AppError.invalid("请先选择模型") }
-        guard !apiKey.isEmpty || providerKind == .ollama else { throw AppError.invalid("请先设置模型 API 密钥") }
-        guard inferenceAPI == .chatCompletions || providerKind.supportsResponses else { throw AppError.invalid("此供应商协议尚未验证 Responses 推理") }
-        guard inferenceAPI == .responses || contextPolicy == .stateless else { throw AppError.invalid("历史续接仅支持 Responses") }
-        guard contextPolicy == .stateless || providerKind.supportsResponseChain else { throw AppError.invalid("此供应商 Responses 仅支持无状态请求") }
+        guard !settings.model.isEmpty else { throw AppError.invalid(String(localized: "Select a model first")) }
+        guard !apiKey.isEmpty || providerKind == .ollama else { throw AppError.invalid(String(localized: "Set the model API key first")) }
+        guard inferenceAPI == .chatCompletions || providerKind.supportsResponses else { throw AppError.invalid(String(localized: "Responses inference has not been verified for this provider protocol")) }
+        guard inferenceAPI == .responses || contextPolicy == .stateless else { throw AppError.invalid(String(localized: "History continuation only supports Responses")) }
+        guard contextPolicy == .stateless || providerKind.supportsResponseChain else { throw AppError.invalid(String(localized: "This provider's Responses API only supports stateless requests")) }
         self.providerKind = providerKind
         var fields = try parameters.requestFields(providerKind: providerKind, model: metadata)
         if inferenceAPI == .responses {
             if let effort = fields.removeValue(forKey: "reasoning_effort") { fields["reasoning"] = ["effort": effort] }
-            guard fields["seed"] == nil else { throw AppError.invalid("Responses 尚未支持 seed 参数，请清空后保存") }
+            guard fields["seed"] == nil else { throw AppError.invalid(String(localized: "Responses does not support the seed parameter. Clear it before saving.")) }
             if let n = fields.removeValue(forKey: "max_tokens") ?? fields.removeValue(forKey: "max_completion_tokens") { fields["max_output_tokens"] = n }
         }
         parameterFields = fields
@@ -64,7 +64,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         context = inferenceAPI == .responses ? try ContextCoordinator(scope: scope, storage: contextPolicy == .responseChain ? .responseChain : .none, checkpointFile: checkpointFile) : nil
     }
     func capabilities(for model: String) async throws -> ProviderCapabilities {
-        guard model == configuration.defaultModel else { throw ModelError.unsupportedCapability("模型能力尚未核对") }
+        guard model == configuration.defaultModel else { throw ModelError.unsupportedCapability(String(localized: "Model capabilities have not been verified")) }
         return .init(responseChain: codec.wire == .responses && providerKind.supportsResponseChain)
     }
     func cancel() {
@@ -85,7 +85,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
             if providerKind == .ollama { object.removeValue(forKey: "parallel_tool_calls") }
             for (key, field) in parameterFields { object[key] = field }
             value.httpBody = try JSONSerialization.data(withJSONObject: object)
-            guard (value.httpBody?.count ?? 0) <= 24 * 1024 * 1024 else { throw AppError.invalid("模型请求超过 24 MiB 限制") }
+            guard (value.httpBody?.count ?? 0) <= 24 * 1024 * 1024 else { throw AppError.invalid(String(localized: "The model request exceeds the 24 MiB limit")) }
         }
         return value
     }
@@ -117,7 +117,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                                     try Task.checkCancellation()
                                     if let prepared { try context?.commit(response, prepared: prepared) }
                                 }
-                                if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation("模型输出缓冲超过限制") }
+                                if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation(String(localized: "The model output buffer exceeds the limit")) }
                             }
                             if reducer.response != nil { break }
                             stage = "stream.receive"
@@ -137,7 +137,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                         }
                         stage = "terminal.validate"
                         let terminal = try decoder.finalResponse(request: request, providerName: Self.name, scope: codec.scope)
-                        if case .dropped = continuation.yield(.terminal(terminal)) { throw ModelError.protocolViolation("模型输出缓冲超过限制") }
+                        if case .dropped = continuation.yield(.terminal(terminal)) { throw ModelError.protocolViolation(String(localized: "The model output buffer exceeds the limit")) }
                     }
                     continuation.finish()
                 } catch {
@@ -181,7 +181,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
     }
     func parseResponse(_ data: Data, request: ModelRequest) throws -> ModelResponse {
         guard codec.wire == .chatCompletions else { return try codec.parseResponse(data, request: request) }
-        guard var o = try JSONSerialization.jsonObject(with: data) as? [String: Any], var choices = o["choices"] as? [[String: Any]], !choices.isEmpty, let m = choices[0]["message"] as? [String: Any] else { throw AppError.invalid("Chat Completions 响应格式不兼容") }
+        guard var o = try JSONSerialization.jsonObject(with: data) as? [String: Any], var choices = o["choices"] as? [[String: Any]], !choices.isEmpty, let m = choices[0]["message"] as? [String: Any] else { throw AppError.invalid(String(localized: "Incompatible Chat Completions response format")) }
         choices[0]["message"] = ReadableReasoningDecoder.removingFields(from: m); o["choices"] = choices
         let parsed = try codec.parseResponse(JSONSerialization.data(withJSONObject: o), request: request)
         let details = try (m["reasoning_details"] as? [[String: Any]])?.map { try ProviderCore.JSONValue(any: $0) }
@@ -216,18 +216,21 @@ struct DemoProvider: ModelProvider {
         let calls = request.messages.flatMap { $0.toolCalls ?? [] }
         let stage = calls.count
         if stage >= 3, !request.tools.contains(where: { $0.name == "finish" }) {
-            return ModelResponse(text: "合成测试已完成。", finishReason: .stop, request: request, providerName: Self.name)
+            return ModelResponse(text: String(localized: "The simulated test is complete."), finishReason: .stop, request: request, providerName: Self.name)
         }
         let call: ModelToolCall
         switch stage {
         case 0: call = ModelToolCall(name: "screenshot", arguments: "{}")
         case 1:
-            let arguments: [String: Any] = ["x": 195, "y": 380, "purpose": "点击合成画面的演示计数器"]
+            let arguments: [String: Any] = ["x": 195, "y": 380, "purpose": String(localized: "Tap the demo counter on the simulated screen")]
             call = ModelToolCall(name: "tap", arguments: String(data: try JSONSerialization.data(withJSONObject: arguments), encoding: .utf8)!)
         case 2: call = ModelToolCall(name: "screenshot", arguments: "{}")
-        default: call = ModelToolCall(name: "finish", arguments: "{\"summary\":\"离线演示完成：已确认一次合成点击并刷新合成截图。没有连接或控制真实设备。\"}")
+        default:
+            let summary = String(localized: "Offline demo complete: one simulated tap was confirmed and the simulated screenshot was refreshed. No real device was connected or controlled.")
+            let arguments = try JSONSerialization.data(withJSONObject: ["summary": summary])
+            call = ModelToolCall(name: "finish", arguments: String(decoding: arguments, as: UTF8.self))
         }
-        let narration = ["这是离线脚本演示。我会先查看合成屏幕。", "接下来演示一次点击，请确认工具卡片中的动作。", "点击已返回。现在获取新的合成截图检查结果。", "演示流程已结束。没有连接模型或控制真实设备。"]
+        let narration = [String(localized: "This is an offline scripted demo. I will view the simulated screen first."), String(localized: "Next, I will demonstrate a tap. Confirm the action in the tool card."), String(localized: "The tap returned. I will get a new simulated screenshot to check the result."), String(localized: "The demo is complete. No model or real device was connected or controlled.")]
         return ModelResponse(text: narration[min(stage, 3)], finishReason: .toolCalls, toolCalls: [call], request: request, providerName: Self.name)
     }
 }
@@ -394,7 +397,7 @@ struct LLMUnexpectedResponse: Error, LocalizedError {
         else { bodyShape = "non-json" }
     }
     var errorDescription: String? {
-        "模型服务未返回 SSE 流（HTTP \(status)；类型 \(contentType)；结构 \(bodyShape)）；本轮未完成，未自动重试" + (errorCode.map { "；" + $0 } ?? "")
+        String(localized: "The model service did not return an SSE stream (HTTP \(status); type \(contentType); structure \(bodyShape)). This run did not finish and was not retried automatically.") + (errorCode.map { "；" + $0 } ?? "")
     }
 }
 

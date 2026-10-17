@@ -1,10 +1,27 @@
 import XCTest
 
 @MainActor final class MuseConnectionUITests: XCTestCase {
+    func testEnglishMuseSetupUsesLocalizedLabels() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate() }
+        app.buttons["Settings"].tap()
+        let entry = app.buttons["openMuseConnection"]
+        for _ in 0..<4 where !entry.isHittable { app.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(app.staticTexts["museNoDevices"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["museNoDevices"].label, "No devices added")
+        XCTAssertTrue(app.switches["museAllowConnection"].label.contains("Muse Gadget Service"))
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "museServiceStatus").firstMatch.value as? String, "Stopped")
+        XCTAssertFalse(app.buttons["museAddCompanion"].exists)
+    }
     private func open(_ flag: String? = nil, environment: [String: String] = [:]) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"] + (flag.map { [$0] } ?? [])
+        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"] + (flag.map { [$0] } ?? [])
         app.launchEnvironment.merge(environment, uniquingKeysWith: { _, new in new })
         app.launch()
         app.buttons["设置"].tap()

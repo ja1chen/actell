@@ -76,7 +76,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
 
 @available(iOS 27.0, *)
 @MainActor final class ScreenCaptureController: NSObject, ObservableObject, SCContentSharingPickerObserver, SCStreamDelegate {
-    @Published private(set) var status = "未采集。全屏采集需在系统面板中确认。"
+    @Published private(set) var status = String(localized: "Capture is off. Confirm full-screen capture in the system panel.")
     @Published private(set) var active = false
     @Published private(set) var busy = false
     let isSupported = true
@@ -99,7 +99,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
         config.showsMicrophoneControl = false; config.showsCameraControl = false
         picker.defaultConfiguration = config; picker.isActive = true
         picker.present() // Full display; intentionally not presentForCurrentApplication().
-        status = "等待系统采集授权"; onDiagnostic?("capture.picker presented")
+        status = String(localized: "Waiting for screen capture permission"); onDiagnostic?("capture.picker presented")
     }
     private func revoke(message: String) {
         let hadSession = active || frames.diagnostics().active
@@ -109,7 +109,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
     }
     func stop() async {
         pending = false
-        revoke(message: "采集已停止")
+        revoke(message: String(localized: "Capture stopped"))
         guard let target = stream, let token = lifecycle.token else {
             busy = false; SCContentSharingPicker.shared.isActive = false; return
         }
@@ -118,14 +118,14 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
     }
     private func stopStream(_ target: SCStream, token: UUID) async {
         onDiagnostic?("capture.stop requested")
-        var message = "采集已停止"
+        var message = String(localized: "Capture stopped")
         do { try await target.stopCapture() }
         catch {
             let failure = error as NSError, code = failure.code
             // A system stop can race this one request. Do not retry or restart.
             onDiagnostic?("capture.stop completion code=\(code)")
             if failure.domain != SCStreamErrorDomain || code != -3808 {
-                message = "停止请求返回错误（\(code)），输入已禁用；请检查系统采集面板"
+                message = String(localized: "The stop request returned error \(code). Input is disabled. Check the system capture panel.")
             }
         }
         finish(token: token, message: message)
@@ -146,7 +146,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
         let output = ScreenSampleSink(frames: frames, epoch: frames.begin()) { [weak self] alreadyStopped in
             Task { @MainActor in
                 guard let self, self.lifecycle.owns(token) else { return }
-                if alreadyStopped { self.finish(token: token, message: "系统已停止采集") }
+                if alreadyStopped { self.finish(token: token, message: String(localized: "The system stopped capture")) }
                 else { await self.stop() }
             }
         }
@@ -156,15 +156,15 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
             try await target.startCapture()
             guard lifecycle.owns(token) else { return }
             if lifecycle.started(token) { await stopStream(target, token: token); return }
-            active = true; busy = false; status = "采集已启动，等待首帧…"
+            active = true; busy = false; status = String(localized: "Capture started. Waiting for the first image…")
             onDiagnostic?("capture.start completed; waiting for samples; metadataReader=sck-orientation-2")
             monitor = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self, self.lifecycle.owns(token), self.active else { return }
                     let snapshot = self.frames.diagnostics()
                     if snapshot.accepted == 0 {
-                        self.status = "采集已启动，等待首帧（已收到 \(snapshot.received) 个样本）"
-                    } else { self.status = "全屏采集中 · 已收到画面；截图按任务需要发送" }
+                        self.status = String(localized: "Capture started. Waiting for the first image (\(snapshot.received) samples received).")
+                    } else { self.status = String(localized: "Full-screen capture is active. Screenshots are sent as needed for the task.") }
                     self.onDiagnostic?(snapshot.summary)
                     do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
                 }
@@ -172,7 +172,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
         } catch {
             onDiagnostic?("capture.start failed code=\((error as NSError).code)")
             // A failed start is already stopped. Calling stopCapture here caused -3808.
-            finish(token: token, message: "系统未能开始采集，请重新授权")
+            finish(token: token, message: String(localized: "The system could not start capture. Authorize it again."))
         }
     }
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
@@ -197,14 +197,14 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
         Task { @MainActor [weak self] in
             guard let self, self.stream.map(ObjectIdentifier.init) == identity, let token = self.lifecycle.token else { return }
             self.onDiagnostic?("capture.systemStopped code=\(code)")
-            self.finish(token: token, message: "系统已停止采集（\(code)）")
+            self.finish(token: token, message: String(localized: "The system stopped capture (\(code))"))
         }
     }
 }
 #else
 // Xcode 27A266a has no ScreenCaptureKit in the iOS Simulator SDK.
 @MainActor final class ScreenCaptureController: ObservableObject {
-    @Published private(set) var status = "此 Simulator SDK 不含 ScreenCaptureKit；需 iOS 27 真机授权"
+    @Published private(set) var status = String(localized: "Screen capture is unavailable in this simulator. Authorize it on an iPhone running iOS 27.")
     @Published private(set) var active = false
     @Published private(set) var busy = false
     let isSupported = false

@@ -4,6 +4,17 @@ import Security
 
 // Synthetic CA and server test identity for .invalid, never shipped in the app target.
 @MainActor final class RemoteConnectionStoreTests: XCTestCase {
+    func testCredentialDiagnosticsRetainSystemCodeWithoutTechnicalUICopy() {
+        let vault = RemoteVaultError(status: errSecMissingEntitlement, operation: "read")
+        XCTAssertEqual((vault as NSError).domain, NSOSStatusErrorDomain)
+        XCTAssertEqual((vault as NSError).code, Int(errSecMissingEntitlement))
+        XCTAssertEqual((vault as NSError).localizedDescription, vault.errorDescription)
+        let native = NSError(domain: NSOSStatusErrorDomain, code: Int(errSecInteractionNotAllowed))
+        let setup = RemoteSetupError("Synthetic credential failure", underlying: native) as NSError
+        XCTAssertEqual(setup.code, native.code)
+        XCTAssertEqual((setup.userInfo[NSUnderlyingErrorKey] as? NSError)?.domain, NSOSStatusErrorDomain)
+        XCTAssertEqual(setup.localizedDescription, "Synthetic credential failure")
+    }
     static let fixture = """
 MIINtwIBAzCCDWUGCSqGSIb3DQEHAaCCDVYEgg1SMIINTjCCB7oGCSqGSIb3DQEHBqCCB6swggenAgEAMIIHoAYJKoZIhvcNAQcB
 MF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBBW1nQgwhD2OsLrjt1tbgpsAgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFl

@@ -200,7 +200,7 @@ struct RemoteRPCError: LocalizedError {
             healthy = false
             // In-memory close is immediate even if protected storage has vanished.
             if let id = activeRun { journal.runs[id]?.state = "cancelled" }
-            execution?.cancel(); worker?.stop(message: "远程记录无法写入；运行已停止，请核对设备", interrupted: true)
+            execution?.cancel(); worker?.stop(message: String(localized: "Remote task records could not be saved. The task stopped. Check the device."), interrupted: true)
             throw RemoteRPCError("journal_unavailable", "Durable journal failed; execution fenced", underlying: error)
         }
     }
@@ -302,7 +302,7 @@ struct RemoteRPCError: LocalizedError {
                 fields["underlying_domain"] = error.underlyingDomain
                 fields["underlying_code"] = error.underlyingCode.map(String.init)
                 trace("rejected", code: error.code, extra: fields)
-                return failure(requestID, RemoteRPCError(error.code, error.message + "（诊断编号：" + MuseDiagnosticsLog.tag(requestID) + "）"))
+                return failure(requestID, RemoteRPCError(error.code, String(localized: "\(error.message) (Diagnostic ID: \(MuseDiagnosticsLog.tag(requestID)))")))
             }
             return failure(requestID, error, status: authenticated ? 200 : (error.code == "unauthorized" ? 401 : 400))
         }
@@ -325,7 +325,7 @@ struct RemoteRPCError: LocalizedError {
                 let native = error as NSError
                 trace("failed", code: "internal_error", extra: ["underlying_domain": native.domain, "underlying_code": String(native.code)])
             }
-            return failure(requestID, RemoteRPCError(authenticated ? "internal_error" : "bad_request", authenticated ? "Request failed safely; query status before any further action" + (admissionClient == nil ? "" : "（诊断编号：" + MuseDiagnosticsLog.tag(requestID) + "）") : "Invalid JSON envelope"), status: authenticated ? 200 : 400) }
+            return failure(requestID, RemoteRPCError(authenticated ? "internal_error" : "bad_request", authenticated ? "Request failed safely; query status before any further action" + (admissionClient == nil ? "" : " (Diagnostic ID: " + MuseDiagnosticsLog.tag(requestID) + ")") : "Invalid JSON envelope"), status: authenticated ? 200 : 400) }
     }
     private func operation(_ op: String, _ p: [String: Any], client: String) throws -> [String: Any] {
         guard healthy else { throw RemoteRPCError("journal_unavailable", "Writes disabled; local reconciliation required") }
@@ -544,7 +544,7 @@ struct RemoteRPCError: LocalizedError {
         expiry?.cancel(); expiry = nil; callExpiry?.cancel(); callExpiry = nil
         execution?.cancel()
         let oldWorker = worker, oldExecution = execution
-        if stopWorker { oldWorker?.stop(message: "Muse 远程运行已关闭；已送出的动作请核对设备") }
+        if stopWorker { oldWorker?.stop(message: String(localized: "Muse task stopped. Check the device for actions already sent.")) }
         images.removeAll()
         Task { [weak self] in
             await oldExecution?.value

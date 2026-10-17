@@ -57,7 +57,7 @@ struct ToolPresentation {
     func cacheImage(_ url: URL, messageID: UUID) async throws -> StoredAttachment {
         try await model.cacheMessageImage(url, messageID: messageID, conversationID: sessionID)
     }
-    var modelName: String { selectedModel.isEmpty ? "选择供应商和模型" : selectedModel }
+    var modelName: String { selectedModel.isEmpty ? String(localized: "Choose a provider and model") : selectedModel }
     func selectProvider(_ id: UUID) { model.selectProvider(id, in: sessionID) }
     func selectModel(_ name: String) { model.selectModel(name, in: sessionID) }
     var reasoningMetadata: DiscoveredModel? { selectedProvider?.metadata(for: selectedModel) }
@@ -149,17 +149,17 @@ struct ToolPresentation {
         case "wait": allowed = ["duration_ms"]
         case "finish": allowed = ["summary"]
         case "load_skill": allowed = ["id", "revision", "resource", "offset"]
-        default: return "未注册工具；不展示原始参数"
+        default: return String(localized: "Unregistered tool. Raw arguments are hidden.")
         }
         var values: [String: Any] = [:]
         for key in allowed {
             guard let value = call.parameters[key]?.value else { continue }
             if let string = value as? String { values[key] = String(string.prefix(key == "summary" ? 1_000 : 160)) }
             else if let number = value as? NSNumber, number.doubleValue.isFinite { values[key] = number }
-            else { values[key] = "不支持的参数类型" }
+            else { values[key] = String(localized: "Unsupported argument type") }
         }
         guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys, .prettyPrinted]),
-              let text = String(data: data, encoding: .utf8) else { return "参数无法展示" }
+              let text = String(data: data, encoding: .utf8) else { return String(localized: "Arguments could not be displayed") }
         return ToolStep.nonemptyArguments(text)
     }
 }

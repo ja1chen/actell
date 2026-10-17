@@ -14,7 +14,7 @@ struct ReasoningMessageView: View {
         } label: {
             HStack(spacing: 8) {
                 MessageHeaderIcon(systemName: "brain")
-                Text("思考").font(.body)
+                Text(String(localized: "Reasoning")).font(.body)
                 Spacer(minLength: 8)
             }.foregroundStyle(.secondary)
                 .accessibilityIdentifier("reasoningDisclosure-\(messageID)")
@@ -79,7 +79,7 @@ private struct ConversationDisclosureStyle: DisclosureGroupStyle {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityValue(configuration.isExpanded ? "已展开" : "已收起")
+            .accessibilityValue(configuration.isExpanded ? String(localized: "Expanded") : String(localized: "Collapsed"))
             if configuration.isExpanded {
                 // Text selection must not intercept taps above the body.
                 configuration.content.contentShape(Rectangle())

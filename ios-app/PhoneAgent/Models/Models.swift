@@ -6,7 +6,7 @@ enum RunPhase: String, Codable { case idle, running, awaitingApproval, stopped, 
 enum RunMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case demo, live
     var id: String { rawValue }
-    var label: String { self == .demo ? "离线演示" : "真实模型" }
+    var label: String { self == .demo ? String(localized: "Offline demo") : String(localized: "Live model") }
 }
 struct Receipt: Identifiable, Codable, Sendable {
     let id: UUID
@@ -63,9 +63,9 @@ enum AppError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalid(let s), .unavailable(let s), .protocolViolation(let s): return s
-        case .stopped: return "已停止"
-        case .timeout: return "桥接超时，已断开；没有自动重发动作"
-        case .unknownOutcome: return "动作结果未知；未自动重发。"
+        case .stopped: return String(localized: "Stopped")
+        case .timeout: return String(localized: "Bridge timed out and disconnected. Actions were not resent automatically.")
+        case .unknownOutcome: return String(localized: "Action result unknown. It was not resent automatically.")
         }
     }
 }
@@ -75,10 +75,10 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     func validatedURL() throws -> URL {
         guard let u = URL(string: baseURL), u.scheme == "https", u.host != nil,
               u.user == nil, u.password == nil, u.query == nil, u.fragment == nil else {
-            throw AppError.invalid("模型地址必须是无用户名、密码、查询参数的 HTTPS API 地址")
+            throw AppError.invalid(String(localized: "The model URL must be an HTTPS API URL without a username, password, or query parameters"))
         }
         guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw AppError.invalid("请填写支持图片和工具调用的模型 ID")
+            throw AppError.invalid(String(localized: "Enter a model ID that supports images and tool calling"))
         }
         return u
     }

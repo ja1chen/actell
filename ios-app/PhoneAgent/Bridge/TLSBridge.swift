@@ -25,11 +25,11 @@ actor TLSBridge: DeviceBridge {
         guard listener == nil else { return }
         cancellation.reset()
         guard pskHex.count == 64, pskHex.allSatisfy({ $0.isHexDigit }) else {
-            throw AppError.invalid("桥接 PSK 必须是可信来源生成的 32 字节随机密钥（64 位十六进制）")
+            throw AppError.invalid(String(localized: "The bridge PSK must be a random 32-byte key from a trusted source (64 hexadecimal characters)"))
         }
         let chars = Array(pskHex)
         let data = Data(stride(from: 0, to: 64, by: 2).compactMap { UInt8(String(chars[$0...$0+1]), radix: 16) })
-        guard data.count == 32 else { throw AppError.invalid("桥接密钥格式错误") }
+        guard data.count == 32 else { throw AppError.invalid(String(localized: "Invalid bridge key format")) }
         let tls = NWProtocolTLS.Options()
         let key = data.withUnsafeBytes { DispatchData(bytes: $0) }
         let identity = Data("PhoneAgent-Bridge-v1".utf8).withUnsafeBytes { DispatchData(bytes: $0) }
@@ -51,11 +51,11 @@ actor TLSBridge: DeviceBridge {
             if case .failed = status { Task { await self?.listenerFailed(generation: generation) } }
         }
         server.start(queue: .global(qos: .userInitiated))
-        state("TLS-PSK 监听中；等待真实桥接握手（固件 v0.3 尚未实现此通道）")
+        state(String(localized: "Listening for a TLS-PSK bridge connection. Firmware v0.3 does not support this connection yet."))
     }
     private func listenerFailed(generation: UUID) async {
         guard generation == listenerID else { return }
-        await stop(); state("监听失败，请检查端口或网络权限")
+        await stop(); state(String(localized: "Could not listen. Check the port and network permissions."))
     }
     private func accept(_ connection: NWConnection, listenerGeneration: UUID) async {
         guard !cancellation.isCancelled, listenerGeneration == listenerID, peer == nil, listener != nil else { connection.cancel(); return }
@@ -82,34 +82,34 @@ actor TLSBridge: DeviceBridge {
                   let imageBytes = limits["max_image_bytes"]?.int, imageBytes > 0, imageBytes <= Wire.maxImageBytes,
                   limits["max_frame_bytes"]?.int == Wire.maxFrameBytes,
                   limits["max_chunk_bytes"]?.int == Wire.maxChunkBytes else {
-                throw AppError.protocolViolation("桥接后端未就绪，或协议 / 能力 / 限制不匹配")
+                throw AppError.protocolViolation(String(localized: "The bridge is not ready, or its protocol, capabilities, or limits do not match"))
             }
             guard sessionID == session, peer === transport else { throw AppError.stopped }
             capabilities = Set(list.compactMap(\.string)); imageLimit = imageBytes
-            guard capabilities.contains("screenshot") else { throw AppError.unavailable("桥接尚不支持截图") }
-            isReady = true; state("TLS 已认证，后端自报就绪；还需截图和真机验收")
+            guard capabilities.contains("screenshot") else { throw AppError.unavailable(String(localized: "The bridge does not support screenshots yet")) }
+            isReady = true; state(String(localized: "TLS authenticated and the bridge reports ready. A screenshot and device verification are still needed."))
         } catch {
             transport.cancel()
-            if peer === transport { peer = nil; isReady = false; state("握手失败或后端未就绪；真实工具保持禁用") }
+            if peer === transport { peer = nil; isReady = false; state(String(localized: "The handshake failed or the bridge is not ready. Device tools remain disabled.")) }
         }
     }
     private func peerClosed(session: String) {
         guard session == sessionID else { return }
         isReady = false; peer = nil; capabilities.removeAll(); lastImageID = nil
-        state("桥接连接已断开；需要新连接和新截图，旧动作不会重发")
+        state(String(localized: "The bridge disconnected. Reconnect and get a new screenshot. Previous actions will not be resent."))
     }
     // This channel carries remote ESP PNGs, not UIKit/ReplayKit screenshots.
     // Firmware v0.3 does not implement this App channel. Keep background device
     // tools disabled until remote capture/privacy and session behavior are verified.
     func supportsBackgroundExecution(tool: String) async -> Bool { false }
     func approvalContext(imageID: String) throws -> String {
-        guard !cancellation.isCancelled, isReady, peer != nil else { throw AppError.unavailable("设备已断开；需新连接与新截图") }
+        guard !cancellation.isCancelled, isReady, peer != nil else { throw AppError.unavailable(String(localized: "The device disconnected. Reconnect and get a new screenshot.")) }
         try requireCurrent(imageID)
         return sessionID
     }
     func screenshot() async throws -> FrameImage {
         let result = try await request("screenshot", arguments: [:])
-        guard let image = result.image else { throw AppError.protocolViolation("截图响应缺失") }
+        guard let image = result.image else { throw AppError.protocolViolation(String(localized: "Screenshot response missing")) }
         lastImageID = image.id; return image
     }
     func tap(x: Int, y: Int, imageID: String) async throws {
@@ -125,13 +125,13 @@ actor TLSBridge: DeviceBridge {
         lastImageID = nil
     }
     private func requireCurrent(_ imageID: String) throws {
-        guard imageID == lastImageID else { throw AppError.invalid("动作需要最新截图，不能重用旧截图") }
+        guard imageID == lastImageID else { throw AppError.invalid(String(localized: "This action needs a new screenshot. A previous screenshot cannot be reused.")) }
     }
     private struct Response: Sendable { let image: FrameImage? }
     private func request(_ name: String, arguments: [String: JSONValue]) async throws -> Response {
         try Task.checkCancellation()
-        guard isReady, let transport = peer, capabilities.contains(name) else { throw AppError.unavailable("真实桥接未连接、未认证、后端未就绪或不支持此工具") }
-        guard !busy else { throw AppError.unavailable("一个动作正在处理中") }
+        guard isReady, let transport = peer, capabilities.contains(name) else { throw AppError.unavailable(String(localized: "The bridge is disconnected, unauthenticated, not ready, or does not support this tool")) }
+        guard !busy else { throw AppError.unavailable(String(localized: "An action is already in progress")) }
         busy = true; defer { busy = false }
         let session = sessionID, id = UUID().uuidString
         let imageCap = imageLimit
@@ -144,24 +144,24 @@ actor TLSBridge: DeviceBridge {
                     while true {
                         try Task.checkCancellation()
                         let frame = try await transport.read()
-                        guard frame.version == 1, frame.session_id == session, frame.request_id == id else { throw AppError.protocolViolation("会话或请求 ID 不匹配") }
+                        guard frame.version == 1, frame.session_id == session, frame.request_id == id else { throw AppError.protocolViolation(String(localized: "Session or request ID mismatch")) }
                         if frame.type == "tool_ack" {
-                            guard !acknowledged, frame.payload["accepted"]?.bool == true else { throw AppError.protocolViolation("重复或无效 ACK") }
+                            guard !acknowledged, frame.payload["accepted"]?.bool == true else { throw AppError.protocolViolation(String(localized: "Duplicate or invalid acknowledgment")) }
                             acknowledged = true; continue
                         }
-                        guard acknowledged else { throw AppError.protocolViolation("收到未确认请求的响应") }
+                        guard acknowledged else { throw AppError.protocolViolation(String(localized: "Received a response for an unacknowledged request")) }
                         switch frame.type {
-                        case "image_begin": guard name == "screenshot" else { throw AppError.protocolViolation("非截图请求返回图片") }; try assembler.begin(frame.payload, limit: imageCap)
+                        case "image_begin": guard name == "screenshot" else { throw AppError.protocolViolation(String(localized: "Received an image for a non-screenshot request")) }; try assembler.begin(frame.payload, limit: imageCap)
                         case "image_chunk": try assembler.chunk(frame.payload)
                         case "image_end": try assembler.end(frame.payload)
                         case "tool_result":
-                            guard frame.payload["status"]?.string == "ok" else { throw AppError.unavailable("桥接报告工具失败；连接已断开，请检查桥接状态") }
+                            guard frame.payload["status"]?.string == "ok" else { throw AppError.unavailable(String(localized: "The bridge reported a tool failure and disconnected. Check the bridge.")) }
                             if name == "screenshot" {
-                                guard let imageID = frame.payload["image_id"]?.string else { throw AppError.protocolViolation("截图结果缺少 ID") }
+                                guard let imageID = frame.payload["image_id"]?.string else { throw AppError.protocolViolation(String(localized: "Screenshot result is missing an ID")) }
                                 return Response(image: try assembler.committed(imageID: imageID))
                             }
                             return Response(image: nil)
-                        default: throw AppError.protocolViolation("未识别的协议消息")
+                        default: throw AppError.protocolViolation(String(localized: "Unrecognized protocol message"))
                         }
                     }
                 }
@@ -173,7 +173,7 @@ actor TLSBridge: DeviceBridge {
         } catch {
             transport.cancel()
             if peer === transport { isReady = false; peer = nil; lastImageID = nil }
-            state("已断开，未重发动作；需重新监听 / 连接并获取新截图")
+            state(String(localized: "Disconnected. Previous actions were not resent. Reconnect and get a new screenshot."))
             if name != "screenshot" { throw AppError.unknownOutcome }
             throw error
         }
@@ -183,7 +183,7 @@ actor TLSBridge: DeviceBridge {
         isReady = false; lastImageID = nil; capabilities.removeAll(); sessionID = UUID().uuidString
         listenerID = UUID()
         peer?.cancel(); peer = nil; listener?.cancel(); listener = nil
-        state("桥接已停止；已发送的动作可能已执行，继续前请核对设备")
+        state(String(localized: "The bridge stopped. Sent actions may have taken effect. Check your device before continuing."))
     }
 }
 
@@ -204,7 +204,7 @@ final class FramedConnection: @unchecked Sendable {
                 connection.stateUpdateHandler = { [onDisconnect] state in
                     switch state {
                     case .ready: gate.finish(.success(Void()))
-                    case .failed: gate.finish(.failure(AppError.unavailable("TLS 认证或连接失败"))); onDisconnect()
+                    case .failed: gate.finish(.failure(AppError.unavailable(String(localized: "TLS authentication or connection failed")))); onDisconnect()
                     case .cancelled: gate.finish(.failure(AppError.stopped)); onDisconnect()
                     default: break
                     }
@@ -223,7 +223,7 @@ final class FramedConnection: @unchecked Sendable {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
                 let gate = OnceContinuation(c)
                 connection.send(content: bytes, completion: .contentProcessed { error in
-                    gate.finish(error == nil ? .success(Void()) : .failure(AppError.unavailable("桥接写入失败")))
+                    gate.finish(error == nil ? .success(Void()) : .failure(AppError.unavailable(String(localized: "Could not write to the bridge"))))
                 })
                 queue.asyncAfter(deadline: .now() + 10) { [connection] in
                     if gate.finish(.failure(AppError.timeout)) { connection.cancel() }
@@ -243,7 +243,7 @@ final class FramedConnection: @unchecked Sendable {
                 let gate = OnceContinuation(c)
                 connection.receive(minimumIncompleteLength: count, maximumLength: count) { data, _, complete, error in
                     if error == nil, let data, data.count == count { gate.finish(.success(data)) }
-                    else { gate.finish(.failure(AppError.unavailable(complete ? "桥接断开" : "桥接读取失败"))) }
+                    else { gate.finish(.failure(AppError.unavailable(complete ? String(localized: "Bridge disconnected") : String(localized: "Could not read from the bridge")))) }
                 }
                 queue.asyncAfter(deadline: .now() + 10) { [connection] in
                     if gate.finish(.failure(AppError.timeout)) { connection.cancel() }

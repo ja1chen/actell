@@ -19,11 +19,11 @@ struct AttachmentThumbnail: View {
                 if let failure { Text(failure).font(.caption).foregroundStyle(.orange) }
             }
         }
-        .buttonStyle(.plain).accessibilityLabel("预览附件：" + attachment.name)
+        .buttonStyle(.plain).accessibilityLabel(String(localized: "Preview attachment: \(attachment.name)"))
         .accessibilityIdentifier("attachment-" + attachment.id.uuidString)
         .task(id: attachment.id) {
             do { preview = try await store.preview(attachment, conversationID: conversationID); failure = nil }
-            catch { failure = "本地文件暂不可用" }
+            catch { failure = String(localized: "The local file is temporarily unavailable") }
         }
         .sheet(isPresented: $showingOriginal) { AttachmentPreview(attachment: attachment, store: store, conversationID: conversationID) }
     }
@@ -45,25 +45,25 @@ private struct AttachmentPreview: View {
                         ScrollView([.horizontal, .vertical]) {
                             Image(uiImage: image).resizable().scaledToFit()
                                 .frame(width: max(1, geometry.size.width - 32) * scale)
-                                .accessibilityLabel("本地原图")
+                                .accessibilityLabel(String(localized: "Local original image"))
                         }
                         .gesture(MagnifyGesture().onEnded { scale = min(6, max(1, scale * $0.magnification)) })
                     }
                 } else if let data, let text = String(data: data, encoding: .utf8) {
                     ScrollView { Text(text).font(.body.monospaced()).textSelection(.enabled).padding() }
-                } else if let failure { ContentUnavailableView("无法读取附件", systemImage: "exclamationmark.triangle", description: Text(failure)) }
+                } else if let failure { ContentUnavailableView(String(localized: "Could not read the attachment"), systemImage: "exclamationmark.triangle", description: Text(failure)) }
                 else { ProgressView() }
             }
             .navigationTitle(attachment.name).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Done")) { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
                     if let data, attachment.kind == .image { SaveScreenshotButton(data: data) }
                 }
             }
             .task {
                 do { data = try await store.read(attachment, conversationID: conversationID) }
-                catch { failure = "本地文件丢失或暂不可访问；远程来源可回到消息重试，其他附件请重新选择。" }
+                catch { failure = String(localized: "The local file is missing or temporarily inaccessible. Retry remote sources from the message, or select other attachments again.") }
             }
         }
     }
@@ -98,16 +98,16 @@ private struct RemoteMessageImage: View {
             if let cached, cacheAvailable {
                 AttachmentThumbnail(attachment: cached, store: presentation.attachments, conversationID: presentation.sessionID)
             } else {
-                Label("消息图片", systemImage: "photo")
+                Label(String(localized: "Message image"), systemImage: "photo")
                 if let failure { Text(failure).font(.caption).foregroundStyle(.orange) }
                 HStack {
-                    Button(failure == nil ? "下载并缓存图片" : "重试原图源") { load() }.disabled(loading)
+                    Button(failure == nil ? String(localized: "Download and cache image") : String(localized: "Retry original image source")) { load() }.disabled(loading)
                     if loading {
                         ProgressView()
-                        Button("取消") { task?.cancel(); loading = false }
+                        Button(String(localized: "Cancel")) { task?.cancel(); loading = false }
                     }
                 }
-                Text("只请求此消息已有的图源，不发送供应商密钥；缓存成功后可离线查看。").font(.caption).foregroundStyle(.secondary)
+                Text(String(localized: "Only this message's image source will be requested. Provider keys are not sent. Cached images are available offline.")).font(.caption).foregroundStyle(.secondary)
             }
         }.accessibilityIdentifier("messageRemoteImage")
         .task(id: cached?.id) {
@@ -140,17 +140,23 @@ struct SaveScreenshotButton: View {
             Task { @MainActor in
                 defer { saving = false }
                 var status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-                if status == .notDetermined { status = await PHPhotoLibrary.requestAuthorization(for: .addOnly) }
+                if status == .notDetermined {
+                    guard let token = PermissionRequestGate.shared.acquire() else {
+                        result = String(localized: "Another permission request is in progress. Try again shortly."); showResult = true; return
+                    }
+                    status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                    PermissionRequestGate.shared.release(token)
+                }
                 if status == .authorized || status == .limited {
                     do {
                         try await PHPhotoLibrary.shared().performChanges {
                             let options = PHAssetResourceCreationOptions()
-                            options.originalFilename = original.starts(with: [0xff, 0xd8, 0xff]) ? "PhoneAgent-截图.jpg" : "PhoneAgent-截图.png"
+                            options.originalFilename = original.starts(with: [0xff, 0xd8, 0xff]) ? String(localized: "PhoneAgent-Screenshot.jpg") : String(localized: "PhoneAgent-Screenshot.png")
                             PHAssetCreationRequest.forAsset().addResource(with: .photo, data: original, options: options)
                         }
-                        result = "已保存到相册"
-                    } catch { result = "保存失败，请重试" }
-                } else { result = "无法保存，请在系统设置中允许 PhoneAgent 添加照片" }
+                        result = String(localized: "Saved to Photos")
+                    } catch { result = String(localized: "Could not save. Try again.") }
+                } else { result = String(localized: "Could not save. Allow the app to add photos in system Settings.") }
                 showResult = true
             }
         } label: {
@@ -159,8 +165,8 @@ struct SaveScreenshotButton: View {
         }
         .buttonStyle(.borderless)
         .disabled(saving)
-        .accessibilityLabel("保存到相册")
+        .accessibilityLabel(String(localized: "Save to Photos"))
         .accessibilityIdentifier("saveScreenshotToPhotos")
-        .alert("保存截图", isPresented: $showResult) { Button("好", role: .cancel) {} } message: { Text(result) }
+        .alert(String(localized: "Save screenshot"), isPresented: $showResult) { Button(String(localized: "OK"), role: .cancel) {} } message: { Text(result) }
     }
 }

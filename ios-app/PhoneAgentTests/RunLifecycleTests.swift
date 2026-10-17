@@ -21,6 +21,7 @@ import ProviderCore
 }
 @MainActor private final class FakeLease: RunBackgroundLease {
     var expirationHandler: (() -> Void)?
+    var requiresRunPause = false
     private(set) var completions: [Bool] = []
     private(set) var reports: [Int] = []
     // The protocol's concrete lease adapter also gates duplicate completion.
@@ -65,6 +66,70 @@ import ProviderCore
     private func settlePlayback() async {
         for _ in 0..<20 { await Task.yield() }
     }
+    func testAmbiguousContinuedCancellationPausesEvenWithOtherSourceInForeground() throws {
+        for foreground in [true, false] {
+            let registry = BackgroundExecutionRegistry(), primary = FakeScheduler(), owner = UUID()
+            registry.update(owner: owner, active: true, mechanism: .location)
+            let scheduler = CompositeRunScheduler(primary: primary, registry: registry, allowed: { [.systemTask, .location] })
+            let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
+            try lifecycle.begin(identity: identity, generation: token)
+            let grant = primary.grant(); grant.requiresRunPause = true
+            lifecycle.setForeground(foreground)
+            var pauses = 0; lifecycle.onPause = { _ in pauses += 1 }
+            grant.expirationHandler?()
+            XCTAssertEqual(lifecycle.checkpoint?.phase, .paused); XCTAssertEqual(pauses, 1)
+            XCTAssertTrue(registry.active, "another run/resident owns its own source")
+            XCTAssertEqual(primary.identifiers.count, 1)
+        }
+    }
+    func testForegroundExpiryDoesNotRenewAndBackgroundRejectionUsesOnlyOwnMask() throws {
+        let primary = FakeScheduler(), lifecycle = RunLifecycleCoordinator(scheduler: FakeScheduler(), storage: MemoryRunCheckpointStore())
+        let direct = RunLifecycleCoordinator(scheduler: primary, storage: MemoryRunCheckpointStore())
+        try direct.begin(identity: identity, generation: token)
+        primary.grant().expirationHandler?()
+        XCTAssertEqual(primary.identifiers.count, 1); XCTAssertEqual(direct.checkpoint?.phase, .running)
+        direct.setForeground(false); XCTAssertEqual(direct.checkpoint?.phase, .paused)
+        _ = lifecycle
+    }
+    func testSystemGrantIsPerRunAndSuccessfulCompletionIsReportedOnce() throws {
+        let registry = BackgroundExecutionRegistry(), system = FakeScheduler()
+        let scheduler = CompositeRunScheduler(primary: system, registry: registry, allowed: { [.systemTask] })
+        var a: (any RunBackgroundLease)?, b: (any RunBackgroundLease)?
+        try scheduler.submit(identifier: "a", launched: { a = $0 })
+        try scheduler.submit(identifier: "b", launched: { b = $0 })
+        let grant = system.grant()
+        XCTAssertFalse(a?.backgroundReady ?? true); XCTAssertTrue(b?.backgroundReady ?? false)
+        scheduler.cancel(identifier: "a"); XCTAssertTrue(b?.backgroundReady ?? false)
+        b?.complete(success: true); scheduler.cancel(identifier: "b")
+        XCTAssertEqual(grant.completions, [true])
+    }
+    func testSceneChangesDoNotResetHandoffDeadline() async throws {
+        let scheduler = CompositeRunScheduler(registry: BackgroundExecutionRegistry(), allowed: { [.location] }, handoffSeconds: 0.03)
+        var lease: (any RunBackgroundLease)?; var expirations = 0
+        try scheduler.submit(identifier: "bounded", launched: { lease = $0 })
+        lease?.expirationHandler = { expirations += 1 }
+        scheduler.setForeground(false); scheduler.setForeground(true)
+        try await Task.sleep(for: .milliseconds(50))
+        scheduler.setForeground(false)
+        try await Task.sleep(for: .milliseconds(10))
+        XCTAssertEqual(expirations, 1); XCTAssertFalse(lease?.backgroundReady ?? true)
+        scheduler.setForeground(true); scheduler.setForeground(false)
+        XCTAssertEqual(expirations, 1)
+    }
+    func testAllSixteenCombinationsRequestOnlySelectedSystemAndDoNotBorrowOtherSources() throws {
+        for mask in 0..<16 {
+            let registry = BackgroundExecutionRegistry(), system = FakeScheduler()
+            let selection = Set(BackgroundMechanism.allCases.enumerated().filter { mask & (1 << $0.offset) != 0 }.map(\.element))
+            for mechanism in BackgroundMechanism.continuous { registry.publish(.init(mechanism: mechanism, owner: UUID())) }
+            let scheduler = CompositeRunScheduler(primary: system, registry: registry, allowed: { selection })
+            var lease: (any RunBackgroundLease)?
+            try scheduler.submit(identifier: "combination", launched: { lease = $0 })
+            XCTAssertEqual(system.identifiers.count, selection.contains(.systemTask) ? 1 : 0)
+            XCTAssertEqual(lease?.backgroundReady, !selection.intersection(BackgroundMechanism.continuous).isEmpty)
+            if selection.contains(.systemTask) { _ = system.grant(); XCTAssertTrue(lease?.backgroundReady == true) }
+            scheduler.cancel(identifier: "combination"); XCTAssertFalse(lease?.backgroundReady ?? true)
+        }
+    }
     func testExplicitBackgroundStartRequiresLeaseBeforeDispatch() throws {
         let scheduler = FakeScheduler()
         let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
@@ -80,8 +145,8 @@ import ProviderCore
         XCTAssertThrowsError(try lifecycle.requireExecution(generation: token, backgroundCapable: true))
     }
     func testResidentPlaybackKeepsIdleAppAndNewBackgroundRunUntilDisabled() async throws {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         XCTAssertFalse(media.backgroundResident)
         XCTAssertFalse(media.policy.running)
         media.setBackgroundResident(true)
@@ -89,7 +154,7 @@ import ProviderCore
         XCTAssertTrue(media.audioActive)
         XCTAssertTrue(activity.active)
         media.setForeground(false)
-        let lifecycle = RunLifecycleCoordinator(scheduler: MediaOnlyRunScheduler(activity: activity), storage: MemoryRunCheckpointStore())
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(registry: activity, allowed: { [.audio] }), storage: MemoryRunCheckpointStore())
         lifecycle.setForeground(false)
         try lifecycle.begin(identity: identity, generation: token, allowBackgroundStart: true)
         try lifecycle.requireExecution(generation: token, backgroundCapable: true)
@@ -102,9 +167,9 @@ import ProviderCore
         XCTAssertFalse(activity.active)
         XCTAssertEqual(lifecycle.checkpoint?.phase, .paused)
     }
-    func testSystemTaskModeOnlyUsesAudioForExplicitResidency() async {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+    func testSystemTaskOnlyNeverSynthesizesAudioForResidency() async {
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.systemTask)
         media.setTaskRunning(true)
         await settlePlayback()
@@ -113,22 +178,22 @@ import ProviderCore
         XCTAssertFalse(media.previewEnabled)
         media.setBackgroundResident(true)
         await settlePlayback()
-        XCTAssertEqual(audio.starts, 1)
-        XCTAssertTrue(activity.active)
+        XCTAssertEqual(audio.starts, 0)
+        XCTAssertFalse(activity.active)
         media.setTaskRunning(false)
-        XCTAssertTrue(activity.active, "idle residency still receives background commands")
+        XCTAssertFalse(activity.active, "system-only is not an idle source")
         media.setBackgroundResident(false)
         XCTAssertFalse(activity.active)
         XCTAssertFalse(media.audioActive)
     }
     func testSystemTaskGrantAndExpirationWorkWithoutMediaPlayback() throws {
-        let activity = PiPExecutionActivity(), system = FakeScheduler()
-        let scheduler = RunExecutionScheduler(continued: system, activity: activity)
+        let activity = BackgroundExecutionRegistry(), system = FakeScheduler()
+        let scheduler = RunExecutionScheduler(continued: system, coordinator: testCoordinator(registry: activity))
         scheduler.configure(context: nil, allowSystemProcessing: true,
-                            useSystemProcessing: BackgroundPlaybackMode.systemTask.usesSystemProcessing)
+                            selection: [.systemTask])
         let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
-        XCTAssertFalse(lifecycle.hasLease, "request submission alone cannot grant execution")
+        XCTAssertTrue(lifecycle.hasLease, "pending aggregate is bounded and not background-ready")
         let grant = system.grant()
         lifecycle.setForeground(false)
         try lifecycle.requireExecution(generation: token, backgroundCapable: true)
@@ -138,8 +203,8 @@ import ProviderCore
         XCTAssertThrowsError(try lifecycle.requireExecution(generation: token, backgroundCapable: true))
     }
     func testDisablingResidencyPreservesRunningTaskAndReleasesAfterTaskEnds() async {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundResident(true)
         await settlePlayback()
         media.setTaskRunning(true)
@@ -152,9 +217,9 @@ import ProviderCore
         XCTAssertFalse(media.policy.running)
     }
     func testPendingResidentActivationCannotReviveDisabledResidency() async {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
         audio.holdStart = true
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundResident(true)
         await settlePlayback()
         XCTAssertEqual(audio.pendingStarts.count, 1)
@@ -166,8 +231,8 @@ import ProviderCore
         XCTAssertFalse(activity.active)
     }
     func testStopBeforeAudioStartIsScheduledNeverActivatesPlayback() async {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.audio)
         media.setTaskRunning(true)
         media.setTaskRunning(false)
@@ -177,9 +242,9 @@ import ProviderCore
         XCTAssertFalse(activity.active)
     }
     func testDelayedAudioActivationCannotReviveStoppedOrNewerTask() async {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
         audio.holdStart = true
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.audio)
         media.setTaskRunning(true); await settlePlayback()
         XCTAssertEqual(audio.pendingStarts.count, 1)
@@ -197,14 +262,14 @@ import ProviderCore
         XCTAssertFalse(activity.active)
     }
     func testAudioPlaybackKeepsRunAfterSystemExpiryAndInterruptionRevokesIt() async throws {
-        let activity = PiPExecutionActivity(), primary = FakeScheduler(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), primary = FakeScheduler(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.audio)
         XCTAssertFalse(activity.active)
         media.setTaskRunning(true); await settlePlayback()
         XCTAssertTrue(media.audioActive); XCTAssertFalse(media.previewEnabled)
         XCTAssertTrue(activity.active)
-        let lifecycle = RunLifecycleCoordinator(scheduler: PiPBackedRunScheduler(primary: primary, activity: activity), storage: MemoryRunCheckpointStore())
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) }), storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         let system = primary.grant()
         lifecycle.setForeground(false); media.setForeground(false)
@@ -219,13 +284,13 @@ import ProviderCore
         media.setTaskRunning(false)
     }
     func testFailedAudioDoesNotGrantExecutionAndSelectionAppliesNextTask() async throws {
-        let activity = PiPExecutionActivity(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.audio); audio.canPlay = false
         media.setTaskRunning(true); await settlePlayback()
         XCTAssertFalse(activity.active); XCTAssertFalse(media.audioActive)
         media.setBackgroundMode(.pictureInPicture)
-        XCTAssertEqual(media.playingMode, .audio)
+        XCTAssertTrue(media.allowed.isEmpty, "deselection immediately vetoes this run; additions wait")
         media.setForeground(false); media.setForeground(true)
         XCTAssertEqual(audio.starts, 1)
         media.setTaskRunning(false)
@@ -233,7 +298,7 @@ import ProviderCore
         media.setBackgroundMode(.audio); audio.canPlay = true
         media.setTaskRunning(true); await settlePlayback()
         XCTAssertTrue(activity.active); XCTAssertEqual(audio.starts, 2)
-        media.stop()
+        media.setTaskRunning(false)
         XCTAssertFalse(activity.active); XCTAssertFalse(media.audioActive)
         media.setForeground(false); media.setForeground(true)
         XCTAssertEqual(audio.starts, 2, "explicit stop must not restart on scene changes")
@@ -241,10 +306,10 @@ import ProviderCore
         XCTAssertFalse(activity.active)
     }
     func testAudioOwnerSupportsMultipleRunsAndLatePlaybackCannotReviveStoppedRun() async throws {
-        let activity = PiPExecutionActivity(), primary = FakeScheduler(), audio = FakeTaskAudioPlayback()
-        let media = StatusPiPController(executionActivity: activity, audioPlayback: audio)
+        let activity = BackgroundExecutionRegistry(), primary = FakeScheduler(), audio = FakeTaskAudioPlayback()
+        let media = TestBackgroundMedia(registry: activity, audio: audio)
         media.setBackgroundMode(.audio); media.setTaskRunning(true); await settlePlayback()
-        let scheduler = PiPBackedRunScheduler(primary: primary, activity: activity)
+        let scheduler = CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) })
         var first: (any RunBackgroundLease)?, second: (any RunBackgroundLease)?
         try scheduler.submit(identifier: "audio-one", launched: { first = $0 })
         try scheduler.submit(identifier: "audio-two", launched: { second = $0 })
@@ -254,6 +319,7 @@ import ProviderCore
         scheduler.cancel(identifier: "audio-one")
         XCTAssertTrue(activity.active)
         XCTAssertEqual(firstExpired, 0); XCTAssertEqual(secondExpired, 0)
+        scheduler.setForeground(false)
         media.setTaskRunning(false)
         XCTAssertFalse(activity.active)
         XCTAssertEqual(firstExpired, 0); XCTAssertEqual(secondExpired, 1)
@@ -271,23 +337,23 @@ import ProviderCore
         XCTAssertEqual(player.duration, 1, accuracy: 0.01)
         XCTAssertTrue(data.dropFirst(44).allSatisfy { $0 == 0 })
     }
-    func testReturningToForegroundBeforePiPStopsPreservesTaskAndRenewsSystemRequest() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
+    func testReturningToForegroundBeforePiPStopsPreservesTaskWithoutRenewingSystemRequest() throws {
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
         activity.update(owner: owner, active: true)
-        let lifecycle = RunLifecycleCoordinator(scheduler: PiPBackedRunScheduler(primary: primary, activity: activity), storage: MemoryRunCheckpointStore())
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) }), storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         lifecycle.setForeground(false)
         lifecycle.setForeground(true)
         activity.update(owner: owner, active: false)
         XCTAssertEqual(lifecycle.checkpoint?.phase, .running)
-        XCTAssertEqual(primary.identifiers.count, 2)
+        XCTAssertEqual(primary.identifiers.count, 1)
         try lifecycle.requireExecution(generation: token, backgroundCapable: true)
         lifecycle.stop(message: "cleanup")
     }
     func testMediaPauseOrSuspensionDoesNotRevokeActualPiPExecutionReceipt() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
-        let pip = StatusPiPController(executionActivity: activity, executionOwner: owner)
-        let lifecycle = RunLifecycleCoordinator(scheduler: PiPBackedRunScheduler(primary: primary, activity: activity), storage: MemoryRunCheckpointStore())
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
+        let pip = StatusPiPController(registry: activity)
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) }), storage: MemoryRunCheckpointStore())
         activity.update(owner: owner, active: true)
         try lifecycle.begin(identity: identity, generation: token)
         lifecycle.setForeground(false)
@@ -317,9 +383,9 @@ import ProviderCore
         XCTAssertFalse(policy.shouldStart)
     }
     func testSystemExpirationKeepsBackgroundRunWhilePiPIsActive() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
         activity.update(owner: owner, active: true)
-        let scheduler = PiPBackedRunScheduler(primary: primary, activity: activity)
+        let scheduler = CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) })
         let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         let grant = primary.grant()
@@ -334,9 +400,9 @@ import ProviderCore
         lifecycle.stop(message: "cleanup")
     }
     func testPiPClosingKeepsRunUntilSystemSourceAlsoExpires() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
         activity.update(owner: owner, active: true)
-        let lifecycle = RunLifecycleCoordinator(scheduler: PiPBackedRunScheduler(primary: primary, activity: activity), storage: MemoryRunCheckpointStore())
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) }), storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         let grant = primary.grant()
         lifecycle.setForeground(false)
@@ -348,10 +414,13 @@ import ProviderCore
     }
     func testRejectedSystemRequestCanUseActualPiPButNotInlinePreview() throws {
         let primary = FakeScheduler(); primary.reject = true
-        let activity = PiPExecutionActivity(), owner = UUID()
-        let scheduler = PiPBackedRunScheduler(primary: primary, activity: activity)
+        let activity = BackgroundExecutionRegistry(), owner = UUID()
+        let scheduler = CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) })
         var deliveries = 0
-        XCTAssertThrowsError(try scheduler.submit(identifier: "preview", launched: { _ in deliveries += 1 }))
+        var pending: (any RunBackgroundLease)?
+        try scheduler.submit(identifier: "preview", launched: { pending = $0 })
+        XCTAssertFalse(pending?.backgroundReady ?? true)
+        scheduler.cancel(identifier: "preview")
         XCTAssertEqual(deliveries, 0)
         activity.update(owner: owner, active: true)
         try scheduler.submit(identifier: "active", launched: { _ in deliveries += 1 })
@@ -360,9 +429,9 @@ import ProviderCore
         activity.update(owner: owner, active: false)
     }
     func testStoppingOneRunDoesNotRevokeOtherPiPBackedRun() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
         activity.update(owner: owner, active: true)
-        let scheduler = PiPBackedRunScheduler(primary: primary, activity: activity)
+        let scheduler = CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) })
         var a: (any RunBackgroundLease)?, b: (any RunBackgroundLease)?
         try scheduler.submit(identifier: "a", launched: { a = $0 })
         try scheduler.submit(identifier: "b", launched: { b = $0 })
@@ -370,14 +439,15 @@ import ProviderCore
         a?.expirationHandler = { aExpired += 1 }; b?.expirationHandler = { bExpired += 1 }
         scheduler.cancel(identifier: "a")
         XCTAssertTrue(activity.active)
+        scheduler.setForeground(false)
         activity.update(owner: owner, active: false)
         XCTAssertEqual(aExpired, 0); XCTAssertEqual(bExpired, 1)
         scheduler.cancel(identifier: "b")
     }
     func testLateGrantOrPiPRestartNeverRevivesStoppedRun() throws {
-        let activity = PiPExecutionActivity(), owner = UUID(), primary = FakeScheduler()
+        let activity = BackgroundExecutionRegistry(), owner = UUID(), primary = FakeScheduler()
         activity.update(owner: owner, active: true)
-        let scheduler = PiPBackedRunScheduler(primary: primary, activity: activity)
+        let scheduler = CompositeRunScheduler(primary: primary, registry: activity, allowed: { Set(BackgroundMechanism.allCases) })
         var deliveries = 0
         try scheduler.submit(identifier: "stopped", launched: { _ in deliveries += 1 })
         scheduler.cancel(identifier: "stopped")
@@ -409,25 +479,25 @@ import ProviderCore
         lifecycle.stop(message: "cleanup")
     }
     func testDefaultMediaModesDoNotSubmitSystemRequests() throws {
-        for mode in BackgroundPlaybackMode.allCases where !mode.usesSystemProcessing {
-            let activity = PiPExecutionActivity(), owner = UUID(), system = FakeScheduler()
-            let scheduler = RunExecutionScheduler(continued: system, activity: activity)
-            scheduler.configure(context: nil, allowSystemProcessing: true)
+        for mode in BackgroundMechanism.allCases where mode != .systemTask {
+            let activity = BackgroundExecutionRegistry(), owner = UUID(), system = FakeScheduler()
+            let scheduler = RunExecutionScheduler(continued: system, coordinator: testCoordinator(registry: activity))
+            scheduler.configure(context: nil, allowSystemProcessing: true, selection: [mode])
             let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
             try lifecycle.begin(identity: identity, generation: token)
             XCTAssertTrue(lifecycle.hasLease)
             XCTAssertTrue(system.identifiers.isEmpty, mode.rawValue)
-            activity.update(owner: owner, active: true)
+            activity.update(owner: owner, active: true, mechanism: mode)
             lifecycle.setForeground(false)
             try lifecycle.requireExecution(generation: token, backgroundCapable: true)
-            activity.update(owner: owner, active: false)
+            activity.update(owner: owner, active: false, mechanism: mode)
             XCTAssertEqual(lifecycle.checkpoint?.phase, .paused)
             XCTAssertTrue(system.identifiers.isEmpty)
         }
     }
     func testMediaHandoffWaitsForActualPlaybackAndNeverReplaysAfterStop() async throws {
-        let activity = PiPExecutionActivity(), owner = UUID()
-        let scheduler = MediaOnlyRunScheduler(activity: activity, handoffSeconds: 0.3)
+        let activity = BackgroundExecutionRegistry(), owner = UUID()
+        let scheduler = CompositeRunScheduler(registry: activity, allowed: { [.audio] }, handoffSeconds: 0.3)
         let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         lifecycle.setForeground(false)
@@ -447,7 +517,7 @@ import ProviderCore
         XCTAssertThrowsError(try lifecycle.requireExecution(generation: token, backgroundCapable: true))
     }
     func testMediaStartTimeoutPausesWithoutGrantingToolExecution() async throws {
-        let scheduler = MediaOnlyRunScheduler(activity: PiPExecutionActivity(), handoffSeconds: 0.04)
+        let scheduler = CompositeRunScheduler(registry: BackgroundExecutionRegistry(), allowed: { [.audio] }, handoffSeconds: 0.04)
         let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         try lifecycle.begin(identity: identity, generation: token)
         lifecycle.setForeground(false)
@@ -456,9 +526,9 @@ import ProviderCore
     }
     func testExecutionSourceIsExclusiveAndCancellationUsesOriginalOwner() throws {
         let continued = FakeScheduler(), scheduler = RunExecutionScheduler(continued: FakeScheduler())
-        let routed = RunExecutionScheduler(continued: continued)
+        let routed = RunExecutionScheduler(continued: continued, coordinator: testCoordinator(registry: BackgroundExecutionRegistry()))
         routed.configure(context: nil, allowSystemProcessing: true,
-                         useSystemProcessing: BackgroundPlaybackMode.systemTask.usesSystemProcessing)
+                         selection: [.systemTask])
         try routed.submit(identifier: "system", launched: { _ in })
         XCTAssertEqual(continued.identifiers, ["system"])
         routed.configure(context: nil, allowSystemProcessing: false)
@@ -795,23 +865,23 @@ private struct DisconnectedModel: ModelProvider {
         await bridge.changeDevice(); model.approve(true)
         try await waitUntil { !model.running && !model.stopping }
         let sent = await bridge.sent
-        XCTAssertEqual(sent, 0); XCTAssertEqual(scheduler.identifiers.count, 2)
+        XCTAssertEqual(sent, 0); XCTAssertEqual(scheduler.identifiers.count, 1, "failed approval must not spend a new system segment budget")
         XCTAssertEqual(c.checkpoint?.phase, .completed)
         XCTAssertEqual(c.checkpoint?.tools.first(where: { $0.name == "tap" })?.delivery, .failed)
     }
-    func testPiPObservesBackgroundTaskCompletionWithoutSwiftUIViewUpdates() async throws {
-        let scheduler = FakeScheduler(), bridge = BackgroundSpyBridge()
-        let lifecycle = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
+    func testDemandsReleaseOnBackgroundTaskCompletionWithoutSwiftUIViewUpdates() async throws {
+        let bridge = BackgroundSpyBridge(), registry = BackgroundExecutionRegistry(), audio = FakeTaskAudioPlayback()
+        let media = StatusPiPController(registry: registry, audioPlayback: audio)
+        let background = testCoordinator(registry: registry, media: media); background.applySelection([.audio])
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-            runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: lifecycle)
-        let pip = StatusPiPController()
-        pip.observeTasks(in: model)
-        model.start(); _ = scheduler.grant()
-        try await waitUntil { pip.policy.running }
+            runServices: .init(provider: DemoProvider(), bridge: bridge), backgroundCoordinator: background)
+        media.observeTasks(in: model) // Presentation updates are not the owner of execution.
+        model.start()
+        try await waitUntil { media.audioActive }
         model.setForeground(false)
         model.stop(message: "test completion")
-        try await waitUntil { !model.running && !model.stopping && !pip.policy.running }
-        XCTAssertFalse(pip.policy.shouldStart)
+        try await waitUntil { !model.running && !model.stopping && !media.audioActive }
+        XCTAssertTrue(background.desired.isEmpty); XCTAssertFalse(registry.active)
     }
     func testExpirationClosesFakeTransportAndCancelsModel() async throws {
         let scheduler = FakeScheduler(), bridge = BackgroundSpyBridge()

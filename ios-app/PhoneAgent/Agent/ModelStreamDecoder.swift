@@ -20,7 +20,7 @@ struct ModelStreamDecoder {
         let payload = clean.dropFirst(5).trimmingCharacters(in: .whitespaces)
         if payload == "[DONE]" { sawDone = true; return [] }
         guard let object = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any], object["error"] == nil,
-              let choices = object["choices"] as? [[String: Any]] else { throw AppError.invalid("模型流格式不兼容") }
+              let choices = object["choices"] as? [[String: Any]] else { throw AppError.invalid(String(localized: "Incompatible model stream format")) }
         if let tokens = object["usage"] as? [String: Any] { usage = ModelUsage(promptTokens: tokens["prompt_tokens"] as? Int, completionTokens: tokens["completion_tokens"] as? Int, totalTokens: tokens["total_tokens"] as? Int) }
         guard let choice = choices.first else { return [] }
         let delta = choice["delta"] as? [String: Any] ?? [:]
@@ -32,23 +32,23 @@ struct ModelStreamDecoder {
                 if value is NSNull { return false }; if let s = value as? String { return !s.isEmpty }
                 if let a = value as? [Any] { return !a.isEmpty }; return true
             }
-            guard !hasOutput else { throw AppError.invalid("结束后出现新模型输出") }
+            guard !hasOutput else { throw AppError.invalid(String(localized: "New model output arrived after completion")) }
             if let repeated = choice["finish_reason"] as? String {
-                guard ModelFinishReason(rawValue: repeated) == reason else { throw AppError.invalid("流终态冲突") }
+                guard ModelFinishReason(rawValue: repeated) == reason else { throw AppError.invalid(String(localized: "Conflicting stream terminal states")) }
             }
             return [] // Final usage-only chunks can carry a nonempty choice and repeated finish.
         }
         if let details = delta["reasoning_details"] {
-            guard let blocks = details as? [[String: Any]] else { throw AppError.invalid("reasoning_details 格式不兼容") }
+            guard let blocks = details as? [[String: Any]] else { throw AppError.invalid(String(localized: "Incompatible reasoning_details format")) }
             reasoningDetails += try blocks.map { try ProviderCore.JSONValue(any: $0) }
         }
         var output: [ModelEvent] = []
         let readable = reasoning.consume(delta); visibleReasoning += readable; if !readable.isEmpty { output.append(.reasoning(readable)) }
         if let value = delta["content"] as? String, !value.isEmpty { text += value; output.append(.text(value)) }
         for fragment in delta["tool_calls"] as? [[String: Any]] ?? [] {
-            guard let index = fragment["index"] as? Int, index >= 0 else { throw AppError.invalid("工具片段缺少 index") }
+            guard let index = fragment["index"] as? Int, index >= 0 else { throw AppError.invalid(String(localized: "A tool fragment is missing its index")) }
             var p = partial[index] ?? Partial()
-            if let id = fragment["id"] as? String { guard p.id.isEmpty || p.id == id else { throw AppError.invalid("工具 ID 冲突") }; p.id = id }
+            if let id = fragment["id"] as? String { guard p.id.isEmpty || p.id == id else { throw AppError.invalid(String(localized: "Conflicting tool IDs")) }; p.id = id }
             if let f = fragment["function"] as? [String: Any] { p.name += f["name"] as? String ?? ""; p.arguments += f["arguments"] as? String ?? "" }
             partial[index] = p
         }
@@ -56,9 +56,9 @@ struct ModelStreamDecoder {
         return output
     }
     mutating func finish(previousCallIDs: Set<String> = []) throws -> [ModelEvent] {
-        guard sawTerminal, reason == .stop || reason == .toolCalls else { throw AppError.invalid("模型流未成功完成；没有重试") }
+        guard sawTerminal, reason == .stop || reason == .toolCalls else { throw AppError.invalid(String(localized: "The model stream did not finish successfully. No retry was made.")) }
         let calls = partial.keys.sorted().map { key in let p = partial[key]!; return ModelToolCall(id: p.id, name: p.name, arguments: p.arguments) }
-        if reason == .toolCalls, calls.isEmpty { throw AppError.invalid("工具调用缺少参数；没有重复请求") }
+        if reason == .toolCalls, calls.isEmpty { throw AppError.invalid(String(localized: "A tool call is missing arguments. The request was not repeated.")) }
         try Self.validate(calls, previousCallIDs: previousCallIDs)
         return calls.map(ModelEvent.toolCall) + [.finish(reason: calls.isEmpty ? reason : .toolCalls, usage: usage)]
     }
@@ -72,11 +72,11 @@ struct ModelStreamDecoder {
         var seen = previousCallIDs
         for call in calls {
             guard !call.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, seen.insert(call.id).inserted else {
-                throw AppError.invalid("模型工具调用 ID 缺失或重复；本批未执行，不会重放旧动作")
+                throw AppError.invalid(String(localized: "Model tool-call IDs are missing or duplicated. This batch did not run. Previous actions will not be replayed."))
             }
             guard !call.name.isEmpty, let data = call.arguments.data(using: .utf8),
                   (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
-                throw AppError.invalid("工具参数不完整，已阻止执行")
+                throw AppError.invalid(String(localized: "Tool arguments are incomplete. Execution was blocked."))
             }
         }
     }

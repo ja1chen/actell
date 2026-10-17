@@ -48,17 +48,17 @@ enum Wire {
     static let maxChunkBytes = 16_384
     static func encode(_ envelope: Envelope) throws -> Data {
         let body = try JSONEncoder().encode(envelope)
-        guard !body.isEmpty, body.count <= maxFrameBytes else { throw AppError.protocolViolation("控制帧过大") }
+        guard !body.isEmpty, body.count <= maxFrameBytes else { throw AppError.protocolViolation(String(localized: "Control frame is too large")) }
         var length = UInt32(body.count).bigEndian
         var data = withUnsafeBytes(of: &length) { Data($0) }; data.append(body); return data
     }
     static func length(_ header: Data) throws -> Int {
-        guard header.count == 4 else { throw AppError.protocolViolation("帧头长度无效") }
+        guard header.count == 4 else { throw AppError.protocolViolation(String(localized: "Invalid frame header length")) }
         let n = header.reduce(0) { ($0 << 8) | Int($1) }
-        guard n > 0, n <= maxFrameBytes else { throw AppError.protocolViolation("拒绝无效或过大帧") }; return n
+        guard n > 0, n <= maxFrameBytes else { throw AppError.protocolViolation(String(localized: "Rejected an invalid or oversized frame")) }; return n
     }
     static func normalized(pixel: Int, dimension: Int) throws -> Int {
-        guard dimension > 1, pixel >= 0, pixel < dimension else { throw AppError.invalid("坐标超出当前截图") }
+        guard dimension > 1, pixel >= 0, pixel < dimension else { throw AppError.invalid(String(localized: "Coordinates are outside the current screenshot")) }
         return Int((Double(pixel) / Double(dimension - 1) * 65_535).rounded())
     }
 }
@@ -71,7 +71,7 @@ struct ImageAssembler {
     mutating func begin(_ p: [String: JSONValue], limit: Int) throws {
         guard id == nil, let imageID = p["image_id"]?.string, !imageID.isEmpty, imageID.count <= 128,
               p["mime_type"]?.string == "image/png", let cap = p["max_bytes"]?.int,
-              cap > 0, cap <= limit, cap <= Wire.maxImageBytes else { throw AppError.protocolViolation("截图头无效") }
+              cap > 0, cap <= limit, cap <= Wire.maxImageBytes else { throw AppError.protocolViolation(String(localized: "Invalid screenshot header")) }
         id = imageID; ceiling = cap
     }
     mutating func chunk(_ p: [String: JSONValue]) throws {
@@ -79,7 +79,7 @@ struct ImageAssembler {
               p["sequence"]?.int == nextSequence, p["offset"]?.int == bytes.count,
               let b64 = p["data_base64"]?.string, b64.utf8.count <= 21_848,
               let data = Data(base64Encoded: b64), !data.isEmpty, data.count <= Wire.maxChunkBytes,
-              bytes.count + data.count <= ceiling else { throw AppError.protocolViolation("截图分块顺序、大小或编码无效") }
+              bytes.count + data.count <= ceiling else { throw AppError.protocolViolation(String(localized: "Invalid screenshot chunk order, size, or encoding")) }
         bytes.append(data); nextSequence += 1
     }
     mutating func end(_ p: [String: JSONValue]) throws {
@@ -94,11 +94,11 @@ struct ImageAssembler {
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               (properties[kCGImagePropertyPixelWidth] as? Int) == width,
               (properties[kCGImagePropertyPixelHeight] as? Int) == height,
-              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else { throw AppError.protocolViolation("截图校验、尺寸或 PNG 解码失败") }
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else { throw AppError.protocolViolation(String(localized: "Screenshot validation, dimensions, or PNG decoding failed")) }
         completed = FrameImage(id: id, png: bytes, width: width, height: height, capturedAt: Date(), isDemo: false)
     }
     func committed(imageID: String) throws -> FrameImage {
-        guard let completed, completed.id == imageID else { throw AppError.protocolViolation("未完成验证的截图不能提交") }
+        guard let completed, completed.id == imageID else { throw AppError.protocolViolation(String(localized: "An unverified screenshot cannot be submitted")) }
         return completed
     }
 }

@@ -50,20 +50,20 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         var result = discovered ?? DiscoveredModel(id: model, name: model)
         result.reasoningEfforts = ["low", "medium", "high", "xhigh", "max"]
         result.defaultReasoningEffort = "medium"
-        result.detailNotice = "思考档位来自 OpenAI GPT-6.1 Sol 官方文档（2026-10-10），并不证明此账户有模型权限。"
+        result.detailNotice = String(localized: "Reasoning levels come from OpenAI's official GPT-6.1 Sol documentation (2026-10-10). They do not confirm model access for this account.")
         return result
     }
     func parameters(for model: String) -> ModelParameters { modelParameters?[model] ?? ModelParameters() }
     func requireInference(model: String) throws {
         if providerKind == .chatGPTSubscription, chatGPTAccountReference == nil { throw ChatGPTAuthError.disconnected }
-        if providerKind == .chatGPTSubscription, currentCatalog?.models.contains(where: { $0.id == model }) != true { throw AppError.unavailable("请刷新此 ChatGPT 账户的模型列表，并选择可用模型") }
-        guard inferenceAPI == .chatCompletions || providerKind.supportsResponses else { throw AppError.invalid("此协议仅支持 Chat Completions 推理") }
-        guard inferenceAPI == .responses || contextPolicy == .stateless else { throw AppError.invalid("服务端响应链需要 Responses") }
-        guard contextPolicy == .stateless || providerKind.supportsResponseChain else { throw AppError.invalid("此供应商不支持服务端响应链；请选择本地回放") }
+        if providerKind == .chatGPTSubscription, currentCatalog?.models.contains(where: { $0.id == model }) != true { throw AppError.unavailable(String(localized: "Refresh the model list for this ChatGPT account and select an available model")) }
+        guard inferenceAPI == .chatCompletions || providerKind.supportsResponses else { throw AppError.invalid(String(localized: "This protocol supports Chat Completions inference only")) }
+        guard inferenceAPI == .responses || contextPolicy == .stateless else { throw AppError.invalid(String(localized: "Server response chains require Responses")) }
+        guard contextPolicy == .stateless || providerKind.supportsResponseChain else { throw AppError.invalid(String(localized: "This provider does not support server response chains. Select local replay.")) }
         guard providerKind.supportsInference else { throw AppError.unavailable(providerKind.inferenceNotice) }
-        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.invalid("请先选择或手动填写模型 ID") }
+        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.invalid(String(localized: "Select or enter a model ID first")) }
         if let metadata = metadata(for: model), metadata.vision == .unsupported || metadata.tools == .unsupported || metadata.generation == .unsupported {
-            throw AppError.unavailable("供应商明确报告此模型不支持图片、工具或文本生成，不能执行屏幕任务；请选择兼容模型")
+            throw AppError.unavailable(String(localized: "This provider reports that the model does not support images, tools, or text generation. Select a compatible model for screen tasks."))
         }
     }
 }
@@ -91,17 +91,17 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         do {
             if let data = defaults?.data(forKey: Self.storageKey) {
                 let saved = try JSONDecoder().decode(Archive.self, from: data)
-                guard saved.version == 1 else { throw AppError.invalid("未知供应商配置版本") }
+                guard saved.version == 1 else { throw AppError.invalid(String(localized: "Unknown provider configuration version")) }
                 profiles = saved.profiles; removed = saved.removed
                 lastSelection = saved.lastSelection
                 for index in profiles.indices { profiles[index].selectDefaultModelIfNeeded() }
             } else if let data = defaults?.data(forKey: "providerSettings") {
                 let legacy = try JSONDecoder().decode(ProviderSettings.self, from: data)
-                let host = URL(string: legacy.baseURL)?.host ?? "原供应商"
+                let host = URL(string: legacy.baseURL)?.host ?? String(localized: "Previous provider")
                 let profile = ProviderProfile(name: host, settings: legacy, keyAccount: legacy.keyAccount)
                 try persist(profiles: [profile], removed: [])
             }
-        } catch { writable = false; warning = "供应商配置无法读取；原数据已保留，暂不能修改" }
+        } catch { writable = false; warning = String(localized: "Provider settings could not be read. The original data was kept and cannot be edited for now.") }
     }
     func profile(_ id: UUID?) -> ProviderProfile? {
         guard let id else { return profiles.first }
@@ -118,21 +118,21 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         try persist(profiles: profiles, removed: removed, selection: Selection(providerID: providerID, model: model))
     }
     func prepared(_ draft: ProviderProfile) throws -> ProviderProfile {
-        guard writable else { throw AppError.unavailable(warning ?? "配置不可写") }
+        guard writable else { throw AppError.unavailable(warning ?? String(localized: "Settings are read-only")) }
         var value = draft
         if value.providerKind == .chatGPTSubscription {
-            guard value.contextPolicy == .stateless else { throw AppError.invalid("订阅供应商不支持服务端响应链") }
+            guard value.contextPolicy == .stateless else { throw AppError.invalid(String(localized: "Subscription providers do not support server response chains")) }
             value.inferenceKind = .responses
         }
         value.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         value.settings.baseURL = draft.settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         value.settings.model = draft.settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.inferenceAPI == .chatCompletions || value.providerKind.supportsResponses else { throw AppError.invalid("此协议尚不支持 Responses") }
-        guard value.inferenceAPI == .responses || value.contextPolicy == .stateless else { throw AppError.invalid("响应链需要 Responses") }
-        if value.inferenceAPI == .responses, value.modelParameters?.values.contains(where: { !($0.values["seed"] ?? "").isEmpty }) == true { throw AppError.invalid("Responses 不支持 seed，请清空该参数") }
-        guard value.contextPolicy == .stateless || value.providerKind.supportsResponseChain else { throw AppError.invalid("此供应商不支持服务端响应链") }
+        guard value.inferenceAPI == .chatCompletions || value.providerKind.supportsResponses else { throw AppError.invalid(String(localized: "This protocol does not support Responses yet")) }
+        guard value.inferenceAPI == .responses || value.contextPolicy == .stateless else { throw AppError.invalid(String(localized: "Response chains require Responses")) }
+        if value.inferenceAPI == .responses, value.modelParameters?.values.contains(where: { !($0.values["seed"] ?? "").isEmpty }) == true { throw AppError.invalid(String(localized: "Responses does not support seed. Clear this parameter.")) }
+        guard value.contextPolicy == .stateless || value.providerKind.supportsResponseChain else { throw AppError.invalid(String(localized: "This provider does not support server response chains")) }
         let url = try value.providerKind.baseURL(value.settings.baseURL)
-        if value.name.isEmpty { value.name = url.host ?? "供应商" }
+        if value.name.isEmpty { value.name = url.host ?? String(localized: "Provider") }
         value.models = draft.models.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         if let previous = profiles.first(where: { $0.id == draft.id }) {
             // Editing a label/model keeps the old Keychain reference. Changing
@@ -165,7 +165,7 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         try persist(profiles: profiles + [profile], removed: removed.filter { $0.id != id }, selection: lastSelection)
     }
     private func persist(profiles: [ProviderProfile], removed: [ProviderProfile], selection: Selection? = nil) throws {
-        guard writable else { throw AppError.unavailable(warning ?? "配置不可写") }
+        guard writable else { throw AppError.unavailable(warning ?? String(localized: "Settings are read-only")) }
         let data = try JSONEncoder().encode(Archive(profiles: profiles, removed: removed, lastSelection: selection))
         defaults?.set(data, forKey: Self.storageKey)
         self.profiles = profiles; self.removed = removed

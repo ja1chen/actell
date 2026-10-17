@@ -71,12 +71,12 @@ struct ToolInvocationView<Preview: View>: View {
             ToolResultCard {
                 VStack(alignment: .leading, spacing: 6) {
                     if let arguments = configuration.tool.displayArguments {
-                        Text("请求参数").font(.caption2).foregroundStyle(.tertiary)
+                        Text(String(localized: "Request arguments")).font(.caption2).foregroundStyle(.tertiary)
                         Text(arguments).font(.caption.monospaced()).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !configuration.tool.displayResult.isEmpty {
-                        Text(configuration.tool.state == .succeeded ? "结果" : "结果说明")
+                        Text(configuration.tool.state == .succeeded ? String(localized: "Result") : String(localized: "Result details"))
                             .font(.caption2).foregroundStyle(.tertiary)
                         Text(configuration.tool.displayResult).font(.footnote).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ private struct ToolResultCard<Content: View>: View {
             $0.contentOffset.y + $0.containerSize.height >= $0.contentSize.height + $0.contentInsets.bottom - 2
         } action: { _, value in atEnd = value }
         .accessibilityIdentifier("toolResultScroll")
-        .accessibilityValue(atEnd ? "已到末尾" : "可继续滚动")
+        .accessibilityValue(atEnd ? String(localized: "End reached") : String(localized: "More content available"))
         .padding(.top, 4)
     }
 }
@@ -129,7 +129,7 @@ struct ToolApprovalCard<Preview: View>: View {
                 MessageHeaderIcon(systemName: configuration.tool.symbol)
                 Text(configuration.tool.title).foregroundStyle(.secondary)
                 Spacer()
-                Text("需要授权").font(.caption).foregroundStyle(.secondary)
+                Text(String(localized: "Approval required")).font(.caption).foregroundStyle(.secondary)
             }.font(.body)
             Text(configuration.tool.detail).font(.subheadline).lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,7 +138,7 @@ struct ToolApprovalCard<Preview: View>: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(configuration.tool.detail).font(.subheadline).textSelection(.enabled)
                         if let arguments = configuration.tool.displayArguments {
-                            Text("请求参数").font(.caption).foregroundStyle(.secondary)
+                            Text(String(localized: "Request arguments")).font(.caption).foregroundStyle(.secondary)
                             Text(arguments).font(.caption.monospaced()).textSelection(.enabled)
                         }
                         preview()
@@ -146,15 +146,15 @@ struct ToolApprovalCard<Preview: View>: View {
                 }.frame(height: 180).scrollBounceBehavior(.basedOnSize)
                     .accessibilityIdentifier("approvalDetails")
             } label: {
-                Text("操作详情").font(.footnote).foregroundStyle(.secondary)
+                Text(String(localized: "Action details")).font(.footnote).foregroundStyle(.secondary)
                     .accessibilityIdentifier("approvalDetailsToggle")
             }.tint(.secondary)
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                Button("拒绝", role: .destructive) { configuration.onDeny?() }
+                Button(String(localized: "Deny"), role: .destructive) { configuration.onDeny?() }
                     .buttonStyle(.bordered).disabled(configuration.onDeny == nil)
                     .accessibilityIdentifier("rejectTool")
-                Button("批准一次") { configuration.onApprove?() }
+                Button(String(localized: "Approve once")) { configuration.onApprove?() }
                     .buttonStyle(.borderedProminent).disabled(configuration.onApprove == nil)
                     .accessibilityIdentifier("approveTool")
             }.font(.subheadline).controlSize(.regular)

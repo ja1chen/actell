@@ -35,7 +35,7 @@ import X509
         let randomStatus = serial.withUnsafeMutableBytes {
             SecRandomCopyBytes(kSecRandomDefault, $0.count, $0.baseAddress!)
         }
-        guard randomStatus == errSecSuccess else { throw failure("生成证书序列号", randomStatus) }
+        guard randomStatus == errSecSuccess else { throw failure("generate_serial", randomStatus) }
         serial[0] = (serial[0] & 0x7f) | 0x01
         let now = Date()
         let certificate = try Certificate(
@@ -59,9 +59,9 @@ import X509
             kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecUseDataProtectionKeychain: true,
         ] as NSDictionary, nil)
-        guard status == errSecSuccess else { throw failure("保存本机 TLS 证书", status) }
+        guard status == errSecSuccess else { throw failure("save_certificate", status) }
         guard let result = try load(host: host) else {
-            throw RemoteSetupError("本机 TLS 身份尚未完整保存，请重试；已有配对不会自动更换证书")
+            throw RemoteSetupError(String(localized: "The connection identity could not be saved completely. Try again. Existing pairing certificates remain unchanged."))
         }
         return result
     }
@@ -77,7 +77,7 @@ import X509
         ] as NSDictionary, &item)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let item, CFGetTypeID(item) == SecCertificateGetTypeID() else {
-            throw failure("读取本机 TLS 证书", status)
+            throw failure("read_certificate", status)
         }
         let certificate = item as! SecCertificate
         var identityItem: CFTypeRef?
@@ -89,7 +89,7 @@ import X509
         ] as NSDictionary, &identityItem)
         guard identityStatus == errSecSuccess, let identityItem,
               CFGetTypeID(identityItem) == SecIdentityGetTypeID() else {
-            throw failure("读取本机 TLS 身份", identityStatus)
+            throw failure("read_identity", identityStatus)
         }
         let identity = identityItem as! SecIdentity
         let der = SecCertificateCopyData(certificate) as Data
@@ -99,7 +99,7 @@ import X509
               let identityCertificate, (SecCertificateCopyData(identityCertificate) as Data) == der,
               SecIdentityCopyPrivateKey(identity, &privateKey) == errSecSuccess, privateKey != nil,
               let expires = SecCertificateCopyNotValidAfterDate(certificate) else {
-            throw RemoteSetupError("本机 TLS 证书与私钥不一致")
+            throw RemoteSetupError(String(localized: "The connection certificate does not match its key. Reset the connection and pair again."))
         }
         var trust: SecTrust?
         guard SecTrustCreateWithCertificates(certificate, SecPolicyCreateSSL(true, host as CFString), &trust) == errSecSuccess,
@@ -108,7 +108,7 @@ import X509
               SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess,
               SecTrustSetNetworkFetchAllowed(trust, false) == errSecSuccess,
               SecTrustEvaluateWithError(trust, nil) else {
-            throw RemoteSetupError("本机 TLS 证书已过期或连接名称不匹配；请明确重置连接后重新配对")
+            throw RemoteSetupError(String(localized: "The connection certificate has expired or does not match. Reset the connection and pair again."))
         }
         return Material(identity: identity, certificateDER: der,
                         fingerprint: SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined(),
@@ -125,7 +125,7 @@ import X509
             kSecUseDataProtectionKeychain: true,
         ] as NSDictionary, &item)
         if status == errSecSuccess, let item, CFGetTypeID(item) == SecKeyGetTypeID() { return item as! SecKey }
-        guard status == errSecItemNotFound else { throw failure("读取本机 TLS 密钥", status) }
+        guard status == errSecItemNotFound else { throw failure("read_key", status) }
         var error: Unmanaged<CFError>?
         guard let key = SecKeyCreateRandomKey([
             kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
@@ -136,7 +136,7 @@ import X509
                 kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             ],
         ] as NSDictionary, &error) else {
-            throw RemoteSetupError("无法生成本机 TLS 密钥：\(error?.takeRetainedValue().localizedDescription ?? "未知错误")")
+            throw RemoteSetupError(String(localized: "Connection credentials could not be created. Unlock the phone and try again."))
         }
         return key
     }
@@ -151,7 +151,7 @@ import X509
         for query in queries {
             var scoped = query; scoped[kSecUseDataProtectionKeychain] = true
             let status = SecItemDelete(scoped as NSDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw failure("移除本机 TLS 身份", status) }
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw failure("remove_identity", status) }
         }
     }
 
@@ -162,7 +162,7 @@ import X509
               host.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ part in
                   !part.isEmpty && part.utf8.count <= 63 && part.first != "-" && part.last != "-" &&
                   part.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
-              }) else { throw RemoteSetupError("本机 TLS 需要有效的 DNS 名称或 IP 地址") }
+              }) else { throw RemoteSetupError(String(localized: "Enter a valid DNS name or IP address for the connection.")) }
         return host
     }
     private static func subjectAlternativeName(_ host: String) -> GeneralName {
@@ -171,6 +171,7 @@ import X509
         return .dnsName(host)
     }
     private func failure(_ action: String, _ status: OSStatus) -> RemoteSetupError {
-        RemoteSetupError("\(action)失败（Keychain \(status)），请解锁设备后重试")
+        RemoteSetupError(String(localized: "Connection credentials are unavailable. Unlock the phone and try again."),
+                         underlying: NSError(domain: NSOSStatusErrorDomain, code: Int(status)))
     }
 }

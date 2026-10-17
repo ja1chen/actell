@@ -18,31 +18,31 @@ final class ModelDiscoveryClient: @unchecked Sendable {
     }
     deinit { session.invalidateAndCancel() }
     static func failure(_ error: Error) -> String {
-        if error is CancellationError || (error as? URLError)?.code == .cancelled { return "已取消获取；仍可使用缓存或手动模型 ID" }
-        if (error as? URLError)?.code == .timedOut { return "模型列表请求超时；可重试或手动填写模型 ID" }
-        return (error as? AppError)?.localizedDescription ?? "无法获取模型列表；请检查网络，或使用缓存／手动模型 ID"
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return String(localized: "Model discovery cancelled. Cached or manual model IDs remain available.") }
+        if (error as? URLError)?.code == .timedOut { return String(localized: "Model discovery timed out. Retry or enter a model ID manually.") }
+        return (error as? AppError)?.localizedDescription ?? String(localized: "Could not fetch models. Check the network or use cached or manual model IDs.")
     }
     private func json(_ request: URLRequest) async throws -> [String: Any] {
         try Task.checkCancellation()
         let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else { throw AppError.invalid("模型列表响应无效") }
+        guard let http = response as? HTTPURLResponse else { throw AppError.invalid(String(localized: "Invalid model list response")) }
         switch http.statusCode {
         case 200..<300: break
-        case 401: throw AppError.unavailable("401：密钥无效或未提供；请检查此供应商的密钥")
-        case 403: throw AppError.unavailable("403：此密钥无权查看模型；可手动填写已授权的模型 ID")
-        case 404: throw AppError.unavailable("404：模型接口不存在；请核对协议与基础地址，或手动填写模型 ID")
-        case 429: throw AppError.unavailable("429：供应商限流；请稍后刷新，未自动重试")
-        case 300..<400: throw AppError.unavailable("供应商返回重定向；为保护密钥未跟随，请直接填写最终基础地址")
-        default: throw AppError.unavailable("模型列表请求失败（HTTP \(http.statusCode)）；可使用缓存或手动模型 ID")
+        case 401: throw AppError.unavailable(String(localized: "401: The API key is missing or invalid. Check this provider's key."))
+        case 403: throw AppError.unavailable(String(localized: "403: This key cannot list models. You can enter an authorized model ID manually."))
+        case 404: throw AppError.unavailable(String(localized: "404: The model endpoint was not found. Check the protocol and base URL, or enter a model ID manually."))
+        case 429: throw AppError.unavailable(String(localized: "429: The provider limited requests. Refresh later. No automatic retry was made."))
+        case 300..<400: throw AppError.unavailable(String(localized: "The provider returned a redirect. It was not followed to protect your key. Enter the final base URL directly."))
+        default: throw AppError.unavailable(String(localized: "Model discovery failed (HTTP \(http.statusCode)). Use cached or manual model IDs."))
         }
         var data = Data()
         for try await byte in bytes {
             try Task.checkCancellation()
-            guard data.count < 8 * 1_024 * 1_024 else { throw AppError.invalid("模型元数据响应过大，旧缓存已保留") }
+            guard data.count < 8 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Model metadata is too large. The previous cache was kept.")) }
             data.append(byte)
         }
         guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AppError.invalid("模型接口未返回有效 JSON 对象；请核对协议与基础地址")
+            throw AppError.invalid(String(localized: "The model endpoint did not return a valid JSON object. Check the protocol and base URL."))
         }
         return result
     }
@@ -106,7 +106,7 @@ final class ModelDiscoveryClient: @unchecked Sendable {
             guard hasMore else { break }
             guard !page.isEmpty, let next = cursor, !next.isEmpty,
                   seenCursors.insert(next).inserted, seenPages.insert(page.map(\.id)).inserted,
-                  models.count <= 50_000 else { throw AppError.invalid("模型分页未取得进展或列表过大；旧缓存已保留") }
+                  models.count <= 50_000 else { throw AppError.invalid(String(localized: "Model pagination made no progress or the list is too large. The previous cache was kept.")) }
         }
         if kind == .ollama {
             // /show is metadata, not inference. Failed details remain explicitly unknown.
@@ -131,10 +131,10 @@ final class ModelDiscoveryClient: @unchecked Sendable {
         let rows: [[String: Any]]
         if let list = value[arrayKey] as? [[String: Any]] { rows = list }
         else if providerKind == .gemini && value.isEmpty { rows = [] }
-        else { throw AppError.invalid("模型列表格式与所选协议不匹配") }
+        else { throw AppError.invalid(String(localized: "The model list format does not match the selected protocol")) }
         return try rows.filter { providerKind != .chatGPTSubscription || $0["visibility"] as? String == "list" }.map { row in
             let raw = row[providerKind == .chatGPTSubscription ? "slug" : providerKind == .gemini ? "name" : providerKind == .ollama ? "name" : "id"] as? String
-            guard let id = raw, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.invalid("模型列表中有无效 ID") }
+            guard let id = raw, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.invalid(String(localized: "The model list contains an invalid ID")) }
             var model = DiscoveredModel(id: id, name: row["display_name"] as? String ?? row["displayName"] as? String ?? row["name"] as? String ?? id)
             switch providerKind {
             case .openAI, .ollama, .chatGPTSubscription:
@@ -219,7 +219,7 @@ private final class ModelCatalogUIFixture: URLProtocol, @unchecked Sendable {
             do {
                 let catalog = try await client.fetch(profile: profile, key: key)
                 guard let self, self.generation == token, !Task.isCancelled else { return }
-                receive(catalog); self.message = catalog.models.isEmpty ? "列表为空；仍可手动填写模型 ID" : "已获取 \(catalog.models.count) 个模型"
+                receive(catalog); self.message = catalog.models.isEmpty ? String(localized: "The list is empty. You can enter a model ID manually.") : String(localized: "Fetched \(catalog.models.count) models")
                 self.loading = false; self.task = nil
             } catch {
                 guard let self, self.generation == token else { return }
@@ -229,7 +229,7 @@ private final class ModelCatalogUIFixture: URLProtocol, @unchecked Sendable {
     }
     func cancel() {
         generation = UUID(); task?.cancel(); task = nil
-        if loading { message = "已取消获取；原缓存保留" }
+        if loading { message = String(localized: "Model discovery cancelled. The previous cache was kept.") }
         loading = false
     }
     func fail(_ error: Error) { message = ModelDiscoveryClient.failure(error) }

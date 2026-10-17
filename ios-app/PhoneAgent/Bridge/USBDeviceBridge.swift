@@ -4,9 +4,9 @@ enum USBBridgeStopReason: String, Error, Sendable {
     case sessionInvalid, screenshotTimeout, inputFailed
     var message: String {
         switch self {
-        case .sessionInvalid: return "采集会话、画面或 USB 心跳已失效，本轮已停止"
-        case .screenshotTimeout: return "等待有效截图超时，本轮输入已停止"
-        case .inputFailed: return "USB 动作未完成确认，本轮已停止；请核对设备"
+        case .sessionInvalid: return String(localized: "The capture session, image, or USB connection is no longer valid. This run has stopped.")
+        case .screenshotTimeout: return String(localized: "Timed out waiting for a valid screenshot. Input has stopped for this run.")
+        case .inputFailed: return String(localized: "The USB action was not fully acknowledged. This run has stopped. Check your device.")
         }
     }
 }
@@ -143,7 +143,7 @@ actor USBDeviceBridge: DeviceBridge {
         try await input("TAP \(x) \(y)", coordinates: [x, y], imageID: imageID)
     }
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws {
-        guard (100...2000).contains(durationMS) else { throw AppError.invalid("拖动时长无效") }
+        guard (100...2000).contains(durationMS) else { throw AppError.invalid(String(localized: "Invalid drag duration")) }
         try await input("DRAG \(fromX) \(fromY) \(toX) \(toY) \(durationMS)",
                         coordinates: [fromX, fromY, toX, toY], imageID: imageID)
     }

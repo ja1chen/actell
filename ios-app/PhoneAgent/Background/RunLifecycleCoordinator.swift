@@ -8,12 +8,14 @@ import Combine
 @MainActor protocol RunBackgroundLease: AnyObject {
     var expirationHandler: (() -> Void)? { get set }
     var backgroundReady: Bool { get }
+    var requiresRunPause: Bool { get }
     func report(completed: Int, subtitle: String)
     func complete(success: Bool)
 }
-extension RunBackgroundLease { var backgroundReady: Bool { true } }
+extension RunBackgroundLease { var backgroundReady: Bool { true }; var requiresRunPause: Bool { false } }
 
 @MainActor protocol RunBackgroundScheduler {
+    func endRun()
     func setForeground(_ active: Bool)
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void) throws
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void,
@@ -21,13 +23,14 @@ extension RunBackgroundLease { var backgroundReady: Bool { true } }
     func cancel(identifier: String)
 }
 extension RunBackgroundScheduler {
+    func endRun() {}
     func setForeground(_ active: Bool) {}
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void,
                 failed: @escaping @MainActor () -> Void) throws { try submit(identifier: identifier, launched: launched) }
 }
 @MainActor struct ForegroundOnlyScheduler: RunBackgroundScheduler {
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void) throws {
-        throw AppError.unavailable("当前系统不支持后台片段；只在前台继续")
+        throw AppError.unavailable(String(localized: "Background execution is unavailable on this system. Keep the app open to continue."))
     }
     func cancel(identifier: String) {}
 }
@@ -113,7 +116,7 @@ extension RunCheckpointStorage {
 @MainActor final class RunLifecycleCoordinator: ObservableObject {
     @Published private(set) var checkpoint: RunCheckpoint?
     private(set) var recoveries: [RunCheckpoint] = []
-    @Published private(set) var backgroundStatus = "后台需有效采集、画中画或系统实际授予的执行资格"
+    @Published private(set) var backgroundStatus = String(localized: "Background execution requires an active capture, audio, Picture in Picture, location, or a system background task.")
     private(set) var foreground = true
     private(set) var hasLease = false
     var canAwaitApprovalInBackground: Bool { checkpoint?.phase == .waitingApproval && activeToolBackgroundCapable }
@@ -150,7 +153,7 @@ extension RunCheckpointStorage {
             let pending = recoveries.filter { !$0.message.isEmpty }
             if !pending.isEmpty { backgroundStatus = pending.map(\.message).joined(separator: "\n") }
 
-        } catch { storageHealthy = false; backgroundStatus = "检查点无法读写；原文件保留，执行已禁用" }
+        } catch { storageHealthy = false; backgroundStatus = String(localized: "Your saved progress could not be read or written. The original file was kept and execution was disabled.") }
     }
 
     func begin(identity: RunIdentity, generation: UUID, allowBackgroundStart: Bool = false) throws {
@@ -158,7 +161,7 @@ extension RunCheckpointStorage {
         activeToolBackgroundCapable = true
         checkpoint = RunCheckpoint(runID: identity.runID, conversationID: identity.conversationID, generation: generation)
         try persist(); ownsRun = true; requestSegment(allowBackgroundStart: allowBackgroundStart)
-        guard storageHealthy else { throw AppError.unavailable("检查点保存失败") }
+        guard storageHealthy else { throw AppError.unavailable(String(localized: "Could not save progress")) }
         lastActivity = now()
         watchdog?.cancel()
         if inactivityTimeout != nil { watchdog = Task { [weak self] in
@@ -174,7 +177,7 @@ extension RunCheckpointStorage {
         checkpoint?.segment += 1
         let id = identifierPrefix + "." + UUID().uuidString
         checkpoint?.segmentID = id
-        backgroundStatus = "检查本次后台执行资格"
+        backgroundStatus = String(localized: "Checking background availability")
         do {
             try persist()
             try scheduler.submit(identifier: id, launched: { [weak self] lease in
@@ -184,16 +187,16 @@ extension RunCheckpointStorage {
         } catch {
             scheduler.cancel(identifier: id)
             if checkpoint?.segmentID == id { checkpoint?.segmentID = nil }
-            backgroundStatus = "后台执行资格未获准；本轮仅前台继续，离开即暂停"
+            backgroundStatus = String(localized: "Background execution was not allowed. The task will pause when you leave the app.")
             saveOrPause()
         }
     }
     private func submissionRejected(identifier: String) {
         guard ownsRun, checkpoint?.phase == .running, checkpoint?.segmentID == identifier, !hasLease else { return }
         scheduler.cancel(identifier: identifier); checkpoint?.segmentID = nil
-        backgroundStatus = "后台申请未获准；本轮仅前台继续，离开即暂停"
+        backgroundStatus = String(localized: "The background request was not allowed. The task will pause when you leave the app.")
         saveOrPause()
-        if !foreground { pause("系统未授予后台片段；已暂停，旧动作不会重放") }
+        if !foreground { pause(String(localized: "The system did not allow background execution. The task was paused and previous actions will not be repeated.")) }
     }
     private func accept(_ incoming: any RunBackgroundLease, identifier: String) {
         if let lease, lease === incoming { return }
@@ -204,24 +207,28 @@ extension RunCheckpointStorage {
         incoming.expirationHandler = { [weak self] in
             guard self?.checkpoint?.segmentID == identifier, self?.hasLease == true else { return }
             guard let self else { return }
-            if self.foreground {
+            if incoming.requiresRunPause {
+                self.pause(String(localized: "The system background task expired or was canceled. Continue manually when ready."))
+            } else if self.foreground {
                 // Returning to the app closes PiP, not the foreground task.
                 self.lease?.complete(success: false); self.lease = nil; self.hasLease = false
                 self.scheduler.cancel(identifier: identifier)
-                self.requestSegment()
+                self.checkpoint?.segmentID = nil
+                self.backgroundStatus = String(localized: "Background execution has ended. Keep the app open and continue manually.")
+                self.saveOrPause()
             } else {
-                self.pause("后台执行资格失效或到期；已暂停，请核对设备后手动继续")
+                self.pause(String(localized: "Background execution expired. Check your device, then continue manually."))
             }
         }
-        backgroundStatus = incoming.backgroundReady ? "后台执行资格有效；设备工具仍需独立校验" : "等待后台媒体实际开始播放；设备操作尚未发送"
-        incoming.report(completed: checkpoint?.milestones.count ?? 0, subtitle: "等待实际模型响应或工具结果；总步骤未知")
+        backgroundStatus = incoming.backgroundReady ? String(localized: "Background execution is available. Device controls still need verification.") : String(localized: "Waiting for a background option to become available. No device action has been sent.")
+        incoming.report(completed: checkpoint?.milestones.count ?? 0, subtitle: String(localized: "Waiting for a model response or tool result. The total number of steps is unknown."))
     }
     func setForeground(_ active: Bool) {
         foreground = active
         scheduler.setForeground(active)
         guard !active, checkpoint?.phase == .running else { return }
-        if !hasLease { pause("离开前台时尚无有效后台片段；已暂停，需手动继续") }
-        else if !activeToolBackgroundCapable { pause("当前设备工具尚未验证后台能力；已暂停，请返回前台核对") }
+        if !hasLease { pause(String(localized: "Background execution was unavailable when you left the app. Continue manually when ready.")) }
+        else if !activeToolBackgroundCapable { pause(String(localized: "This device connection has not been verified for background use. Return to the app to check it.")) }
     }
     /// Wait for an actual media receipt during the bounded foreground handoff.
     /// A pending lease is neither background permission nor permission to dispatch.
@@ -236,7 +243,7 @@ extension RunCheckpointStorage {
     func requireExecution(generation: UUID, backgroundCapable: Bool) throws {
         guard ownsRun, checkpoint?.generation == generation, checkpoint?.phase == .running, storageHealthy else { throw AppError.stopped }
         guard foreground || (hasLease && lease?.backgroundReady == true && backgroundCapable) else {
-            pause("此步骤需要前台或有效后台能力；已暂停，未自动重发")
+            pause(String(localized: "This step needs the app open or background execution. It was paused and will not be resent automatically."))
             throw AppError.stopped
         }
     }
@@ -283,7 +290,7 @@ extension RunCheckpointStorage {
         if wasWaiting { checkpoint?.pendingApproval = nil; checkpoint?.phase = .running }
         activeToolBackgroundCapable = true
         saveOrPause()
-        if wasWaiting, checkpoint?.phase == .running { requestSegment() }
+        if wasWaiting, checkpoint?.phase == .running { backgroundStatus = String(localized: "Permission was not granted. Keep the app open to continue.") }
     }
     func waitForApproval(callID: String, generation: UUID) throws {
         guard ownsRun, checkpoint?.generation == generation, checkpoint?.phase == .running,
@@ -291,7 +298,7 @@ extension RunCheckpointStorage {
         checkpoint?.pendingApproval = callID; checkpoint?.phase = .waitingApproval
         try persistOrPause()
         endSegment(success: true)
-        backgroundStatus = "等待前台确认；执行资格已暂停；无输入，需前台确认"
+        backgroundStatus = String(localized: "Waiting for confirmation in the app. Execution is paused and no input will be sent.")
     }
     func resumeApproved(callID: String, digest: String, generation: UUID) throws {
         guard ownsRun, foreground, checkpoint?.generation == generation, checkpoint?.phase == .waitingApproval,
@@ -306,12 +313,12 @@ extension RunCheckpointStorage {
         lastActivity = now()
         if let milestone, checkpoint?.milestones.insert(milestone).inserted == true {
             saveOrPause()
-            lease?.report(completed: checkpoint?.milestones.count ?? 0, subtitle: "已收到 \(checkpoint?.milestones.count ?? 0) 个响应或工具结果；总步骤未知")
+            lease?.report(completed: checkpoint?.milestones.count ?? 0, subtitle: String(localized: "Received \(checkpoint?.milestones.count ?? 0) responses or tool results. The total number of steps is unknown."))
         }
     }
     func checkInactivity() {
         guard let inactivityTimeout, checkpoint?.phase == .running, now().timeIntervalSince(lastActivity) >= inactivityTimeout else { return }
-        pause("超过 \(Int(inactivityTimeout)) 秒未收到有效响应；已暂停，请检查网络后手动继续")
+        pause(String(localized: "No response for \(Int(inactivityTimeout)) seconds. Check your network, then continue manually."))
     }
     func pause(generation: UUID, message: String) {
         guard ownsRun, checkpoint?.generation == generation else { return }
@@ -328,7 +335,7 @@ extension RunCheckpointStorage {
     }
     func finish(success: Bool) {
         guard checkpoint?.phase == .running else { return }
-        terminate(phase: success ? .completed : .paused, message: success ? "运行结束" : "运行中断；请核对后继续", success: success)
+        terminate(phase: success ? .completed : .paused, message: success ? String(localized: "Run finished") : String(localized: "Run interrupted. Check the result before continuing."), success: success)
     }
     private func terminate(phase: RunCheckpoint.Phase, message: String, success: Bool, cancelExecution: Bool = false) {
         if let tools = checkpoint?.tools {
@@ -337,25 +344,26 @@ extension RunCheckpointStorage {
         checkpoint?.phase = phase; checkpoint?.message = message
         watchdog?.cancel(); watchdog = nil
         backgroundStatus = message
-        if cancelExecution { onPause?(message) }
         try? persist()
         endSegment(success: success)
+        scheduler.endRun()
+        if cancelExecution { onPause?(message) }
         ownsRun = false
     }
     private func endSegment(success: Bool) {
         let old = lease; lease = nil; hasLease = false
+        old?.expirationHandler = nil; old?.complete(success: success)
         if let id = checkpoint?.segmentID { scheduler.cancel(identifier: id) }
         checkpoint?.segmentID = nil
-        old?.expirationHandler = nil; old?.complete(success: success)
         try? persist()
     }
     private func persist() throws {
-        guard storageHealthy, let checkpoint else { throw AppError.unavailable("检查点不可用") }
+        guard storageHealthy, let checkpoint else { throw AppError.unavailable(String(localized: "Saved progress unavailable")) }
         do { try storage.save(checkpoint) }
-        catch { storageHealthy = false; throw AppError.unavailable("检查点保存失败；为避免未知动作继续，已停止") }
+        catch { storageHealthy = false; throw AppError.unavailable(String(localized: "Progress could not be saved. Execution was stopped to prevent further actions with unknown results.")) }
     }
     private func persistOrPause() throws {
-        do { try persist() } catch { pause("检查点保存失败；已暂停，未允许继续发送"); throw error }
+        do { try persist() } catch { pause(String(localized: "Progress could not be saved. The task was paused and no further actions will be sent.")); throw error }
     }
     private func saveOrPause() { do { try persistOrPause() } catch {} }
 }
@@ -371,11 +379,11 @@ extension RunCheckpoint {
         if saved.phase == .running { saved.phase = .paused }
         saved.segmentID = nil; saved.pendingApproval = nil
         if saved.tools.contains(where: { $0.delivery == .outcomeUnknown }) {
-            saved.message = "上次有已发送动作结果未知；请先核对设备，旧动作不会重放"
+            saved.message = String(localized: "A previous action has an unknown result. Check your device first. The action will not be repeated.")
         } else if saved.phase == .waitingApproval {
-            saved.message = "上次执行已中断，原审批已失效。"
+            saved.message = String(localized: "The previous run was interrupted and its approvals have expired.")
         } else if saved.phase == .paused {
-            saved.message = "上次执行已中断；已发送动作不会自动重发。"
+            saved.message = String(localized: "The previous run was interrupted. Sent actions will not be repeated automatically.")
         } else { saved.message = "" }
         return saved
     }

@@ -17,9 +17,9 @@ enum MuseCompanionScope: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .screenshot: return "读取屏幕截图"
-        case .listApps: return "读取应用列表"
-        case .control: return "操控手机"
+        case .screenshot: return String(localized: "Screenshots")
+        case .listApps: return String(localized: "App List")
+        case .control: return String(localized: "Phone Control")
         }
     }
 }

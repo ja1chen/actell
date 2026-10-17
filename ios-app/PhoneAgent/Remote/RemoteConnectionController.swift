@@ -37,12 +37,12 @@ import CryptoKit
     }
     func peerStatus(_ client: RemoteClientRegistration, now: Date = Date()) -> String {
         if !client.identityConfirmed, client.bootstrapExpiresAt.map({ $0 <= now }) != false {
-            return "配对材料已过期，请撤销后重新添加"
+            return String(localized: "Pairing details expired. Remove the device and add it again.")
         }
-        guard client.requestedDeviceName != nil else { return "等待 USB 配置后的设备申请" }
-        guard client.identityConfirmed, !client.scopes.isEmpty else { return "等待确认身份与授权" }
-        guard isPeerOnline(client.id) else { return "已授权，未确认在线" }
-        return "已认证，最近有通信"
+        guard client.requestedDeviceName != nil else { return String(localized: "Waiting for the device after USB setup") }
+        guard client.identityConfirmed, !client.scopes.isEmpty else { return String(localized: "Waiting for device approval") }
+        guard isPeerOnline(client.id) else { return String(localized: "Authorized, not connected") }
+        return String(localized: "Connected and authenticated")
     }
     var isActive: Bool { status != .stopped }
     init(service: RemoteToolsService, store: RemoteConnectionStore, journalDirectory: URL? = nil,
@@ -65,8 +65,7 @@ import CryptoKit
             let previous = self.status; self.status = value
             if value == .stopped || value == .stopping {
                 if previous != .stopped, !self.stoppingByUser, self.foregroundActive {
-                    self.connectionIssue = self.service.listenerFailure.map { "服务已中断：" + $0 }
-                        ?? "服务已中断，请检查 Wi-Fi 后重新开启 Muse Gadget 服务"
+                    self.connectionIssue = String(localized: "Connection interrupted. Check the local network and restart Muse Gadget Service.")
                 }
                 self.pairing.setAvailable(false)
                 self.lastAuthenticatedAt.removeAll()
@@ -188,42 +187,42 @@ import CryptoKit
     }
     #endif
     private func idle() throws {
-        guard canConfigure() else { throw RemoteSetupError("请在设备解锁且任务空闲时修改或启动 Muse 连接") }
-        guard !isActive else { throw RemoteSetupError("请先停止 Muse 连接，再修改连接配置或证书") }
+        guard canConfigure() else { throw RemoteSetupError(String(localized: "Unlock the phone and wait for tasks to finish before changing or starting the Muse connection.")) }
+        guard !isActive else { throw RemoteSetupError(String(localized: "Stop the Muse connection before changing its settings or certificate.")) }
     }
     func prepareCompanion() throws {
         try idle(); try store.prepareCompanion(); settings = store.settings
-        message = "本机独立身份已准备。请添加设备并通过可信 USB 交付配对材料。"
+        message = String(localized: "Connection identity ready. Add a device and transfer its pairing details through trusted USB.")
     }
     func configure(host: String, port: String, sources: String) throws {
         try idle(); try store.configure(host: host, port: port, sources: sources)
-        settings = store.settings; message = "连接配置已保存"
+        settings = store.settings; message = String(localized: "Connection settings saved")
     }
     func importCertificate(url: URL, password: String) throws {
         try idle()
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size > 0, size <= 32 * 1024 else { throw RemoteSetupError("证书文件须小于 32 KiB") }
+        guard size > 0, size <= 32 * 1024 else { throw RemoteSetupError(String(localized: "Choose a certificate file smaller than 32 KiB.")) }
         try store.importIdentity(data: Data(contentsOf: url), password: password)
-        settings = store.settings; message = "服务器证书已保存在本机钥匙串"
+        settings = store.settings; message = String(localized: "Server certificate saved in this device’s Keychain")
     }
     func removeCertificate() throws {
-        try idle(); try store.removeIdentity(); settings = store.settings; message = "服务器证书已移除"
+        try idle(); try store.removeIdentity(); settings = store.settings; message = String(localized: "Server certificate removed")
     }
     func addClient(name: String) throws -> RemoteClientInvitation {
         try idle()
-        guard settings.certificate != nil else { throw RemoteSetupError("请先配置独立服务器证书，再生成可信 USB 配对材料") }
+        guard settings.certificate != nil else { throw RemoteSetupError(String(localized: "Configure a server certificate before creating USB pairing details.")) }
         _ = try store.loadIdentity()
         let invitation = try store.addClient(name: name)
-        settings = store.settings; message = "客户端已添加；请通过安全方式交付连接信息"
+        settings = store.settings; message = String(localized: "Client added. Transfer the connection details securely.")
         return invitation
     }
     func authorize(_ client: RemoteClientRegistration, scopes: Set<MuseCompanionScope>, identityConfirmed: Bool,
                    name: String? = nil) throws {
         let displayName = try name.map(RemoteConnectionStore.normalizedDeviceName)
-        guard let current = settings.clients.first(where: { $0.id == client.id }) else { throw RemoteSetupError("设备已被撤销") }
+        guard let current = settings.clients.first(where: { $0.id == client.id }) else { throw RemoteSetupError(String(localized: "Device Removed")) }
         let onlyReduces = current.identityConfirmed && identityConfirmed && scopes.isSubset(of: current.scopes)
-        guard onlyReduces || canConfigure() else { throw RemoteSetupError("请解锁设备并等待当前任务结束后增加授权") }
+        guard onlyReduces || canConfigure() else { throw RemoteSetupError(String(localized: "Unlock the phone and wait for the current task to finish before allowing more access.")) }
         // Fence accepted work BEFORE changing scopes. The live store is consulted
         // for every subsequent request; dropping a scope cannot retain old access.
         let permissionsChanged = current.scopes != scopes || current.identityConfirmed != identityConfirmed
@@ -235,7 +234,7 @@ import CryptoKit
             lastAuthenticatedAt.removeValue(forKey: client.id)
             lastAuthenticatedUptime.removeValue(forKey: client.id)
         }
-        message = permissionsChanged ? (scopes.isEmpty ? "所有能力已关闭" : "授权已更新，等待设备重新确认连接") : "设备名称已更新"
+        message = permissionsChanged ? (scopes.isEmpty ? String(localized: "All permissions are off") : String(localized: "Permissions updated. Waiting for the device to reconnect.")) : String(localized: "Device name updated")
     }
     func revoke(_ client: RemoteClientRegistration) throws {
         do { try store.revokeClient(client.id) { [service] id in service.revoke(clientID: id) } }
@@ -243,12 +242,12 @@ import CryptoKit
             // A failed credential deletion must never leave an apparently revoked
             // client authenticated against a running listener.
             service.stop()
-            throw RemoteSetupError("撤销未完成，连接已停止。" + error.localizedDescription)
+            throw RemoteSetupError(String(localized: "The device could not be removed. The connection stopped. Unlock the phone and try again."))
         }
         pairing.forget(clientID: client.id)
         lastAuthenticatedAt.removeValue(forKey: client.id)
         lastAuthenticatedUptime.removeValue(forKey: client.id)
-        settings = store.settings; message = "已撤销 \(client.name)"
+        settings = store.settings; message = String(localized: "Revoked \(client.name)")
     }
     func start() throws {
         // The switch records user intent, independently of listener/identity admission.
@@ -272,7 +271,7 @@ import CryptoKit
         if !settings.usesCompanionLAN {
             _ = try RemoteConnectionSettings.validate(host: settings.host, port: String(settings.port), sources: settings.sources.joined(separator: "\n"))
         }
-        guard settings.usesCompanionLAN || settings.clients.contains(where: { store.key(for: $0.id)?.count == 32 }) else { throw RemoteSetupError("请先添加有效的客户端") }
+        guard settings.usesCompanionLAN || settings.clients.contains(where: { store.key(for: $0.id)?.count == 32 }) else { throw RemoteSetupError(String(localized: "Add a valid client first.")) }
         connectionIssue = nil; stoppingByUser = false
         let identity = try store.loadIdentity()
         let sources = Set(settings.sources.compactMap { RemoteSourceAddress(literal: $0) })
@@ -285,9 +284,9 @@ import CryptoKit
                           }, directory: journalDirectory) }
         catch let error as RemoteRPCError {
             switch error.code {
-            case "not_foreground": throw RemoteSetupError("请解锁设备并在前台启动连接")
-            case "busy": throw RemoteSetupError("上一轮执行正在释放，请稍后重试")
-            default: throw RemoteSetupError("远程运行记录不可用，连接未启动；请检查本地记录")
+            case "not_foreground": throw RemoteSetupError(String(localized: "Unlock the phone and open Actell to start the connection."))
+            case "busy": throw RemoteSetupError(String(localized: "The previous task is still stopping. Try again shortly."))
+            default: throw RemoteSetupError(String(localized: "Remote task records are unavailable. The service did not start. Check local storage."))
             }
         }
         pairingTimer?.cancel()
@@ -301,12 +300,12 @@ import CryptoKit
         message = nil
     }
     func openPairingWindow() throws {
-        guard canConfigure(), service.isListening, settings.usesCompanionLAN else { throw RemoteSetupError("请先开启 Muse 连接并保持执言在前台") }
+        guard canConfigure(), service.isListening, settings.usesCompanionLAN else { throw RemoteSetupError(String(localized: "Turn on Muse Gadget Service and keep Actell open.")) }
         try pairing.openWindow()
     }
     func cancelPairing() { pairing.cancelCurrent() }
     func approvePairing() throws {
-        guard canConfigure(), service.isListening else { throw RemoteSetupError("请解锁手机并保持执言在前台") }
+        guard canConfigure(), service.isListening else { throw RemoteSetupError(String(localized: "Unlock the phone and keep Actell open.")) }
         _ = try store.loadIdentity() // Never hand out credentials if the prepared identity was lost.
         try pairing.approve()
     }
@@ -316,7 +315,7 @@ import CryptoKit
         store.setServiceEnabled(false)
         service.recordPreference("service.preference.disabled", enabled: false)
         stoppingByUser = true; connectionIssue = nil
-        pairing.stop(); service.stop(); message = "Muse 连接已停止"
+        pairing.stop(); service.stop(); message = String(localized: "Muse connection stopped")
     }
     /// Restore the saved user choice only when the unlocked foreground is idle.
     /// Restoring a listener never opens pairing or resumes cancelled runs.

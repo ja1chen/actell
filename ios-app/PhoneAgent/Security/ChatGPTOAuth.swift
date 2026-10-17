@@ -7,17 +7,17 @@ enum ChatGPTAuthError: Error, LocalizedError {
     case invalidIdentity, missingPermission, disconnected, cancelled, expiredAttempt, refreshFailed, revoked, usageLimited, noModels, network, persistence
     var errorDescription: String? {
         switch self {
-        case .invalidIdentity: return "ChatGPT 身份签名、账号或授权回调校验失败"
+        case .invalidIdentity: return String(localized: "ChatGPT identity signature, account, or authorization callback verification failed")
         case .missingPermission: return ChatGPTConnectionStatus.identityOnly.message
-        case .disconnected: return "请先连接 ChatGPT 账户"
-        case .cancelled: return "ChatGPT 登录已取消"
-        case .expiredAttempt: return "登录尝试已过期，请重新开始"
+        case .disconnected: return String(localized: "Connect a ChatGPT account first")
+        case .cancelled: return String(localized: "ChatGPT sign-in canceled")
+        case .expiredAttempt: return String(localized: "This sign-in attempt expired. Start again.")
         case .refreshFailed: return ChatGPTConnectionStatus.refreshFailed.message
         case .revoked: return ChatGPTConnectionStatus.revoked.message
         case .usageLimited: return ChatGPTConnectionStatus.usageLimited.message
         case .noModels: return ChatGPTConnectionStatus.noModels.message
-        case .network: return "ChatGPT 服务请求失败；未自动重放模型请求"
-        case .persistence: return "ChatGPT 凭据无法安全保存；请解锁后重新连接"
+        case .network: return String(localized: "The ChatGPT service request failed. The model request was not replayed automatically.")
+        case .persistence: return String(localized: "ChatGPT credentials could not be saved securely. Unlock your device and reconnect.")
         }
     }
 }
@@ -203,7 +203,7 @@ actor ChatGPTAccountManager {
         do { try storage.replace(JSONEncoder().encode(value)); vault = value } catch { throw ChatGPTAuthError.persistence }
     }
     func summaries() throws -> [ChatGPTAccountSummary] {
-        try load().accounts.map { key, c in .init(id: key, label: (c.identity.email ?? "ChatGPT 账户"), status: statuses[key] ?? (c.accessToken.isEmpty ? .disconnected : .granted(tokenResponseScopes: c.scopes, expired: c.expires <= Date()))) }.sorted { $0.id < $1.id }
+        try load().accounts.map { key, c in .init(id: key, label: (c.identity.email ?? String(localized: "ChatGPT account")), status: statuses[key] ?? (c.accessToken.isEmpty ? .disconnected : .granted(tokenResponseScopes: c.scopes, expired: c.expires <= Date()))) }.sorted { $0.id < $1.id }
     }
     func selectedAccount(profileID: UUID) throws -> String? { try load().selected[profileID.uuidString] }
     func select(_ account: String, profileID: UUID) throws {

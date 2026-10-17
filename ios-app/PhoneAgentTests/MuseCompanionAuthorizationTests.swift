@@ -84,10 +84,10 @@ import XCTest
         let store = RemoteConnectionStore(vault: RemoteMemoryVault(), defaults: nil)
         let controller = RemoteConnectionController(service: RemoteToolsService(model: AgentViewModel(loadPersistentState: false)), store: store)
         var client = RemoteClientRegistration(id: "offline", name: "Muse", pairedAt: Date())
-        XCTAssertEqual(controller.peerStatus(client), "等待 USB 配置后的设备申请")
+        XCTAssertEqual(controller.peerStatus(client), String(localized: "Waiting for the device after USB setup"))
         client.requestedDeviceName = "Muse"
-        XCTAssertEqual(controller.peerStatus(client), "等待确认身份与授权")
+        XCTAssertEqual(controller.peerStatus(client), String(localized: "Waiting for device approval"))
         client.identityConfirmed = true; client.scopes = [.screenshot]
-        XCTAssertEqual(controller.peerStatus(client), "已授权，未确认在线")
+        XCTAssertEqual(controller.peerStatus(client), String(localized: "Authorized, not connected"))
     }
 }

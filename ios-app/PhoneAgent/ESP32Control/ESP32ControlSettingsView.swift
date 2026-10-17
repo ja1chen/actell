@@ -24,7 +24,7 @@ struct ESP32ControlSettingsView: View {
             .toolbar {
                 ToolbarItem(id: "vpnLoopbackSave", placement: .confirmationAction) {
                     if flow.route == .vpnLoopback && changed {
-                        Button("保存", action: save)
+                        Button(String(localized: "Save"), action: save)
                             .accessibilityIdentifier("saveVPNLoopbackConfiguration")
                             .disabled(!flow.canChangeRoute)
                     }
@@ -37,17 +37,17 @@ struct ESP32ControlSettingsView: View {
     }
     private var vpnConfigurationSection: some View {
         Section {
-            addressRow("接口地址", text: $localAddress,
+            addressRow(String(localized: "Interface address"), text: $localAddress,
                 defaultAddress: VPNLoopbackConfiguration.defaults.localAddress,
                 candidates: [VPNLoopbackConfiguration.defaults.localAddress, "198.18.0.1"],
                 field: .local, identifier: "vpnLoopbackInterfaceAddress")
-            addressRow("对端地址", text: $peerAddress,
+            addressRow(String(localized: "Peer address"), text: $peerAddress,
                 defaultAddress: VPNLoopbackConfiguration.defaults.peerAddress,
                 candidates: [VPNLoopbackConfiguration.defaults.peerAddress],
                 field: .peer, identifier: "vpnLoopbackPeerAddress")
             if let error { Text(error).font(.footnote).foregroundStyle(.red) }
         } footer: {
-            Text("建立连接阶段需要处于 Wi-Fi 环境")
+            Text(String(localized: "A Wi-Fi connection is needed while connecting"))
         }
         .keyboardType(.numbersAndPunctuation)
         .textInputAutocapitalization(.never)
@@ -74,7 +74,7 @@ struct ESP32ControlSettingsView: View {
                         }
                     }
                     Divider()
-                    Button("自定义") { editing = field }
+                    Button(String(localized: "Custom")) { editing = field }
                         .accessibilityIdentifier(identifier + "Custom")
                 } label: {
                     Image(systemName: "chevron.up.chevron.down")
@@ -83,7 +83,7 @@ struct ESP32ControlSettingsView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(title + "选项")
+                .accessibilityLabel(String(localized: "\(title) options"))
                 .accessibilityIdentifier(identifier + "Presets")
             }
         }
@@ -97,7 +97,7 @@ struct ESP32ControlSettingsView: View {
         } catch let failure as NCMControlError {
             if case .unavailable(let message) = failure { error = message }
         } catch {
-            self.error = "请输入不同的有效 IPv4 地址"
+            self.error = String(localized: "Enter two different, valid IPv4 addresses")
         }
     }
 }

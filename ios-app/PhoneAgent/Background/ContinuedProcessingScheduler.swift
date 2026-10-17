@@ -27,7 +27,7 @@ import UIKit
             }
         }) else {
             transition.complete(success: false); leases.removeValue(forKey: identifier)
-            throw AppError.unavailable("后台片段 ID 注册失败")
+            throw AppError.unavailable(String(localized: "Could not register the background task"))
         }
         if transition.valid { launched(transition) }
         submissions[identifier] = Task { [weak self] in
@@ -44,12 +44,12 @@ import UIKit
             catch {
                 BackgroundExecutionTrace.record("execution.continuedRequestRejected code=\((error as NSError).code)")
                 self?.diagnostic?("continued processing request rejected: \(error.localizedDescription)")
-                if !Task.isCancelled && !transition.valid { failed() }
+                if !Task.isCancelled { transition.complete(success: false); self?.cancel(identifier: identifier); failed() }
             }
         }
     }
     private nonisolated static func submitRequest(identifier: String) async throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "PhoneAgent 正在处理任务", subtitle: "等待实际响应；可随时取消")
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: String(localized: "Processing your task"), subtitle: String(localized: "Waiting for a response. You can cancel at any time."))
         request.strategy = .fail
         request.requiredResources = [] // CPU/network only; no GPU entitlement.
         // iOS 27's asynchronous API reports errors missed by deprecated submit.
@@ -65,6 +65,8 @@ import UIKit
 
 @available(iOS 26.0, *)
 @MainActor private final class ContinuedProcessingLease: RunBackgroundLease {
+    var backgroundReady: Bool { !completed }
+    var requiresRunPause: Bool { true }
     private let task: BGContinuedProcessingTask
     private var completed = false
     var expirationHandler: (() -> Void)?
@@ -86,7 +88,7 @@ import UIKit
     func report(completed: Int, subtitle: String) {
         guard !self.completed else { return }
         task.progress.completedUnitCount = Int64(completed)
-        task.updateTitle("\(AppIdentity.displayName) 正在处理任务", subtitle: subtitle)
+        task.updateTitle(String(localized: "\(AppIdentity.displayName) is processing your task"), subtitle: subtitle)
     }
     func complete(success: Bool) {
         guard !completed else { return }; completed = true
@@ -107,17 +109,19 @@ import UIKit
     private var completed = false
     private var progress: (Int, String)?
     var expirationHandler: (() -> Void)?
-    var valid: Bool { !completed && (token != .invalid || continued != nil) }
+    var valid: Bool { !completed && (token != .invalid || continued?.backgroundReady == true) }
+    var backgroundReady: Bool { valid }
+    private(set) var requiresRunPause = false
     func begin() {
         guard !completed, token == .invalid else { return }
-        token = UIApplication.shared.beginBackgroundTask(withName: "PhoneAgent execution") { [weak self] in
+        token = UIApplication.shared.beginBackgroundTask(withName: "Actell execution") { [weak self] in
             Task { @MainActor in self?.expireTransition() }
         }
     }
     func upgrade(to lease: any RunBackgroundLease) {
         guard !completed, continued == nil else { lease.complete(success: false); return }
         continued = lease
-        lease.expirationHandler = { [weak self] in self?.expire() }
+        lease.expirationHandler = { [weak self] in self?.requiresRunPause = true; self?.expire() }
         endTransition()
         if let progress { lease.report(completed: progress.0, subtitle: progress.1) }
     }

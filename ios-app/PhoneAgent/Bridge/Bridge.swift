@@ -21,28 +21,28 @@ protocol DeviceBridge: Sendable {
 }
 
 extension DeviceBridge {
-    func validateRemoteObservation(_ frame: FrameImage) async throws { throw AppError.unavailable("此通道缺少实时几何校验") }
-    func setRemoteDeadline(_ deadline: Date) async throws { throw AppError.unavailable("此通道尚未验证远程截止时间围栏") }
+    func validateRemoteObservation(_ frame: FrameImage) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify the current screen layout.")) }
+    func setRemoteDeadline(_ deadline: Date) async throws { throw AppError.unavailable(String(localized: "This connection does not support remote task deadlines.")) }
     func bringApplicationToForeground(bundleID: String) async throws -> Bool { false }
-    func systemActionContext() async throws -> String { throw AppError.unavailable("当前通道不支持独立系统操作") }
-    func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws { throw AppError.unavailable("当前通道不支持独立系统操作") }
-    func installedApplications() async throws -> Data { throw AppError.unavailable("当前通道不支持查询 App") }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws { throw AppError.unavailable("当前通道不支持此操作") }
+    func systemActionContext() async throws -> String { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
+    func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
+    func installedApplications() async throws -> Data { throw AppError.unavailable(String(localized: "This connection does not support app queries")) }
+    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
     var executionContext: ScreenUSBExecutionContext? { nil }
     func cancelTransport() {}
     func supportsBackgroundExecution(tool: String) async -> Bool { false }
     func approvalContext(imageID: String) async throws -> String { "foreground-only" }
     func acceptApproval(imageID: String) async throws {}
     func authorizeTaskInput(imageID: String) async throws {
-        throw AppError.unavailable("当前输入通道不支持任务内自动授权")
+        throw AppError.unavailable(String(localized: "This input connection does not support automatic authorization within a task"))
     }
 }
 
 struct UnavailableBridge: DeviceBridge {
-    static let screenshotMessage = "尚未授权 App 全屏采集。请在设置 → 控制调试中授权全屏采集；查看屏幕无需连接 ESP32。"
+    static let screenshotMessage = String(localized: "Screen capture has not been authorized. Authorize full-screen capture in the control settings. An ESP32 is not needed to view the screen.")
     func screenshot() async throws -> FrameImage { throw AppError.unavailable(Self.screenshotMessage) }
-    func tap(x: Int, y: Int, imageID: String) async throws { throw AppError.unavailable("设备未连接") }
-    func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws { throw AppError.unavailable("设备未连接") }
+    func tap(x: Int, y: Int, imageID: String) async throws { throw AppError.unavailable(String(localized: "Device not connected")) }
+    func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws { throw AppError.unavailable(String(localized: "Device not connected")) }
     func stop() async {}
 }
 
@@ -71,7 +71,7 @@ enum LiveDeviceBridgeRouter {
         var reason = "usbClientMissing"
         if let usb {
             reason = "firmwareNCMOnly"
-            inputFailure = "当前 USB 固件仅支持 NCM；可以查看屏幕，点击或拖动还需启用 HID。"
+            inputFailure = String(localized: "This USB firmware supports NCM only. HID support is needed to tap or drag.")
             if usb.supportsHID {
                 do {
                     let context = try ScreenUSBExecutionContext(frames: frames, health: usb.health, backgroundEnabled: backgroundEnabled)
@@ -80,7 +80,7 @@ enum LiveDeviceBridgeRouter {
                 } catch {
                     // Never grant inputs on an invalid capture/USB lease. The
                     // local read path independently validates its capture session.
-                    inputFailure = "USB 输入条件已失效；重新连接并取得新画面后再开始控制任务。"
+                    inputFailure = String(localized: "USB input is no longer available. Reconnect and get a new screenshot before starting a control task.")
                     reason = "inputConditionsInvalid"
                 }
             }
@@ -118,7 +118,7 @@ struct LocalScreenBridge: DeviceBridge {
             try await Task.sleep(nanoseconds: 40_000_000)
         } while ProcessInfo.processInfo.systemUptime < deadline
         context.revoke()
-        throw AppError.unavailable("等待有效采集画面超时。\(frames.diagnostics().summary)。请复制诊断日志检查接收状态。")
+        throw AppError.unavailable(String(localized: "Timed out waiting for a valid captured image. \(frames.diagnostics().summary). Copy the diagnostic log to check reception."))
     }
     func approvalContext(imageID: String) throws -> String { throw AppError.unavailable(inputFailure) }
     func acceptApproval(imageID: String) throws { throw AppError.unavailable(inputFailure) }

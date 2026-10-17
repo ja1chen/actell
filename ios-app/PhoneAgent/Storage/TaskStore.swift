@@ -13,7 +13,7 @@ import Foundation
         guard FileManager.default.fileExists(atPath: file.path) else { return [] }
         var records = try JSONDecoder().decode([TaskRecord].self, from: Data(contentsOf: file))
         for i in records.indices where records[i].phase == .running || records[i].phase == .awaitingApproval {
-            records[i].phase = .interrupted; records[i].log("上次运行被中断；不会恢复排队动作")
+            records[i].phase = .interrupted; records[i].log(String(localized: "The previous run was interrupted. Queued actions will not be resumed."))
         }
         return Array(records.prefix(20))
     }

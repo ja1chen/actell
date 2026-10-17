@@ -20,11 +20,11 @@ import Network
     init(manager: ChatGPTAccountManager = .shared) { self.manager = manager }
     func reload(profileID: UUID) async {
         do { accounts = try await manager.summaries(); selected = try await manager.selectedAccount(profileID: profileID) }
-        catch { message = "无法读取 ChatGPT 连接；请解锁后重试" }
+        catch { message = String(localized: "Could not read the ChatGPT connection. Unlock and try again.") }
     }
     func start(profileID: UUID, onConnected: @escaping @MainActor () -> Void) {
         guard !busy else { return }
-        busy = true; message = "等待 ChatGPT 浏览器授权"; epoch = UUID()
+        busy = true; message = String(localized: "Waiting for ChatGPT browser authorization"); epoch = UUID()
         let current = epoch
         do {
             let parameters = NWParameters.tcp
@@ -48,17 +48,17 @@ import Network
                                     return
                                 }
                                 // Ordinary UI tests never initiate live authorization.
-                                if ProcessInfo.processInfo.arguments.contains("--ui-testing") { self.end("本地测试未启用真实授权", current: current); return }
+                                if ProcessInfo.processInfo.arguments.contains("--ui-testing") { self.end(String(localized: "Real authorization is disabled in local tests"), current: current); return }
                                 #endif
                                 let session = ASWebAuthenticationSession(url: url, callbackURLScheme: nil) { [weak self] _, _ in
-                                    Task { @MainActor in self?.end("ChatGPT 登录已取消", current: current) }
+                                    Task { @MainActor in self?.end(String(localized: "ChatGPT sign-in cancelled"), current: current) }
                                 }
                                 session.presentationContextProvider = self; session.prefersEphemeralWebBrowserSession = true
                                 self.browser = session
-                                if !session.start() { self.end("无法打开系统授权界面", current: current) }
+                                if !session.start() { self.end(String(localized: "Could not open system authorization"), current: current) }
                             } catch { self.end(Self.safe(error), current: current) }
                         }
-                    case .failed: self.end("无法启动本地授权回调", current: current)
+                    case .failed: self.end(String(localized: "Could not start the local authorization callback"), current: current)
                     default: break
                     }
                 }
@@ -69,9 +69,9 @@ import Network
             l.start(queue: queue)
             timeout = Task { [weak self] in
                 do { try await Task.sleep(for: .seconds(600)) } catch { return }
-                self?.end("ChatGPT 登录已超时，请重新开始", current: current)
+                self?.end(String(localized: "ChatGPT sign-in timed out. Start again."), current: current)
             }
-        } catch { end("无法启动本地授权回调", current: current) }
+        } catch { end(String(localized: "Could not start the local authorization callback"), current: current) }
     }
     private func receive(_ connection: NWConnection, data: Data, current: UUID, profileID: UUID, onConnected: @escaping @MainActor () -> Void) {
         guard busy, epoch == current else { connection.cancel(); return }
@@ -108,7 +108,7 @@ import Network
             }
         }
     }
-    func cancel() { end("ChatGPT 登录已取消", current: epoch) }
+    func cancel() { end(String(localized: "ChatGPT sign-in canceled"), current: epoch) }
     private func end(_ text: String?, current: UUID) {
         guard epoch == current else { return }
         epoch = UUID(); busy = false; message = text
@@ -119,7 +119,7 @@ import Network
     }
     func disconnect(profileID: UUID) async {
         cancel()
-        do { let confirmed = try await manager.disconnect(profileID: profileID); message = confirmed ? "已退出，服务器已确认结束此刷新会话。" : "已在本机退出。未确认服务器撤销；可在 ChatGPT 设置断开 App。"; await reload(profileID: profileID) }
+        do { let confirmed = try await manager.disconnect(profileID: profileID); message = confirmed ? String(localized: "Signed out. The server confirmed this refresh session was ended.") : String(localized: "Signed out on this device. Server revocation was not confirmed. You can disconnect the app in ChatGPT settings."); await reload(profileID: profileID) }
         catch { message = Self.safe(error) }
     }
     func select(_ account: String, profileID: UUID) async {
@@ -128,8 +128,8 @@ import Network
         catch { message = Self.safe(error) }
     }
     private static func safe(_ error: Error) -> String {
-        if error is CancellationError { return "ChatGPT 登录已取消" }
-        return (error as? ChatGPTAuthError)?.localizedDescription ?? (error as? AppError)?.localizedDescription ?? "ChatGPT 登录失败；未保存未验证的身份"
+        if error is CancellationError { return String(localized: "ChatGPT sign-in canceled") }
+        return (error as? ChatGPTAuthError)?.localizedDescription ?? (error as? AppError)?.localizedDescription ?? String(localized: "ChatGPT sign-in failed. An unverified identity was not saved.")
     }
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow } ?? UIWindow()

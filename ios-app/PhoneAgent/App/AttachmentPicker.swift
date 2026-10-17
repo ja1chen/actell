@@ -14,12 +14,12 @@ struct AttachmentPicker: View {
     var body: some View {
         HStack(spacing: 0) {
             Menu {
-                Button("添加照片", systemImage: "photo") { photos = true }
-                Button("添加文件", systemImage: "doc") { files = true }
+                Button(String(localized: "Add photo"), systemImage: "photo") { photos = true }
+                Button(String(localized: "Add file"), systemImage: "doc") { files = true }
             } label: {
                 Image(systemName: "plus").font(.title3).frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .accessibilityLabel("添加附件").accessibilityIdentifier("addAttachment")
+            .accessibilityLabel(String(localized: "Add attachment")).accessibilityIdentifier("addAttachment")
             .buttonStyle(.plain)
             .contentShape(Rectangle())
             .disabled(busy || presentation.running || presentation.stopping)
@@ -43,9 +43,9 @@ struct AttachmentPicker: View {
                 defer { selection = [] }
                 for item in items {
                     try Task.checkCancellation()
-                    guard let bytes = try await item.loadTransferable(type: Data.self) else { throw AppError.unavailable("照片未能载入，请重新选择") }
+                    guard let bytes = try await item.loadTransferable(type: Data.self) else { throw AppError.unavailable(String(localized: "The photo could not be loaded. Select it again.")) }
                     try Task.checkCancellation()
-                    try await presentation.importAttachment(data: bytes, name: "照片." + (item.supportedContentTypes.first?.preferredFilenameExtension ?? "png"))
+                    try await presentation.importAttachment(data: bytes, name: String(localized: "Photo.") + (item.supportedContentTypes.first?.preferredFilenameExtension ?? "png"))
                 }
             }
         }

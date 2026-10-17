@@ -16,7 +16,7 @@ struct SkillsView: View {
                 }
             }
             if !store.builtinPackages.isEmpty {
-                Section("内置技能") {
+                Section(String(localized: "Built-in skills")) {
                     ForEach(store.builtinPackages) { skill in
                         NavigationLink { SkillDetailView(skill: skill) } label: {
                             VStack(alignment: .leading) { Text(skill.name); Text(skill.summary).font(.caption).foregroundStyle(.secondary) }
@@ -25,25 +25,25 @@ struct SkillsView: View {
                 }
             }
             if store.packages.isEmpty {
-                ContentUnavailableView("暂无本地技能", systemImage: "books.vertical")
+                ContentUnavailableView(String(localized: "No local skills yet"), systemImage: "books.vertical")
             } else {
-                Section("本地技能") {
+                Section(String(localized: "Local skills")) {
                     ForEach(store.packages) { skill in
                         Group {
                             NavigationLink { SkillDetailView(skill: skill) } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Label(skill.name, systemImage: "book.closed").font(.headline)
                                     Text(skill.summary).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                                    Text("版本 \(skill.version) · \(skill.revision.prefix(8))").font(.caption2).foregroundStyle(.secondary)
+                                    Text(String(localized: "Version \(skill.displayVersion) · \(skill.revision.prefix(8))")).font(.caption2).foregroundStyle(.secondary)
                                 }
                             }
                             HStack {
-                                Text("启用")
+                                Text(String(localized: "Enable"))
                                 Spacer()
-                                Toggle("启用", isOn: Binding(get: { skill.enabled }, set: { value in perform { try store.setEnabled(value, id: skill.id) } }))
-                                    .labelsHidden().fixedSize().accessibilityLabel("启用 " + skill.name)
+                                Toggle(String(localized: "Enable"), isOn: Binding(get: { skill.enabled }, set: { value in perform { try store.setEnabled(value, id: skill.id) } }))
+                                    .labelsHidden().fixedSize().accessibilityLabel(String(localized: "Enable \(skill.name)"))
                                     .accessibilityIdentifier("enableSkill-" + skill.id.uuidString)
-                                Button("删除", role: .destructive) { deleting = skill }.buttonStyle(.borderless)
+                                Button(String(localized: "Delete"), role: .destructive) { deleting = skill }.buttonStyle(.borderless)
                                     .accessibilityIdentifier("deleteSkill-" + skill.id.uuidString)
                             }.disabled(model.hasBusySessions)
                         }
@@ -51,10 +51,10 @@ struct SkillsView: View {
                 }
             }
         }
-        .navigationTitle("技能").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(String(localized: "Skill")).navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("导入", systemImage: "square.and.arrow.down") { importing = true }
+                Button(String(localized: "Import"), systemImage: "square.and.arrow.down") { importing = true }
                     .disabled(model.hasBusySessions).accessibilityIdentifier("importSkill")
             }
         }
@@ -63,18 +63,18 @@ struct SkillsView: View {
             case .success(let url): perform {
                 let before = store.packages.count
                 let imported = try store.importPackage(url)
-                status = before == store.packages.count ? "该内容版本已经存在，未重复导入：\(imported.name)" : "已导入：\(imported.name)。同名旧版本会保留，可分别启用或删除。"
+                status = before == store.packages.count ? String(localized: "This version already exists and was not imported again: \(imported.name)") : String(localized: "Imported: \(imported.name). Previous versions with the same name are kept and can be enabled or deleted separately.")
             }
-            case .failure: status = "导入未完成；原技能保留，可重新选择文件。"
+            case .failure: status = String(localized: "Import did not finish. The original skill was kept. Select the file again.")
             }
         }
-        .alert("删除这个技能版本？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button("取消", role: .cancel) { deleting = nil }
-            Button("删除", role: .destructive) { if let deleting { perform { try store.remove(deleting.id) } }; deleting = nil }
-        } message: { Text("只删除 App 内此版本的副本，原始导入文件与其他版本保留。以后需要时可以重新导入。") }
+        .alert(String(localized: "Delete this skill version?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button(String(localized: "Cancel"), role: .cancel) { deleting = nil }
+            Button(String(localized: "Delete"), role: .destructive) { if let deleting { perform { try store.remove(deleting.id) } }; deleting = nil }
+        } message: { Text(String(localized: "Only this version's copy in the app will be deleted. Original import files and other versions are kept. You can import it again later.")) }
     }
     private func perform(_ operation: () throws -> Void) {
-        guard !model.hasBusySessions else { status = "请先停止当前任务再修改技能"; return }
+        guard !model.hasBusySessions else { status = String(localized: "Stop the current task before changing skills"); return }
         do { try operation() }
         catch { status = error.localizedDescription }
     }
@@ -85,11 +85,11 @@ private struct SkillDetailView: View {
     @State private var resource = "SKILL.md"
     var body: some View {
         VStack(spacing: 0) {
-            Picker("文档", selection: $resource) {
+            Picker(String(localized: "Document"), selection: $resource) {
                 ForEach(skill.resources, id: \.self) { Text($0).tag($0) }
             }.pickerStyle(.menu).padding(.horizontal)
             ScrollView {
-                Text(skill.documents[resource] ?? "此版本没有该文档").font(.body.monospaced()).textSelection(.enabled)
+                Text(skill.documents[resource] ?? String(localized: "This version does not contain this document")).font(.body.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading).padding()
             }.accessibilityIdentifier("skillDocument")
         }.navigationTitle(skill.name).navigationBarTitleDisplayMode(.inline)

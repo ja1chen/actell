@@ -11,16 +11,28 @@ struct AgentStatusSnapshot: Equatable, Sendable {
         case interrupted = "前台任务已中断"
         case completed = "运行结束，请核对"
         case blocked = "需要回到 App 检查"
+
+        var title: String {
+            switch self {
+            case .idle: return String(localized: "Not started")
+            case .running: return String(localized: "Running")
+            case .confirmation: return String(localized: "Waiting for confirmation")
+            case .stopped: return String(localized: "Stopped")
+            case .interrupted: return String(localized: "Foreground task interrupted")
+            case .completed: return String(localized: "Run finished. Check the result.")
+            case .blocked: return String(localized: "Return to the app to check")
+            }
+        }
     }
     let isDemo: Bool
     let phase: Phase
-    var title: String { isDemo ? "演示计数器任务" : "当前授权任务" }
+    var title: String { isDemo ? String(localized: "Demo counter task") : String(localized: "Current authorized task") }
     var detail: String {
         switch phase {
-        case .confirmation: return "请回到 App 查看截图并确认"
-        case .interrupted: return "返回后需手动重新开始"
-        case .running: return "后台运行由系统分配执行时间"
-        default: return "此卡片只展示状态，不执行操作"
+        case .confirmation: return String(localized: "Return to the app to view the screenshot and confirm")
+        case .interrupted: return String(localized: "Restart manually after returning")
+        case .running: return String(localized: "The system decides how long background tasks can run")
+        default: return String(localized: "This card shows status only and does not perform actions")
         }
     }
     var interrupted: Self { Self(isDemo: isDemo, phase: .interrupted) }

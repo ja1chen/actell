@@ -22,16 +22,16 @@ enum ToolStepState: String, Codable, Sendable {
     var isTerminal: Bool { [.succeeded, .failed, .denied, .cancelled, .interrupted, .outcomeUnknown].contains(self) }
     var label: String {
         switch self {
-        case .requested: return "已请求"
-        case .running, .executing: return "执行中"
-        case .awaitingApproval: return "等待确认"
-        case .approved: return "已批准"
-        case .succeeded: return "已返回"
-        case .failed: return "失败"
-        case .denied: return "已拒绝"
-        case .cancelled: return "已取消"
-        case .interrupted: return "已中断"
-        case .outcomeUnknown: return "结果未知"
+        case .requested: return String(localized: "Requested")
+        case .running, .executing: return String(localized: "Running")
+        case .awaitingApproval: return String(localized: "Waiting for confirmation")
+        case .approved: return String(localized: "Approved")
+        case .succeeded: return String(localized: "Returned")
+        case .failed: return String(localized: "Failed")
+        case .denied: return String(localized: "Denied")
+        case .cancelled: return String(localized: "Canceled")
+        case .interrupted: return String(localized: "Interrupted")
+        case .outcomeUnknown: return String(localized: "Result unknown")
         }
     }
 }
@@ -49,9 +49,9 @@ struct ToolStep: Codable, Sendable, Equatable {
     var displayResult: String {
         if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return result }
         switch state {
-        case .cancelled: return "本次调用已取消，未保存调用结果。"
-        case .interrupted: return "执行已中断，未保存调用结果。"
-        case .outcomeUnknown: return "未保存送达确认；结果未知，未自动重发。"
+        case .cancelled: return String(localized: "This call was canceled. Its result was not saved.")
+        case .interrupted: return String(localized: "Execution was interrupted. Its result was not saved.")
+        case .outcomeUnknown: return String(localized: "Delivery was not confirmed. The result is unknown and was not resent automatically.")
         default: return ""
         }
     }
@@ -73,16 +73,16 @@ struct ToolStep: Codable, Sendable, Equatable {
     }
     var title: String {
         switch name {
-        case "screenshot": return "查看屏幕"
-        case "tap": return "点击"
-        case "drag": return "拖动"
-        case "home": return "返回主屏幕"
-        case "list_apps": return "查询 App"
-        case "launch_app": return "启动 App"
-        case "type_text": return "输入文本"
-        case "wait": return "等待"
-        case "finish": return "结束本轮"
-        case "load_skill": return "加载技能" + (skillName.map { " · " + $0 } ?? "")
+        case "screenshot": return String(localized: "View screen")
+        case "tap": return String(localized: "Tap")
+        case "drag": return String(localized: "Drag")
+        case "home": return String(localized: "Go to Home Screen")
+        case "list_apps": return String(localized: "Find apps")
+        case "launch_app": return String(localized: "Launch app")
+        case "type_text": return String(localized: "Type text")
+        case "wait": return String(localized: "Wait")
+        case "finish": return String(localized: "Finish run")
+        case "load_skill": return String(localized: "Load skill") + (skillName.map { " · " + $0 } ?? "")
         default: return name
         }
     }
@@ -104,7 +104,7 @@ struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
 }
 struct AgentConversation: Identifiable, Codable, Sendable {
     var id = UUID()
-    var title = "新会话"
+    var title = String(localized: "New conversation")
     var mode: RunMode
     var createdAt = Date()
     var updatedAt = Date()
@@ -117,8 +117,8 @@ struct AgentConversation: Identifiable, Codable, Sendable {
     var phase: RunPhase = .idle
     var messages: [ChatMessage] = []
     var preview: String {
-        if entry?.state == .pendingConfirmation { return "Siri · 待确认：" + draft }
-        return messages.last(where: { $0.role == .user || $0.role == .assistant })?.text ?? "开始一个新的任务或问题"
+        if entry?.state == .pendingConfirmation { return String(localized: "Siri · Awaiting confirmation: \(draft)") }
+        return messages.last(where: { $0.role == .user || $0.role == .assistant })?.text ?? String(localized: "Start a new task or question")
     }
 }
 
@@ -142,8 +142,8 @@ struct ConversationTurn: Identifiable {
     }
     var summaryLabel: String {
         var counts: [String] = []
-        if !tools.isEmpty { counts.append("\(tools.count) 次工具调用") }
-        if !thoughts.isEmpty { counts.append("\(thoughts.count) 段思考") }
+        if !tools.isEmpty { counts.append(String(localized: "\(tools.count) tool calls")) }
+        if !thoughts.isEmpty { counts.append(String(localized: "\(thoughts.count) reasoning notes")) }
         return counts.joined(separator: " · ")
     }
     static func group(_ messages: [ChatMessage]) -> [ConversationTurn] {
@@ -160,13 +160,13 @@ struct ConversationTurn: Identifiable {
 extension RunPhase {
     var label: String {
         switch self {
-        case .idle: return "准备就绪"
-        case .running: return "正在执行"
-        case .awaitingApproval: return "等待确认"
-        case .stopped: return "已停止"
-        case .interrupted: return "已中断"
-        case .completed: return "已结束"
-        case .blocked: return "需要处理"
+        case .idle: return String(localized: "Ready")
+        case .running: return String(localized: "Running")
+        case .awaitingApproval: return String(localized: "Waiting for confirmation")
+        case .stopped: return String(localized: "Stopped")
+        case .interrupted: return String(localized: "Interrupted")
+        case .completed: return String(localized: "Finished")
+        case .blocked: return String(localized: "Needs attention")
         }
     }
 }

@@ -132,20 +132,20 @@ struct USBInterfaceBinding {
     static func select(_ rows: [Row]) throws -> Row {
         let matches = rows.filter { $0.address == localIP }
         guard matches.count == 1, let row = matches.first else {
-            throw AppError.unavailable(matches.isEmpty ? "未找到配置 192.168.7.2 的接口；请确认 USB 以太网固定 IP" : "多个接口使用 192.168.7.2，无法安全选择 USB 接口")
+            throw AppError.unavailable(matches.isEmpty ? String(localized: "No interface is configured with 192.168.7.2. Check the USB Ethernet static IP.") : String(localized: "More than one interface uses 192.168.7.2. The USB interface cannot be selected safely."))
         }
         let required = UInt32(IFF_UP | IFF_RUNNING | IFF_BROADCAST)
         let forbidden = UInt32(IFF_LOOPBACK | IFF_POINTOPOINT)
         guard row.index > 0, row.mask == netmask, row.flags & required == required,
               row.flags & forbidden == 0, row.linkType == UInt8(IFT_ETHER) else {
-            throw AppError.unavailable("接口 \(row.name) 不满足 USB Ethernet 条件（启用、运行中、广播、/24、Ethernet 链路且非隧道）")
+            throw AppError.unavailable(String(localized: "Interface \(row.name) does not meet the USB Ethernet requirements (up, running, broadcast, /24, Ethernet, and not a tunnel)"))
         }
         return row
     }
     static func validateType(_ type: NWInterface.InterfaceType) throws {
         switch type {
         case .wiredEthernet, .other: break // .other additionally requires IFT_ETHER and no POINTOPOINT above.
-        default: throw AppError.unavailable("固定 IP 对应的是 \(type) 接口，拒绝用作 USB 通信")
+        default: throw AppError.unavailable(String(localized: "The static IP belongs to a \(type) interface and cannot be used for USB communication"))
         }
     }
     static func resolve(_ rows: [Row]) throws -> USBInterfaceBinding {
@@ -156,7 +156,7 @@ struct USBInterfaceBinding {
               let local = IPv4Address("\(localIP)%\(row.name)"),
               let interface = remote.interface, local.interface == interface,
               interface.name == row.name, interface.index == Int(row.index) else {
-            throw AppError.unavailable("无法解析或接口已变化：\(row.name)；请重新连接 USB 后手动重试")
+            throw AppError.unavailable(String(localized: "Interface \(row.name) could not be resolved or has changed. Reconnect USB and try again manually."))
         }
         try validateType(interface.type)
         return USBInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
@@ -170,7 +170,7 @@ struct USBInterfaceBinding {
     }
     static func inventory() throws -> [Row] {
         var head: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&head) == 0 else { throw AppError.unavailable("无法读取接口列表，errno=\(errno)") }
+        guard getifaddrs(&head) == 0 else { throw AppError.unavailable(String(localized: "Could not read the interface list. Error: \(errno)")) }
         defer { freeifaddrs(head) }
         var entries: [(String, String, String, UInt32)] = []
         var linkTypes: [String: UInt8] = [:]
@@ -229,22 +229,22 @@ enum USBConnectionStatus: Equatable {
     var unavailableInputMessage: String {
         let prefix: String
         switch self {
-        case .disconnected: prefix = "USB 已断开，本轮只启用了 App 截图。"
-        case .failed: prefix = "USB 连接失败，本轮只启用了 App 截图。"
-        default: prefix = "本轮开始时没有可用的 USB HID 连接，只启用了 App 截图。"
+        case .disconnected: prefix = String(localized: "USB disconnected. Only screen capture is available for this run.")
+        case .failed: prefix = String(localized: "USB connection failed. Only screen capture is available for this run.")
+        default: prefix = String(localized: "USB HID was unavailable when this run started. Only screen capture is available.")
         }
-        return prefix + "点击或拖动前，请在设置 → 控制调试中重新连接 USB NCM，确认显示 NCM + HID 已连接，再开始新任务。"
+        return String(localized: "\(prefix) Before tapping or dragging, reconnect USB NCM in the control settings, confirm that NCM + HID is connected, then start a new task.")
     }
     var message: String {
         switch self {
-        case .idle: return "USB 尚未连接"
-        case .connecting: return "正在连接 USB 设备 192.168.7.1:28766…"
-        case .waiting(let reason): return "等待 USB 网络（本次连接最多 30 秒）：\(reason)"
-        case .awaitingGreeting: return "USB TCP 已接通，等待设备 PA3 应答…"
-        case .checking: return "已收到设备应答，正在验证双向 PING…"
-        case .ready(let hid): return hid ? "USB NCM + HID 已连接（免 PSK）；连接在任务间保持；开始任务后可执行点击和拖动" : "USB NCM 双向 PING 已验证（免 PSK）；固件未启用 HID"
-        case .failed(let message): return "USB 连接失败：\(message)"
-        case .disconnected(let message): return "USB 已断开：\(message)"
+        case .idle: return String(localized: "USB not connected")
+        case .connecting: return String(localized: "Connecting to USB device 192.168.7.1:28766…")
+        case .waiting(let reason): return String(localized: "Waiting for the USB network (up to 30 seconds): \(reason)")
+        case .awaitingGreeting: return String(localized: "USB TCP connected. Waiting for a PA3 response…")
+        case .checking: return String(localized: "Device response received. Verifying two-way PING…")
+        case .ready(let hid): return hid ? String(localized: "USB NCM + HID connected without PSK. The connection stays open between tasks. Tapping and dragging are available after starting a task.") : String(localized: "USB NCM two-way PING verified without PSK. HID is disabled in this firmware.")
+        case .failed(let message): return String(localized: "USB connection failed: \(message)")
+        case .disconnected(let message): return String(localized: "USB disconnected: \(message)")
         }
     }
 }
@@ -254,36 +254,36 @@ enum USBWire {
         // A connection failure before any input is not an unknown HID result.
         // Preserve unknown-outcome semantics once an input is in flight.
         if inputInFlight { return .unknownOutcome }
-        let detail = error.map { String(describing: $0) } ?? "连接被关闭"
-        return .unavailable("\(detail)。\(pathDetails(path)) 请检查 USB 以太网、固定 IP 和本地网络权限，再手动连接。")
+        let detail = error.map { String(describing: $0) } ?? String(localized: "Connection closed")
+        return .unavailable(String(localized: "\(detail). \(pathDetails(path)) Check USB Ethernet, the static IP, and local network permissions, then connect manually."))
     }
     static func pathDetails(_ path: NWPath?) -> String {
-        guard let path else { return "系统未提供此连接的路径信息。" }
+        guard let path else { return String(localized: "The system did not provide network path information for this connection.") }
         let reason: String
         if path.status == .unsatisfied {
             switch path.unsatisfiedReason {
-            case .localNetworkDenied: reason = "本地网络访问尚未获准（localNetworkDenied）"
-            case .notAvailable: reason = "没有满足有线连接要求的路径（notAvailable）"
-            case .wifiDenied: reason = "系统不允许 Wi-Fi 路径（wifiDenied）"
-            case .cellularDenied: reason = "系统不允许蜂窝路径（cellularDenied）"
-            case .vpnInactive: reason = "系统报告 VPN 未激活（vpnInactive）"
+            case .localNetworkDenied: reason = String(localized: "Local network access has not been allowed (localNetworkDenied)")
+            case .notAvailable: reason = String(localized: "No path meets the wired connection requirements (notAvailable)")
+            case .wifiDenied: reason = String(localized: "The system does not allow the Wi-Fi path (wifiDenied)")
+            case .cellularDenied: reason = String(localized: "The system does not allow the cellular path (cellularDenied)")
+            case .vpnInactive: reason = String(localized: "The system reports that VPN is inactive (vpnInactive)")
             @unknown default: reason = String(describing: path.unsatisfiedReason)
             }
-        } else { reason = "无 unsatisfied 原因" }
+        } else { reason = String(localized: "No unsatisfied reason") }
         let interfaces = path.availableInterfaces.map { "\($0.name)(\($0.type))" }.joined(separator: ", ")
-        return "路径=\(path.status)；原因=\(reason)；可用接口=\(interfaces.isEmpty ? "无" : interfaces)；IPv4=\(path.supportsIPv4 ? "是" : "否")。"
+        return String(localized: "Path: \(path.status); reason: \(reason); available interfaces: \(interfaces.isEmpty ? String(localized: "None") : interfaces); IPv4: \(path.supportsIPv4 ? String(localized: "Yes") : String(localized: "No")).")
     }
     static func receiptTimeout(isPing: Bool, inputInFlight: Bool) -> AppError {
         // A PING/STOP timeout also revokes any concurrent input, whose result
         // remains unknown even though the timed-out request was not an input.
         if inputInFlight { return .unknownOutcome }
-        return .unavailable("USB \(isPing ? "PING" : "STOP") 回执超时，已断开；请手动重新连接。")
+        return .unavailable(String(localized: "USB \(isPing ? "PING" : "STOP") acknowledgment timed out. Disconnected. Reconnect manually."))
     }
     static func acceptACK(_ phase: String, needsReceipt: Bool, received: inout Bool) throws -> Bool {
         if phase == "received", needsReceipt, !received { received = true; return false }
         if phase == "executed", !needsReceipt || received { return true }
         if phase == "cancelled" { return true }
-        throw needsReceipt ? AppError.unknownOutcome : AppError.protocolViolation("USB ACK 阶段不匹配")
+        throw needsReceipt ? AppError.unknownOutcome : AppError.protocolViolation(String(localized: "USB acknowledgment phase mismatch"))
     }
     // PA3 deliberately has no identity authentication or encryption. Never
     // silently interpret a PA1 challenge/LOCKED response as a usable session.
@@ -291,14 +291,14 @@ enum USBWire {
         switch greeting {
         case "PA3 READY 0": return false
         case "PA3 READY 1": return true
-        default: throw AppError.protocolViolation("USB 协议不匹配；App 和固件均需 PA3 免 PSK 版本")
+        default: throw AppError.protocolViolation(String(localized: "USB protocol mismatch. The app and firmware must both use PA3 without PSK."))
         }
     }
     static func parseACK(_ line: String) throws -> (id: UInt64, phase: String) {
         let parts = line.split(separator: " ", omittingEmptySubsequences: false)
         guard parts.count == 2, let id = UInt32(parts[0]), id > 0, String(id) == parts[0],
               parts[1] == "received" || parts[1] == "executed" || parts[1] == "cancelled" else {
-            throw AppError.protocolViolation("USB ACK 格式错误")
+            throw AppError.protocolViolation(String(localized: "Invalid USB acknowledgment format"))
         }
         return (UInt64(id), String(parts[1]))
     }
@@ -404,7 +404,7 @@ actor USBCommandClient: USBConnectionSession {
         diagnostics.recordInterfaces(reason: "connect", attempt: token)
         let c: NWConnection
         do { c = try makeConnection(diagnostics, token) }
-        catch { fail((error as? AppError) ?? .unavailable("USB 接口绑定失败")); throw error }
+        catch { fail((error as? AppError) ?? .unavailable(String(localized: "Could not bind the USB interface"))); throw error }
         startPathMonitors(token)
         connection = c
         c.pathUpdateHandler = { [weak self] path in
@@ -490,7 +490,7 @@ actor USBCommandClient: USBConnectionSession {
         let detail = "\(lastWaitingError.map { String(describing: $0) } ?? "no waiting error"); \(USBWire.pathDetails(lastPath))"
         diagnostics.record("timeout.setup 30s tcpReady=\(tcpReady) greetingReady=\(ready)", attempt: token)
         diagnostics.recordInterfaces(reason: "setup-timeout", attempt: token)
-        fail(.unavailable("USB 连接等待超过 30 秒。\(detail) 如出现本地网络提示，请允许后手动重试；没有提示时请保留这段路径诊断。"))
+        fail(.unavailable(String(localized: "USB connection timed out after 30 seconds. \(detail) Allow local network access if prompted, then try again manually. Otherwise, keep these network diagnostics.")))
     }
     func openInputSession() async throws -> USBInputSession {
         if let release = releasing {
@@ -498,8 +498,8 @@ actor USBCommandClient: USBConnectionSession {
             if releasing?.session == release.session { releasing = nil }
         }
         try Task.checkCancellation()
-        guard ready, supportsHID else { throw AppError.unavailable("USB HID 未连接") }
-        guard inputSession == nil else { throw AppError.unavailable("上一轮 USB 输入尚未释放") }
+        guard ready, supportsHID else { throw AppError.unavailable(String(localized: "USB HID not connected")) }
+        guard inputSession == nil else { throw AppError.unavailable(String(localized: "Input from the previous USB run has not been released")) }
         let session = USBInputSession(connection: generation, generation: inputGeneration)
         inputSession = session
         diagnostics.record("input.session.begin epoch=\(session.generation)", attempt: generation)
@@ -514,16 +514,16 @@ actor USBCommandClient: USBConnectionSession {
             let parts = body.split(separator: " ", maxSplits: 1)
             try await request("\(parts[0]) \(session.generation) \(parts[1])", permit: permit, session: session)
         } else {
-            guard body == "PING" else { throw AppError.invalid("USB 控制命令只能通过连接生命周期调用") }
+            guard body == "PING" else { throw AppError.invalid(String(localized: "USB control commands must use the connection lifecycle")) }
             try await request(body)
         }
     }
     private func request(_ body: String, permit: USBInputPermit? = nil, session: USBInputSession? = nil) async throws {
         try Task.checkCancellation()
-        guard ready, !body.isEmpty, body.utf8.allSatisfy({ (32...126).contains($0) }), body.utf8.count < 128 else { throw AppError.unavailable("USB 未连接或命令格式错误") }
+        guard ready, !body.isEmpty, body.utf8.allSatisfy({ (32...126).contains($0) }), body.utf8.count < 128 else { throw AppError.unavailable(String(localized: "USB is not connected or the command format is invalid")) }
         let kind = USBDiagnosticsLog.commandKind(body)
         // Reserve a slot so cancellation can always send the release barrier.
-        guard pending.count < (kind == "STOP" ? 9 : 8), nextID < UInt64(UInt32.max) else { throw AppError.unavailable("USB 请求达到上限") }
+        guard pending.count < (kind == "STOP" ? 9 : 8), nextID < UInt64(UInt32.max) else { throw AppError.unavailable(String(localized: "USB request limit reached")) }
         nextID += 1; let id = nextID, token = generation
         let payload = "\(id) \(body)"
         let logDetails = kind != "PING" || id <= 4 || id % 25 == 0
@@ -556,11 +556,11 @@ actor USBCommandClient: USBConnectionSession {
         do {
             try await request("STOP \(session.generation)")
             guard generation == session.connection, ready else { return }
-            guard session.generation < UInt32.max else { throw AppError.unavailable("USB 输入代号已用尽") }
+            guard session.generation < UInt32.max else { throw AppError.unavailable(String(localized: "USB input identifiers exhausted")) }
             inputGeneration = session.generation + 1
             diagnostics.record("input.release.completed connectionRetained=true nextEpoch=\(inputGeneration)", attempt: generation)
         } catch {
-            if generation == session.connection { fail(.unavailable("无法确认 HID 已释放，USB 连接已关闭；请核对设备后重新连接")) }
+            if generation == session.connection { fail(.unavailable(String(localized: "HID release could not be confirmed. USB was disconnected. Check your device before reconnecting."))) }
         }
     }
     func disconnect() async {
@@ -588,10 +588,10 @@ actor USBCommandClient: USBConnectionSession {
             diagnostics.record("receive bytes=\(data?.count ?? 0) total=\(receivedBytes) closed=\(closed) error=\(error.map { String(describing: $0) } ?? "none"); payload omitted", attempt: token)
         }
         if let data { incoming.append(data) }
-        guard incoming.count <= 2048 else { fail(.protocolViolation("USB 回复过长")); return }
+        guard incoming.count <= 2048 else { fail(.protocolViolation(String(localized: "USB response is too long"))); return }
         while let newline = incoming.firstIndex(of: 10) {
             let bytes = incoming[..<newline]; incoming.removeSubrange(...newline)
-            guard bytes.count <= 256, let line = String(data: bytes, encoding: .ascii) else { fail(.protocolViolation("USB 回复格式错误")); return }
+            guard bytes.count <= 256, let line = String(data: bytes, encoding: .ascii) else { fail(.protocolViolation(String(localized: "Invalid USB response format"))); return }
             do { try handle(line, token) } catch { fail((error as? AppError) ?? .unknownOutcome); return }
         }
         if closed { transportFailed(token, error: error) } else if generation == token { receive(token) }
@@ -605,10 +605,10 @@ actor USBCommandClient: USBConnectionSession {
         }
         let (id, phase) = try USBWire.parseACK(line)
         guard var request = pending[id] else {
-            throw AppError.protocolViolation("USB ACK 命令 ID 不匹配")
+            throw AppError.protocolViolation(String(localized: "USB acknowledgment command ID mismatch"))
         }
         if phase == "cancelled", !request.needsReceipt, request.kind != "STOP" {
-            throw AppError.protocolViolation("PING 不能返回输入取消回执")
+            throw AppError.protocolViolation(String(localized: "PING cannot return an input cancellation acknowledgment"))
         }
         if request.logDetails {
             let elapsed = Int((ProcessInfo.processInfo.systemUptime - request.sentAt) * 1000)
@@ -634,7 +634,7 @@ actor USBCommandClient: USBConnectionSession {
             fail(USBWire.receiptTimeout(isPing: request.isPing, inputInFlight: pending.values.contains { $0.needsReceipt }))
         } else if id == nil, !ready {
             diagnostics.record("timeout.greeting 3s receivedBytes=\(receivedBytes)", attempt: token)
-            fail(.unavailable("TCP 已接通，但 3 秒内未收到 USB 设备的 PA3 应答。请检查固件版本。\(USBWire.pathDetails(lastPath))"))
+            fail(.unavailable(String(localized: "TCP connected, but no PA3 response was received from the USB device within 3 seconds. Check the firmware version. \(USBWire.pathDetails(lastPath))")))
         }
     }
     private func transportFailed(_ token: UUID, error: NWError?) {
@@ -671,6 +671,6 @@ actor USBCommandClient: USBConnectionSession {
         connectWaiter?.resume(throwing: error); connectWaiter = nil
         let waiting = pending; pending.removeAll()
         for request in waiting.values { request.continuation?.resume(throwing: error) }
-        if publish { onProgress(error == .stopped ? .disconnected("连接已关闭") : .failed(error.localizedDescription)) }
+        if publish { onProgress(error == .stopped ? .disconnected(String(localized: "Connection closed")) : .failed(error.localizedDescription)) }
     }
 }

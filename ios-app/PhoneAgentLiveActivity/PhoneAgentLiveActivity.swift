@@ -35,13 +35,13 @@ struct PhoneAgentLiveActivity: Widget {
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     if !standby {
-                        Label((context.state.isDemo ?? context.attributes.isDemo) ? "\(AppIdentity.displayName) · 离线演示" : AppIdentity.displayName, systemImage: "sparkles")
+                        Label((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName, systemImage: "sparkles")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
                     if !standby {
-                        Label(stale ? "查看" : context.state.title,
+                        Label(stale ? String(localized: "View") : context.state.title,
                               systemImage: stale ? "exclamationmark.circle" : context.state.symbol)
                             .font(.headline).foregroundStyle(activityTint(context)).lineLimit(2)
                     }
@@ -50,15 +50,15 @@ struct PhoneAgentLiveActivity: Widget {
                     if !standby {
                         VStack(alignment: .leading, spacing: 8) {
                             if context.state.completedTools > 0 {
-                                Text("已完成 \(context.state.completedTools) 个步骤")
+                                Text(String(localized: "Completed \(context.state.completedTools) steps"))
                                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                             }
                             if stale || !context.state.phase.detail.isEmpty {
-                                Text(stale ? "状态已过期；执行情况需在 App 核对" : context.state.phase.detail)
+                                Text(stale ? String(localized: "This status is out of date. Check execution in the app.") : context.state.phase.detail)
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Link(destination: activityURL(context)) {
-                                Label(!stale && context.state.phase == .awaitingApproval ? "查看并确认" : (context.state.phase == .standby ? "打开 App" : "查看会话"), systemImage: "arrow.up.forward.app")
+                                Label(!stale && context.state.phase == .awaitingApproval ? String(localized: "Review and confirm") : (context.state.phase == .standby ? String(localized: "Open app") : String(localized: "View conversation")), systemImage: "arrow.up.forward.app")
                                     .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
                                     .padding(.vertical, 8).background(.white.opacity(0.12), in: Capsule())
                             }.tint(.white)
@@ -73,7 +73,7 @@ struct PhoneAgentLiveActivity: Widget {
                 if !standby {
                     HStack(spacing: 3) {
                         Image(systemName: stale ? "exclamationmark.circle" : context.state.symbol)
-                        Text(stale ? "查看" : context.state.compactTitle).lineLimit(1)
+                        Text(stale ? String(localized: "View") : context.state.compactTitle).lineLimit(1)
                     }.font(.caption2).foregroundStyle(activityTint(context))
                 }
             } minimal: {
@@ -99,19 +99,19 @@ private struct ActivityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label((context.state.isDemo ?? context.attributes.isDemo) ? "\(AppIdentity.displayName) · 离线演示" : AppIdentity.displayName, systemImage: "sparkles")
+                Label((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName, systemImage: "sparkles")
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                 Spacer()
             }
-            Label(stale ? "请回到 App" : context.state.title,
+            Label(stale ? String(localized: "Return to the app") : context.state.title,
                   systemImage: stale ? "exclamationmark.circle" : context.state.symbol)
                 .font(.headline).foregroundStyle(activityTint(context))
             if stale || !context.state.phase.detail.isEmpty {
-                Text(stale ? "状态已过期；执行情况需在 App 核对" : context.state.phase.detail)
+                Text(stale ? String(localized: "This status is out of date. Check execution in the app.") : context.state.phase.detail)
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
             }
             Link(destination: activityURL(context)) {
-                Label(!stale && context.state.phase == .awaitingApproval ? "查看并确认" : (context.state.phase == .standby ? "打开 App" : "查看会话"), systemImage: "arrow.up.forward.app")
+                Label(!stale && context.state.phase == .awaitingApproval ? String(localized: "Review and confirm") : (context.state.phase == .standby ? String(localized: "Open app") : String(localized: "View conversation")), systemImage: "arrow.up.forward.app")
                     .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
                     .padding(.vertical, 8).background(.white.opacity(0.12), in: Capsule())
             }.tint(.white)

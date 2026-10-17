@@ -65,12 +65,13 @@ import Foundation
             }
             let primary: any RunBackgroundScheduler = ProcessInfo.processInfo.arguments.contains("--activity-probe-no-system")
                 ? ActivityOnlyProbeScheduler() : ContinuedProcessingScheduler()
+            BackgroundExecutionCoordinator.shared.applySelection(streamProbe ? [.audio] : [.audio, .systemTask])
             let lifecycle = RunLifecycleCoordinator(
-                scheduler: streamProbe ? MediaOnlyRunScheduler() : PiPBackedRunScheduler(primary: primary),
+                scheduler: CompositeRunScheduler(primary: streamProbe ? nil : primary, allowed: { streamProbe ? [.audio] : [.audio, .systemTask] }),
                 storage: MemoryRunCheckpointStore())
             return AgentViewModel(sessions: sessions, loadPersistentState: false,
                 runServices: .init(provider: TaskPiPProbeProvider(), bridge: DemoBridge()),
-                lifecycle: lifecycle, liveActivitiesEnabled: true)
+                lifecycle: lifecycle, backgroundCoordinator: .shared, liveActivitiesEnabled: true)
         }
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") || ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] == "1" {
             let arguments = ProcessInfo.processInfo.arguments
@@ -228,7 +229,7 @@ import Foundation
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void) throws {
         let lease = ExecutionTransitionLease()
         lease.begin()
-        guard lease.valid else { throw AppError.unavailable("诊断任务未获得有限后台时间") }
+        guard lease.valid else { throw AppError.unavailable(String(localized: "The diagnostic task was not granted background time")) }
         leases[identifier] = lease
         BackgroundExecutionTrace.record("activity.probeUIKitOnly")
         launched(lease)

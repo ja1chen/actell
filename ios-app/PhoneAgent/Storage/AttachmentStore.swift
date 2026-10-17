@@ -40,15 +40,15 @@ actor AttachmentStore {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-        guard info.isRegularFile == true, info.isSymbolicLink != true else { throw AppError.invalid("请选择普通文件，不支持文件夹或符号链接") }
+        guard info.isRegularFile == true, info.isSymbolicLink != true else { throw AppError.invalid(String(localized: "Select a regular file. Folders and symbolic links are not supported.")) }
         let text = Self.supportedTextExtensions.contains(url.pathExtension.lowercased())
         guard let size = info.fileSize, size <= (text ? Self.textLimit : Self.imageLimit) else {
-            throw AppError.invalid("文件过大：图片最多 20 MiB，UTF-8 文本最多 256 KiB")
+            throw AppError.invalid(String(localized: "File too large. Images can be up to 20 MiB and UTF-8 text up to 256 KiB."))
         }
         return try store(Data(contentsOf: url, options: .mappedIfSafe), name: url.lastPathComponent, conversationID: conversationID)
     }
     func store(_ data: Data, name: String, conversationID: UUID, sourceURL: URL? = nil) throws -> StoredAttachment {
-        guard !data.isEmpty, data.count <= Self.imageLimit else { throw AppError.invalid("附件为空或超过 20 MiB") }
+        guard !data.isEmpty, data.count <= Self.imageLimit else { throw AppError.invalid(String(localized: "The attachment is empty or larger than 20 MiB")) }
         let kind: StoredAttachment.Kind, mime: String, width: Int?, height: Int?
         let source = CGImageSourceCreateWithData(data as CFData, nil)
         if let source, let type = CGImageSourceGetType(source) as String?,
@@ -57,13 +57,13 @@ actor AttachmentStore {
                   let dimensions = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
                   let w = dimensions[kCGImagePropertyPixelWidth] as? Int, let h = dimensions[kCGImagePropertyPixelHeight] as? Int,
                   w > 0, h > 0, w <= 20_000, h <= 20_000, w * h <= 50_000_000 else {
-                throw AppError.invalid("图片尺寸过大或包含多帧；请选择单张图片")
+                throw AppError.invalid(String(localized: "The image is too large or has multiple frames. Select a single image."))
             }
             kind = .image; mime = UTType(type)?.preferredMIMEType ?? "image/png"; width = w; height = h
         } else {
             guard Self.supportedTextExtensions.contains((name as NSString).pathExtension.lowercased()),
                   data.count <= Self.textLimit, let text = String(data: data, encoding: .utf8), !text.contains("\0") else {
-                throw AppError.invalid("支持单张 PNG/JPEG/HEIC/WebP 图片，或 UTF-8 TXT/Markdown/JSON/CSV 文本；不支持 PDF、Office、压缩包和可执行文件")
+                throw AppError.invalid(String(localized: "Supports single PNG/JPEG/HEIC/WebP images and UTF-8 TXT/Markdown/JSON/CSV files. PDF, Office, archives, and executables are not supported."))
             }
             kind = .text; mime = "text/plain"; width = nil; height = nil
         }
@@ -84,7 +84,7 @@ actor AttachmentStore {
             try FileManager.default.removeItem(at: folder)
         }
         guard try usage() + data.count <= capacity else {
-            throw AppError.unavailable("附件存储空间已满；历史原图不会自动删除。请在设置中确认清理未引用附件或删除不需要的会话")
+            throw AppError.unavailable(String(localized: "Attachment storage is full. Original images are not deleted automatically. Clean up unused attachments or delete unwanted conversations in Settings."))
         }
         try create(root); try create(folder)
         do {
@@ -92,7 +92,7 @@ actor AttachmentStore {
             try JSONEncoder().encode(attachment).write(to: folder.appendingPathComponent("metadata.json"), options: [.atomic, .completeFileProtection])
         } catch {
             try? FileManager.default.removeItem(at: folder)
-            throw AppError.unavailable("附件未能保存；请检查可用空间，尚未加入消息")
+            throw AppError.unavailable(String(localized: "The attachment could not be saved or added to the message. Check available storage."))
         }
         return attachment
     }
@@ -102,21 +102,21 @@ actor AttachmentStore {
     private func requireOwnedDirectory(_ attachment: StoredAttachment) throws {
         let expected = root.resolvingSymlinksInPath().appendingPathComponent(attachment.conversationID.uuidString).appendingPathComponent(attachment.id.uuidString)
         guard directory(attachment).resolvingSymlinksInPath().standardizedFileURL.path == expected.standardizedFileURL.path else {
-            throw AppError.invalid("附件目录包含非法路径引用")
+            throw AppError.invalid(String(localized: "The attachment folder contains an invalid path reference"))
         }
     }
     func read(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
-        guard attachment.conversationID == conversationID else { throw AppError.invalid("附件不属于当前会话") }
+        guard attachment.conversationID == conversationID else { throw AppError.invalid(String(localized: "The attachment does not belong to this conversation")) }
         try requireOwnedDirectory(attachment)
         let folder = directory(attachment), file = folder.appendingPathComponent("original")
         guard folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/"),
               let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
               info.isRegularFile == true, info.isSymbolicLink != true,
-              let size = info.fileSize, size <= Self.imageLimit else { throw AppError.unavailable("本地附件不可用；已有远程图源可重试下载，其他文件需重新选择") }
+              let size = info.fileSize, size <= Self.imageLimit else { throw AppError.unavailable(String(localized: "The local attachment is unavailable. Retry downloading an existing remote image or select the file again.")) }
         let data = try Data(contentsOf: file, options: .mappedIfSafe)
         guard data.count == attachment.byteCount,
               SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == attachment.digest else {
-            throw AppError.unavailable("本地附件校验失败；请重新选择或重试已有图源")
+            throw AppError.unavailable(String(localized: "Local attachment verification failed. Select it again or retry the existing image URL."))
         }
         return data
     }
@@ -127,18 +127,18 @@ actor AttachmentStore {
         return try Self.render(original, maxPixel: 512, type: UTType.jpeg.identifier)
     }
     func inferenceImage(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
-        guard attachment.kind == .image else { throw AppError.invalid("附件不是图片") }
+        guard attachment.kind == .image else { throw AppError.invalid(String(localized: "The attachment is not an image")) }
         return try Self.render(read(attachment, conversationID: conversationID), maxPixel: 2_048, type: UTType.png.identifier)
     }
     private static func render(_ data: Data, maxPixel: Int, type: String) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: maxPixel] as CFDictionary) else {
-            throw AppError.invalid("图片无法解码")
+            throw AppError.invalid(String(localized: "The image could not be decoded"))
         }
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, type as CFString, 1, nil) else { throw AppError.invalid("无法创建图片预览") }
+        guard let destination = CGImageDestinationCreateWithData(output, type as CFString, 1, nil) else { throw AppError.invalid(String(localized: "Could not create an image preview")) }
         CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw AppError.invalid("无法保存图片预览") }
+        guard CGImageDestinationFinalize(destination) else { throw AppError.invalid(String(localized: "Could not save the image preview")) }
         return output as Data
     }
     func usage() throws -> Int {
@@ -185,18 +185,18 @@ final class MessageImageDownloader: @unchecked Sendable {
     deinit { session.invalidateAndCancel() }
     func download(_ url: URL) async throws -> Data {
         guard url.scheme == "https", url.host?.isEmpty == false, url.user == nil, url.password == nil else {
-            throw AppError.invalid("只支持无内嵌账号密码的 HTTPS 图片链接")
+            throw AppError.invalid(String(localized: "Only HTTPS image links without embedded credentials are supported"))
         }
         let (bytes, response) = try await session.bytes(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               http.mimeType?.hasPrefix("image/") == true else {
-            throw AppError.unavailable("图片链接失效或未返回图片；未跟随重定向，可重试原链接")
+            throw AppError.unavailable(String(localized: "The image link is unavailable or did not return an image. Redirects were not followed. You can retry the original link."))
         }
-        guard response.expectedContentLength <= AttachmentStore.imageLimit else { throw AppError.invalid("远程图片超过 20 MiB") }
+        guard response.expectedContentLength <= AttachmentStore.imageLimit else { throw AppError.invalid(String(localized: "The remote image is larger than 20 MiB")) }
         var data = Data()
         for try await byte in bytes {
             try Task.checkCancellation()
-            guard data.count < AttachmentStore.imageLimit else { throw AppError.invalid("远程图片超过 20 MiB") }
+            guard data.count < AttachmentStore.imageLimit else { throw AppError.invalid(String(localized: "The remote image is larger than 20 MiB")) }
             data.append(byte)
         }
         return data

@@ -19,6 +19,25 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
 }
 
 @MainActor final class RemoteToolRuntimeTests: XCTestCase {
+    func testRemoteRuntimeUsesSelectedBackgroundMechanismsAndReleasesDemand() async throws {
+        let background = BackgroundExecutionCoordinator.testing(selection: [.audio])
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let runtime = try RemoteToolRuntime(bridge: RemoteRuntimeTestBridge(), persistent: true,
+            directory: directory, backgroundCoordinator: background,
+            approvalRecords: ApprovalRecordStore(inMemory: true), diagnostics: USBDiagnosticsLog(),
+            onImage: { _ in }, onStop: {})
+        XCTAssertEqual(background.desired, [.audio])
+        XCTAssertFalse(background.locationExplanation) // A remote request never prompts for location.
+        background.applySelection([])
+        XCTAssertTrue(background.desired.isEmpty)
+        background.applySelection([.audio])
+        XCTAssertTrue(background.desired.isEmpty) // New selections do not expand an existing run.
+        runtime.stop(message: "Synthetic remote stop")
+        await runtime.waitForRemoteRelease()
+        XCTAssertTrue(background.desired.isEmpty)
+        XCTAssertFalse(runtime.running)
+    }
     func testRemoteToolsNeverCreateSelectOrWriteAnAgentConversation() async throws {
         let sessions = ConversationStore(inMemory: true), bridge = RemoteRuntimeTestBridge()
         let model = AgentViewModel(sessions: sessions, loadPersistentState: false, makeRemoteBridge: { bridge })

@@ -30,15 +30,15 @@ struct AgentActivityAttributes: ActivityAttributes {
         }
         var compactTitle: String {
             switch phase {
-            case .standby: return "待命"
-            case .thinking: return "思考"
-            case .working, .executing: return operation?.compactTitle ?? "处理"
-            case .awaitingApproval: return "确认"
-            case .approved: return "批准"
-            case .completed: return "完成"
-            case .stopped: return "停止"
-            case .interrupted: return "中断"
-            case .blocked: return "查看"
+            case .standby: return String(localized: "Standby")
+            case .thinking: return String(localized: "Thinking")
+            case .working, .executing: return operation?.compactTitle ?? String(localized: "Processing")
+            case .awaitingApproval: return String(localized: "Confirm")
+            case .approved: return String(localized: "Approved")
+            case .completed: return String(localized: "Done")
+            case .stopped: return String(localized: "Stop")
+            case .interrupted: return String(localized: "Interrupted")
+            case .blocked: return String(localized: "View")
             }
         }
     }
@@ -68,28 +68,28 @@ struct AgentActivityAttributes: ActivityAttributes {
         }
         var compactTitle: String {
             switch self {
-            case .screenshot: return "查看"
-            case .apps: return "查询"
-            case .tap: return "点击"
-            case .drag: return "滑动"
-            case .home: return "主页"
-            case .launch: return "启动"
-            case .text: return "输入"
-            case .skill: return "技能"
-            case .processing: return "处理"
+            case .screenshot: return String(localized: "View")
+            case .apps: return String(localized: "Find")
+            case .tap: return String(localized: "Tap")
+            case .drag: return String(localized: "Swipe")
+            case .home: return String(localized: "Home")
+            case .launch: return String(localized: "Launch")
+            case .text: return String(localized: "Type")
+            case .skill: return String(localized: "Skill")
+            case .processing: return String(localized: "Processing")
             }
         }
         var title: String {
             switch self {
-            case .screenshot: return "正在查看屏幕"
-            case .apps: return "正在查询 App"
-            case .tap: return "正在点击"
-            case .drag: return "正在滑动"
-            case .home: return "正在返回主屏幕"
-            case .launch: return "正在启动 App"
-            case .text: return "正在输入文本"
-            case .skill: return "正在读取技能"
-            case .processing: return "正在处理"
+            case .screenshot: return String(localized: "Viewing screen")
+            case .apps: return String(localized: "Finding apps")
+            case .tap: return String(localized: "Tapping")
+            case .drag: return String(localized: "Swiping")
+            case .home: return String(localized: "Going to Home Screen")
+            case .launch: return String(localized: "Launching app")
+            case .text: return String(localized: "Typing text")
+            case .skill: return String(localized: "Reading skill")
+            case .processing: return String(localized: "Processing")
             }
         }
     }
@@ -101,16 +101,16 @@ struct AgentActivityAttributes: ActivityAttributes {
         var isTerminal: Bool { [.completed, .stopped, .interrupted, .blocked].contains(self) }
         var title: String {
             switch self {
-            case .standby: return "后台待命"
-            case .thinking: return "正在思考"
-            case .working: return "正在处理"
-            case .awaitingApproval: return "等待确认"
-            case .approved: return "已收到批准"
-            case .executing: return "正在发送动作"
-            case .completed: return "任务已完成"
-            case .stopped: return "已停止"
-            case .interrupted: return "已中断"
-            case .blocked: return "需要查看"
+            case .standby: return String(localized: "Background standby")
+            case .thinking: return String(localized: "Thinking")
+            case .working: return String(localized: "Processing")
+            case .awaitingApproval: return String(localized: "Waiting for confirmation")
+            case .approved: return String(localized: "Approval received")
+            case .executing: return String(localized: "Sending action")
+            case .completed: return String(localized: "Task completed")
+            case .stopped: return String(localized: "Stopped")
+            case .interrupted: return String(localized: "Interrupted")
+            case .blocked: return String(localized: "Review needed")
             }
         }
         var symbol: String {
@@ -127,14 +127,14 @@ struct AgentActivityAttributes: ActivityAttributes {
         }
         var detail: String {
             switch self {
-            case .standby: return "等待新任务"
-            case .awaitingApproval: return "回到 App 查看详情并确认本次动作"
-            case .approved: return "批准不等于已执行；请核对后续状态"
-            case .executing: return "发送不代表成功，请核对设备结果"
-            case .interrupted: return "返回 App 查看记录"
-            case .stopped: return "如动作已发出，请核对设备"
+            case .standby: return String(localized: "Waiting for a new task")
+            case .awaitingApproval: return String(localized: "Return to the app to review and confirm this action")
+            case .approved: return String(localized: "Approval does not confirm execution. Check the next status.")
+            case .executing: return String(localized: "Sending does not confirm success. Check your device.")
+            case .interrupted: return String(localized: "Return to the app to view the history")
+            case .stopped: return String(localized: "If an action was sent, check your device")
             case .thinking, .working, .completed: return ""
-            case .blocked: return "回到 App 查看原因"
+            case .blocked: return String(localized: "Return to the app to see what happened")
             }
         }
     }

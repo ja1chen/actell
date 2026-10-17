@@ -29,6 +29,7 @@
 		<string>screen-capture</string>
 		<string>processing</string>
 		<string>audio</string>
+		<string>location</string>
 	</array>
 </dict>
 </plist>

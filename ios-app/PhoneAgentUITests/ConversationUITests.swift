@@ -266,13 +266,24 @@ import XCTest
         assertAtBottom()
         capture("conversation-entry-at-latest")
     }
+    private func backgroundToggle(_ name: String, in app: XCUIApplication) -> XCUIElement {
+        let element = app.switches[name == "resident" ? "backgroundResidentEnabled" : "backgroundMechanism." + name]
+        for _ in 0..<6 where !element.isHittable {
+            if element.exists && element.frame.minY < app.frame.midY { app.swipeDown() }
+            else { app.swipeUp() }
+        }
+        XCTAssertTrue(element.isHittable, app.debugDescription)
+        return element
+    }
+
     func testBackgroundResidentSettingPersistsWithoutCreatingConversation() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-live-activity"]
         app.launch()
-        app.buttons["设置"].tap()
+        app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
         let resident = app.switches["backgroundResidentEnabled"]
+        for _ in 0..<5 where !resident.isHittable { app.swipeUp() }
         XCTAssertTrue(resident.waitForExistence(timeout: 5), app.debugDescription)
         if resident.value as? String == "1" { resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         XCTAssertEqual(resident.value as? String, "0")
@@ -289,35 +300,128 @@ import XCTest
         XCTAssertTrue(resident.waitForExistence(timeout: 5))
         app.terminate()
         app.launch()
-        app.buttons["设置"].tap()
+        app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        _ = backgroundToggle("resident", in: app)
         XCTAssertTrue(resident.waitForExistence(timeout: 5))
         XCTAssertEqual(resident.value as? String, "1")
         resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         XCTAssertEqual(resident.value as? String, "0")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["关闭"].tap()
         XCTAssertFalse(app.staticTexts["Siri · 待确认"].exists)
         XCTAssertFalse(app.buttons["stopRun"].exists)
     }
-    func testSystemBackgroundModePersistsAndCanReturnToAudio() {
+    func testBackgroundSelectionAllowsMultipleAndEmptyAndPersists() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"]
-        app.launch()
-        app.buttons["设置"].tap()
-        let mode = app.buttons["backgroundPlaybackMode"]
-        XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        mode.tap()
-        app.buttons["系统后台任务"].tap()
-        XCTAssertTrue(app.staticTexts["系统任务会显示系统进度。开启常驻后，空闲时用音频等待新任务。"].exists)
-        capture("settings-system-background-task")
-        app.terminate(); app.launch()
-        app.buttons["设置"].tap()
-        XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["系统任务会显示系统进度。开启常驻后，空闲时用音频等待新任务。"].exists)
-        mode.tap()
-        app.buttons["音频"].tap()
-        XCTAssertTrue(app.staticTexts["开启后，无任务时也保持所选后台模式。"].exists)
+        app.launchArguments = ["--ui-testing", "--background-fixture-reset"]
+        app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        let names = ["audio", "pictureInPicture", "systemTask", "location"]
+        func toggle(_ name: String) -> XCUIElement { backgroundToggle(name, in: app) }
+        XCTAssertEqual(toggle("audio").value as? String, "1")
+        XCTAssertEqual(toggle("pictureInPicture").value as? String, "0")
+        XCTAssertEqual(toggle("systemTask").value as? String, "0")
+        XCTAssertEqual(toggle("location").value as? String, "0")
+        XCTAssertFalse(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["enableBackgroundLocation"].exists)
+        XCTAssertFalse(app.buttons["重试已选持续方式"].exists)
+        capture("background-settings-default-no-permission")
+        toggle("location").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        toggle("pictureInPicture").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        toggle("systemTask").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        for name in names { XCTAssertEqual(toggle(name).value as? String, "1") }
+        for name in names { toggle(name).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+        capture("background-explicit-empty")
+        app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        for name in names { XCTAssertEqual(toggle(name).value as? String, "0") }
         XCTAssertFalse(app.buttons["stopRun"].exists)
+    }
+    func testPiPSelectionReturnsFromBackgroundAndCanLeaveSettingsSafely() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--background-fixture-reset"]
+        app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        let pip = backgroundToggle("pictureInPicture", in: app)
+        pip.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(pip.value as? String, "1")
+        let resident = backgroundToggle("resident", in: app)
+        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
+        XCTAssertEqual(backgroundToggle("pictureInPicture", in: app).value as? String, "1")
+        capture("pip-selection-returned-to-app")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 5))
+        app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        let restored = backgroundToggle("pictureInPicture", in: app)
+        restored.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        backgroundToggle("resident", in: app).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    }
+
+    func testLocationToggleRequestsNativePermissionWithoutTaskOrResidency() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--background-fixture-reset", "--background-fixture-native-permission"]
+        app.launch(); app.buttons["设置"].tap()
+        XCTAssertFalse(app.switches["backgroundMechanism.location"].exists)
+        app.buttons["openBackgroundSettings"].tap()
+        XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
+        let location = backgroundToggle("location", in: app)
+        XCTAssertEqual(location.value as? String, "0")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        capture("background-settings-location-off")
+        location.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let prompt = app.alerts.firstMatch.waitForExistence(timeout: 3) ? app.alerts.firstMatch : system.alerts.firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 5), app.debugDescription)
+        capture("background-settings-native-location-permission")
+        let deny = prompt.buttons.matching(NSPredicate(format: "label IN %@", ["不允许", "Don’t Allow", "Don't Allow"])).firstMatch
+        XCTAssertTrue(deny.exists, prompt.debugDescription)
+        deny.tap()
+        XCTAssertTrue(app.staticTexts["backgroundLocationPermissionStatus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["backgroundLocationPermissionStatus"].label.contains("未允许访问位置"))
+        XCTAssertEqual(backgroundToggle("audio", in: app).value as? String, "1")
+        XCTAssertEqual(backgroundToggle("resident", in: app).value as? String, "0")
+        XCTAssertFalse(app.buttons["stopRun"].exists)
+    }
+
+    func testLocationDeniedKeepsAudioSelectedAndShowsPermissionHelp() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--background-fixture-reset", "--background-fixture-location-denied"]
+        app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        XCTAssertEqual(app.switches["backgroundMechanism.audio"].value as? String, "1")
+        let location = backgroundToggle("location", in: app)
+        XCTAssertEqual(location.value as? String, "0")
+        location.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(location.value as? String, "1")
+        XCTAssertTrue(app.staticTexts["backgroundLocationPermissionStatus"].label.contains("未允许访问位置"))
+        XCTAssertTrue(app.descendants(matching: .any)["backgroundLocationSettings"].exists, app.debugDescription)
+        let resident = app.switches["backgroundResidentEnabled"]
+        for _ in 0..<5 where !resident.isHittable { app.swipeUp() }
+        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(backgroundToggle("audio", in: app).value as? String, "1")
+        _ = backgroundToggle("location", in: app)
+        XCTAssertFalse(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch.exists)
+        capture("background-location-denied-independent-audio")
+        _ = backgroundToggle("resident", in: app)
+        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    }
+    func testLegacySystemSelectionAndResidentExplanation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--background-fixture-reset", "--background-fixture-legacy-system"]
+        app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
+        XCTAssertEqual(app.switches["backgroundMechanism.audio"].value as? String, "0")
+        XCTAssertEqual(app.switches["backgroundMechanism.systemTask"].value as? String, "1")
+        XCTAssertEqual(backgroundToggle("location", in: app).value as? String, "0")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["backgroundNoIdleSource"].exists)
+        capture("background-resident-system-only")
+        XCTAssertFalse(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch.exists)
     }
     func testDeviceControlsAndSettingsDoNotStartAnything() {
         let app = launch()
@@ -795,7 +899,7 @@ import XCTest
     }
     func testDiscoverModelsBrowseAllAndSelectCachedModelInConversation() {
         continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--ui-testing", "--ui-test-model-catalog"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["--ui-testing", "--ui-test-model-catalog", "-AppleLanguages", "(zh-Hans)"]; app.launch()
         openProviders(app); app.staticTexts["Catalog Fixture"].tap()
         XCTAssertTrue(app.buttons["fetchModels"].waitForExistence(timeout: 5)); app.buttons["fetchModels"].tap()
         XCTAssertTrue(app.buttons["providerModel-fixture-vision"].waitForExistence(timeout: 5))
@@ -808,7 +912,7 @@ import XCTest
         XCTAssertFalse(app.buttons["providerModel-fixture-seventh"].exists)
         app.swipeUp()
         let effort = app.buttons["reasoningEffort"]
-        XCTAssertTrue(effort.waitForExistence(timeout: 3)); effort.tap(); app.buttons["high"].tap()
+        XCTAssertTrue(effort.waitForExistence(timeout: 3)); effort.tap(); app.buttons["高"].tap()
         XCTAssertFalse(app.textFields["parameter-temperature"].exists)
         let browse = app.buttons["browseAllProviderModels"]
         XCTAssertTrue(browse.waitForExistence(timeout: 5)); browse.tap()
@@ -850,19 +954,19 @@ import XCTest
         modelRow.tap(); app.buttons["fixture-other"].tap()
         XCTAssertEqual(modelRow.value as? String, "fixture-other")
         modelRow.tap(); app.buttons["fixture-vision"].tap()
-        XCTAssertEqual(effortRow.value as? String, "high")
+        XCTAssertEqual(effortRow.value as? String, "高")
         effortRow.tap()
         capture("conversation-reasoning-popup")
-        app.buttons["low"].tap()
-        XCTAssertEqual(effortRow.value as? String, "low")
+        app.buttons["低"].tap()
+        XCTAssertEqual(effortRow.value as? String, "低")
         modelRow.tap(); app.buttons["fixture-other"].tap()
         XCTAssertEqual(effortRow.value as? String, "服务商默认")
         modelRow.tap(); app.buttons["fixture-vision"].tap()
-        XCTAssertEqual(effortRow.value as? String, "low")
-        effortRow.tap(); app.buttons["服务商默认（low）"].tap()
-        XCTAssertEqual(effortRow.value as? String, "服务商默认（low）")
+        XCTAssertEqual(effortRow.value as? String, "低")
+        effortRow.tap(); app.buttons["服务商默认（低）"].tap()
+        XCTAssertEqual(effortRow.value as? String, "服务商默认（低）")
         app.textViews["messageInput"].tap()
-        XCTAssertFalse(picker.label.contains("low"))
+        XCTAssertFalse(picker.label.contains("低"))
         capture("discovered-model-selection")
     }
 }

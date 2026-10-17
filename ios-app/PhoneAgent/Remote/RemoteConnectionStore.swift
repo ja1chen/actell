@@ -59,32 +59,45 @@ struct RemoteConnectionSettings: Codable, Equatable {
             !label.isEmpty && label.utf8.count <= 63 && label.first != "-" && label.last != "-" &&
             label.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 }
         }
-        guard numeric || dns else { throw RemoteSetupError("请输入证书对应的 IP 地址或域名，不含 https:// 或路径") }
-        guard let port = UInt16(port), port != 0 else { throw RemoteSetupError("端口须为 1–65535") }
+        guard numeric || dns else { throw RemoteSetupError(String(localized: "Enter the certificate’s IP address or domain, without https:// or a path.")) }
+        guard let port = UInt16(port), port != 0 else { throw RemoteSetupError(String(localized: "Use a port from 1 to 65535.")) }
         let values = sources.split { $0.isWhitespace || $0 == "," }.map(String.init)
-        guard !values.isEmpty, values.count <= 64 else { throw RemoteSetupError("请填写 1–64 个允许的客户端来源 IP") }
+        guard !values.isEmpty, values.count <= 64 else { throw RemoteSetupError(String(localized: "Enter 1–64 allowed client IP addresses.")) }
         var seen = Set<RemoteSourceAddress>()
         for value in values {
             guard let address = RemoteSourceAddress(literal: value), seen.insert(address).inserted else {
-                throw RemoteSetupError("来源须为不重复的具体 IP 地址，不支持域名、网段或通配符")
+                throw RemoteSetupError(String(localized: "Use distinct IP addresses. Domains, subnets, and wildcards are unsupported."))
             }
         }
         return (host, port, values)
     }
     var endpoint: String { "https://\(host.contains(":") ? "[\(host)]" : host):\(port)" }
 }
-struct RemoteSetupError: LocalizedError {
+struct RemoteSetupError: LocalizedError, CustomNSError {
     let message: String
-    init(_ message: String) { self.message = message }
+    private let underlying: NSError?
+    init(_ message: String, underlying: Error? = nil) {
+        self.message = message; self.underlying = underlying as NSError?
+    }
+    static var errorDomain: String { "com.ja1chen.Actell.MuseSetup" }
+    var errorCode: Int { underlying?.code ?? 0 }
+    var errorUserInfo: [String: Any] {
+        var info: [String: Any] = [NSLocalizedDescriptionKey: message]
+        if let underlying { info[NSUnderlyingErrorKey] = underlying }
+        return info
+    }
     var errorDescription: String? { message }
 }
 
-struct RemoteVaultError: LocalizedError {
+struct RemoteVaultError: LocalizedError, CustomNSError {
     let status: OSStatus
     let operation: String
+    static var errorDomain: String { NSOSStatusErrorDomain }
+    var errorCode: Int { Int(status) }
+    var errorUserInfo: [String: Any] { [NSLocalizedDescriptionKey: errorDescription ?? ""] }
     var errorDescription: String? {
-        if status == errSecMissingEntitlement { return "当前 App 安装签名无法完成钥匙串" + operation + "，请检查安装签名后重试" }
-        return "钥匙串" + operation + "失败，请解锁设备后重试"
+        if status == errSecMissingEntitlement { return String(localized: "This installation cannot access device credentials. Check app signing and try again.") }
+        return String(localized: "Device credentials are unavailable. Unlock the phone and try again.")
     }
 }
 
@@ -105,18 +118,18 @@ struct RemoteVaultError: LocalizedError {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw RemoteVaultError(status: status, operation: "读取") }
+        guard status == errSecSuccess, let data = result as? Data else { throw RemoteVaultError(status: status, operation: "read") }
         return data
     }
     func write(_ data: Data, account: String) throws {
         let values: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         var status = SecItemUpdate(query(account) as CFDictionary, values as CFDictionary)
         if status == errSecItemNotFound { status = SecItemAdd(query(account).merging(values) { _, new in new } as CFDictionary, nil) }
-        guard status == errSecSuccess else { throw RemoteVaultError(status: status, operation: "保存") }
+        guard status == errSecSuccess else { throw RemoteVaultError(status: status, operation: "write") }
     }
     func remove(_ account: String) throws {
         let status = SecItemDelete(query(account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw RemoteVaultError(status: status, operation: "移除") }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw RemoteVaultError(status: status, operation: "remove") }
     }
 }
 #if DEBUG
@@ -158,7 +171,7 @@ struct RemoteClientInvitation: Identifiable {
         serviceEnabled = defaults?.bool(forKey: serviceEnabledKey) ?? false
         if let data = defaults?.data(forKey: defaultsKey) {
             do { settings = try JSONDecoder().decode(RemoteConnectionSettings.self, from: data) }
-            catch { settings = .init(); loadError = "Muse 配置无法读取；请检查后重新保存连接配置" }
+            catch { settings = .init(); loadError = String(localized: "Muse settings could not be read. Check and save the connection settings again.") }
         } else { settings = .init() }
         loadLANClients()
     }
@@ -171,13 +184,13 @@ struct RemoteClientInvitation: Identifiable {
         var next = settings; next.host = host; next.port = port; next.sources = sources; next.companionMode = false; try save(next)
     }
     private static func unpack(_ data: Data, password: String) throws -> (SecIdentity, [SecCertificate], RemoteCertificateSummary) {
-        guard !data.isEmpty, data.count <= 32 * 1024 else { throw RemoteSetupError("证书文件须小于 32 KiB，且包含服务器证书及私钥") }
+        guard !data.isEmpty, data.count <= 32 * 1024 else { throw RemoteSetupError(String(localized: "Choose a file smaller than 32 KiB containing the server certificate and private key.")) }
         var imported: CFArray?
         let options: [String: Any] = [kSecImportExportPassphrase as String: password, kSecImportToMemoryOnly as String: true]
         let status = SecPKCS12Import(data as CFData, options as CFDictionary, &imported)
         guard status == errSecSuccess, let items = imported as? [[String: Any]], items.count == 1,
               let value = items.first?[kSecImportItemIdentity as String], CFGetTypeID(value as CFTypeRef) == SecIdentityGetTypeID() else {
-            throw RemoteSetupError("无法导入证书，请检查 .p12/.pfx 文件、密码与私钥；原证书保留")
+            throw RemoteSetupError(String(localized: "Certificate import failed. Check the .p12/.pfx file, password, and private key. The previous certificate was kept."))
         }
         let identity = value as! SecIdentity
         var certificate: SecCertificate?
@@ -185,12 +198,12 @@ struct RemoteClientInvitation: Identifiable {
         guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess, let certificate,
               SecIdentityCopyPrivateKey(identity, &key) == errSecSuccess, key != nil,
               let begins = SecCertificateCopyNotValidBeforeDate(certificate),
-              let expires = SecCertificateCopyNotValidAfterDate(certificate) else { throw RemoteSetupError("证书或私钥不完整") }
-        guard (begins as Date) <= Date(), (expires as Date) > Date() else { throw RemoteSetupError("证书尚未生效或已经过期") }
+              let expires = SecCertificateCopyNotValidAfterDate(certificate) else { throw RemoteSetupError(String(localized: "The certificate or private key is incomplete.")) }
+        guard (begins as Date) <= Date(), (expires as Date) > Date() else { throw RemoteSetupError(String(localized: "The certificate is not yet valid or has expired.")) }
         let importedChain = items[0][kSecImportItemCertChain as String] as? [SecCertificate] ?? []
         let chain = importedChain.isEmpty ? [certificate] : importedChain
         let fingerprint = SHA256.hash(data: SecCertificateCopyData(certificate) as Data).map { String(format: "%02x", $0) }.joined()
-        let summary = RemoteCertificateSummary(name: SecCertificateCopySubjectSummary(certificate) as String? ?? "服务器证书", fingerprint: fingerprint, expiresAt: expires as Date)
+        let summary = RemoteCertificateSummary(name: SecCertificateCopySubjectSummary(certificate) as String? ?? String(localized: "Server Certificate"), fingerprint: fingerprint, expiresAt: expires as Date)
         return (identity, chain, summary)
     }
     private func generatedIdentityProvider() -> RemoteGeneratedIdentityProvider {
@@ -200,7 +213,7 @@ struct RemoteClientInvitation: Identifiable {
     }
     func prepareCompanion() throws {
         guard settings.clients.isEmpty || (settings.usesCompanionLAN && settings.identityKind == "generated") else {
-            throw RemoteSetupError("切换到独立伴侣连接前，请先撤销开发模式客户端")
+            throw RemoteSetupError(String(localized: "Revoke development clients before switching to companion pairing."))
         }
         let host = settings.generatedHost ?? "actell-" + UUID().uuidString.lowercased() + ".local"
         // Persist the stable SAN before provisioning so an interrupted operation
@@ -211,11 +224,11 @@ struct RemoteClientInvitation: Identifiable {
         let material = try generatedIdentityProvider().provision(host: host)
         next = settings; next.host = host; next.port = 8765; next.sources = []
         next.companionMode = true; next.identityKind = "generated"
-        next.certificate = .init(name: "执言本机身份", fingerprint: material.fingerprint, expiresAt: material.expiresAt)
+        next.certificate = .init(name: String(localized: "Actell Device Identity"), fingerprint: material.fingerprint, expiresAt: material.expiresAt)
         try save(next)
     }
     func importIdentity(data: Data, password: String) throws {
-        guard settings.clients.isEmpty else { throw RemoteSetupError("更换服务器身份前，请先撤销现有设备并重新配对") }
+        guard settings.clients.isEmpty else { throw RemoteSetupError(String(localized: "Remove existing devices before replacing the server identity, then pair them again.")) }
         let (_, _, summary) = try Self.unpack(data, password: password)
         // Only the app-owned generic-password entry persists. Security import is memory-only.
         let encoded = try JSONEncoder().encode(IdentityEnvelope(pkcs12: data, password: password))
@@ -223,7 +236,7 @@ struct RemoteClientInvitation: Identifiable {
         var next = settings; next.certificate = summary; next.identityKind = "imported"; next.companionMode = false; try save(next)
     }
     func removeIdentity() throws {
-        guard settings.clients.isEmpty else { throw RemoteSetupError("移除服务器身份前，请先撤销所有设备") }
+        guard settings.clients.isEmpty else { throw RemoteSetupError(String(localized: "Remove all devices before removing the server identity.")) }
         if settings.identityKind == "generated" { try generatedIdentityProvider().remove() }
         else { try vault.remove(Self.identityAccount) }
         var next = settings; next.certificate = nil; next.identityKind = nil; next.companionMode = false; try save(next)
@@ -232,19 +245,19 @@ struct RemoteClientInvitation: Identifiable {
         if settings.identityKind == "generated" {
             guard let material = try generatedIdentityProvider().load(host: settings.host),
                   material.fingerprint == settings.certificate?.fingerprint else {
-                throw RemoteSetupError("本机身份记录不一致；连接已关闭，请检查后重新配对")
+                throw RemoteSetupError(String(localized: "The connection identity is inconsistent. The service stopped. Check it and pair again."))
             }
             return material.identity
         }
-        guard let data = try vault.read(Self.identityAccount) else { throw RemoteSetupError("请先导入服务器证书") }
+        guard let data = try vault.read(Self.identityAccount) else { throw RemoteSetupError(String(localized: "Import a server certificate first.")) }
         let envelope = try JSONDecoder().decode(IdentityEnvelope.self, from: data)
         let (identity, chain, summary) = try Self.unpack(envelope.pkcs12, password: envelope.password)
-        guard settings.certificate?.fingerprint == summary.fingerprint else { throw RemoteSetupError("证书记录不一致，请重新导入") }
+        guard settings.certificate?.fingerprint == summary.fingerprint else { throw RemoteSetupError(String(localized: "The certificate record is inconsistent. Import it again.")) }
         var trust: SecTrust?
         guard SecTrustCreateWithCertificates(chain as CFArray, SecPolicyCreateSSL(true, settings.host as CFString), &trust) == errSecSuccess, let trust,
               SecTrustSetAnchorCertificates(trust, [chain.last!] as CFArray) == errSecSuccess,
               SecTrustSetNetworkFetchAllowed(trust, false) == errSecSuccess,
-              SecTrustEvaluateWithError(trust, nil) else { throw RemoteSetupError("证书与连接地址不匹配，或证书链不适合服务器 TLS") }
+              SecTrustEvaluateWithError(trust, nil) else { throw RemoteSetupError(String(localized: "The certificate does not match the address or is unsuitable for this server.")) }
         return identity
     }
     func key(for id: String) -> Data? {
@@ -272,7 +285,7 @@ struct RemoteClientInvitation: Identifiable {
     private func secret() throws -> Data {
         var data = Data(count: 32)
         let status = data.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
-        guard status == errSecSuccess else { throw RemoteSetupError("无法生成客户端密钥，请重试") }
+        guard status == errSecSuccess else { throw RemoteSetupError(String(localized: "Client credentials could not be created. Try again.")) }
         return data
     }
     private func invitation(client: RemoteClientRegistration, key: Data) throws -> RemoteClientInvitation {
@@ -287,11 +300,11 @@ struct RemoteClientInvitation: Identifiable {
         return RemoteClientInvitation(client: client, text: String(decoding: data, as: UTF8.self))
     }
     private func certificatePEM() throws -> String {
-        guard settings.certificate != nil else { throw RemoteSetupError("请先准备本机 TLS 身份") }
+        guard settings.certificate != nil else { throw RemoteSetupError(String(localized: "Prepare the connection identity first.")) }
         let identity = try loadIdentity()
         var certificate: SecCertificate?
         guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess, let certificate else {
-            throw RemoteSetupError("服务器证书不可读取")
+            throw RemoteSetupError(String(localized: "The server certificate could not be read."))
         }
         let base64 = (SecCertificateCopyData(certificate) as Data).base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed])
         return "-----BEGIN CERTIFICATE-----\n" + base64 + "\n-----END CERTIFICATE-----\n"
@@ -299,12 +312,12 @@ struct RemoteClientInvitation: Identifiable {
     func recordHello(clientID: String, name: String) throws {
         guard let index = settings.clients.firstIndex(where: { $0.id == clientID }),
               !name.isEmpty, name.count <= MuseCompanionProtocol.maximumDeviceNameLength else {
-            throw RemoteSetupError("未识别的配对请求")
+            throw RemoteSetupError(String(localized: "This pairing request is unavailable. Add the device again."))
         }
         if settings.clients[index].identityConfirmed { return }
-        guard settings.clients[index].lanPairingState == nil else { throw RemoteSetupError("请等待设备完成配对") }
+        guard settings.clients[index].lanPairingState == nil else { throw RemoteSetupError(String(localized: "Wait for the device to finish pairing.")) }
         guard settings.clients[index].bootstrapExpiresAt.map({ $0 > Date() }) == true else {
-            throw RemoteSetupError("配对材料已过期，请撤销后重新生成")
+            throw RemoteSetupError(String(localized: "Pairing details expired. Revoke them and generate new details."))
         }
         // Freeze the first authenticated request; a remote label cannot silently
         // rename an identity while the user reviews its physical provenance.
@@ -315,7 +328,7 @@ struct RemoteClientInvitation: Identifiable {
         let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= MuseCompanionProtocol.maximumDeviceNameLength,
               !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-            throw RemoteSetupError("设备名称须为 1–64 个字符，不能包含换行或控制字符")
+            throw RemoteSetupError(String(localized: "Use 1–64 characters for the device name, without line breaks or control characters."))
         }
         return value
     }
@@ -325,10 +338,10 @@ struct RemoteClientInvitation: Identifiable {
         guard let index = settings.clients.firstIndex(where: { $0.id == clientID }),
               settings.clients[index].requestedDeviceName != nil,
               identityConfirmed || scopes.isEmpty,
-              settings.clients[index].identityConfirmed || settings.clients[index].bootstrapExpiresAt.map({ $0 > Date() }) == true else { throw RemoteSetupError("请先通过可信 USB 配置确认设备身份，并等待设备申请绑定") }
+              settings.clients[index].identityConfirmed || settings.clients[index].bootstrapExpiresAt.map({ $0 > Date() }) == true else { throw RemoteSetupError(String(localized: "Complete trusted USB setup and wait for the device’s pairing request.")) }
         if settings.clients[index].lanPairingState != nil {
             guard lanHealthy, settings.clients[index].lanPairingState == .active, identityConfirmed,
-                  var entry = lanClients[clientID] else { throw RemoteSetupError("配对未完成，请重新添加设备") }
+                  var entry = lanClients[clientID] else { throw RemoteSetupError(String(localized: "Pairing is incomplete. Add the device again.")) }
             entry.registration.scopes = scopes
             if let displayName { entry.registration.name = displayName }
             var clients = lanClients; clients[clientID] = entry
@@ -348,9 +361,9 @@ struct RemoteClientInvitation: Identifiable {
     }
     func addClient(name: String) throws -> RemoteClientInvitation {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 64 else { throw RemoteSetupError("客户端名称须为 1–64 个字符") }
-        guard settings.clients.count < 16 else { throw RemoteSetupError("最多保存 16 个客户端，请先撤销不再使用的客户端") }
-        guard !settings.host.isEmpty, (settings.usesCompanionLAN || !settings.sources.isEmpty) else { throw RemoteSetupError("请先保存连接地址与允许来源") }
+        guard !name.isEmpty, name.count <= 64 else { throw RemoteSetupError(String(localized: "Use 1–64 characters for the client name.")) }
+        guard settings.clients.count < 16 else { throw RemoteSetupError(String(localized: "Up to 16 clients can be saved. Revoke unused clients first.")) }
+        guard !settings.host.isEmpty, (settings.usesCompanionLAN || !settings.sources.isEmpty) else { throw RemoteSetupError(String(localized: "Save the connection address and allowed sources first.")) }
         let client = RemoteClientRegistration(id: UUID().uuidString.lowercased(), name: name, pairedAt: Date())
         let key = try secret(); let invite = try invitation(client: client, key: key)
         try vault.write(key, account: "client-" + client.id)
@@ -373,7 +386,7 @@ struct RemoteClientInvitation: Identifiable {
         do {
             if let data = try vault.read(Self.lanAccount) {
                 let envelope = try JSONDecoder().decode(LANEnvelope.self, from: data)
-                guard envelope.version == 1, envelope.clients.count <= 16 else { throw RemoteSetupError("设备记录无法读取") }
+                guard envelope.version == 1, envelope.clients.count <= 16 else { throw RemoteSetupError(String(localized: "The device record could not be read.")) }
                 var loaded: [String: LANClient] = [:]
                 for entry in envelope.clients {
                     let c = entry.registration
@@ -382,7 +395,7 @@ struct RemoteClientInvitation: Identifiable {
                           entry.secret.count == 32, loaded[c.id] == nil,
                           c.lanPairingState == .active || c.lanPairingState == .pendingAck,
                           c.identityConfirmed == (c.lanPairingState == .active),
-                          c.lanPairingState != .pendingAck || c.scopes.isEmpty else { throw RemoteSetupError("设备记录无法读取") }
+                          c.lanPairingState != .pendingAck || c.scopes.isEmpty else { throw RemoteSetupError(String(localized: "The device record could not be read.")) }
                     loaded[c.id] = entry
                 }
                 // No cross-restart claim context exists. Remove every unfinished key before use.
@@ -390,18 +403,18 @@ struct RemoteClientInvitation: Identifiable {
                 if active.count != loaded.count { try persistLAN(active) }
                 else { lanClients = active }
             } else if settings.clients.contains(where: { $0.lanPairingState != nil }) {
-                throw RemoteSetupError("设备凭据已丢失，请移除记录后重新配对")
+                throw RemoteSetupError(String(localized: "Device credentials are missing. Remove the device and pair again."))
             }
             settings.clients.removeAll { $0.lanPairingState != nil }
             settings.clients += lanClients.values.map(\.registration).sorted { $0.pairedAt < $1.pairedAt }
         } catch {
             lanHealthy = false; lanClients = [:]
             settings.clients.removeAll { $0.lanPairingState != nil }
-            loadError = "设备凭据无法读取或清理，请解锁后重新打开执言"
+            loadError = String(localized: "Device credentials could not be accessed. Unlock the phone and reopen Actell.")
         }
     }
     private func persistLAN(_ clients: [String: LANClient]) throws {
-        guard lanHealthy else { throw RemoteSetupError("设备凭据不可用，请重新打开执言") }
+        guard lanHealthy else { throw RemoteSetupError(String(localized: "Device credentials are unavailable. Reopen Actell.")) }
         do {
             let envelope = LANEnvelope(version: 1, clients: clients.values.sorted { $0.registration.id < $1.registration.id })
             try vault.write(JSONEncoder().encode(envelope), account: Self.lanAccount)
@@ -415,7 +428,7 @@ struct RemoteClientInvitation: Identifiable {
     }
     func hasLANRequest(_ id: String) -> Bool { lanClients.values.contains { $0.registration.lanRequestID == id } }
     func createLANPending(name: String, requestID: String) throws -> RemoteClientRegistration {
-        guard lanHealthy, settings.clients.count < 16, !hasLANRequest(requestID), !lanClients.values.contains(where: { $0.registration.lanPairingState == .pendingAck }) else { throw RemoteSetupError("无法添加设备，请移除不再使用的设备后重试") }
+        guard lanHealthy, settings.clients.count < 16, !hasLANRequest(requestID), !lanClients.values.contains(where: { $0.registration.lanPairingState == .pendingAck }) else { throw RemoteSetupError(String(localized: "The device could not be added. Remove unused devices and try again.")) }
         var client = RemoteClientRegistration(id: UUID().uuidString.lowercased(), name: name, pairedAt: Date())
         client.lanPairingState = .pendingAck; client.lanRequestID = requestID
         client.requestedDeviceName = name; client.bootstrapExpiresAt = nil
@@ -425,7 +438,7 @@ struct RemoteClientInvitation: Identifiable {
         return client
     }
     func activateLANClient(_ id: String, name: String) throws {
-        guard lanHealthy, var entry = lanClients[id], entry.registration.name == name else { throw RemoteSetupError("配对记录无效，请重新添加设备") }
+        guard lanHealthy, var entry = lanClients[id], entry.registration.name == name else { throw RemoteSetupError(String(localized: "The pairing record is invalid. Add the device again.")) }
         if entry.registration.lanPairingState == .active { return }
         entry.registration.lanPairingState = .active
         // Local Allow authorizes the default capabilities once pairing is authenticated.

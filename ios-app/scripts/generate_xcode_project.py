@@ -77,11 +77,14 @@ def generate():
             ref = add(relative, "PBXFileReference", lastKnownFileType="folder.assetcatalog", path=relative, sourceTree="SOURCE_ROOT")
             children.append(ref)
             resources.append(add(relative + "Build", "PBXBuildFile", fileRef=ref))
-        for path in sorted((ROOT / name).rglob("*.xcstrings")):
+        catalogs = list((ROOT / name).rglob("*.xcstrings"))
+        if name in ("PhoneAgent", "PhoneAgentLiveActivity"):
+            catalogs += list((ROOT / "Shared").rglob("*.xcstrings"))
+        for path in sorted(catalogs):
             relative = Path(os.path.relpath(path, ROOT)).as_posix()
-            ref = add(relative, "PBXFileReference", lastKnownFileType="text.json.xcstrings", path=relative, sourceTree="SOURCE_ROOT")
+            ref = add((name if relative.startswith("Shared/") else "") + relative, "PBXFileReference", lastKnownFileType="text.json.xcstrings", path=relative, sourceTree="SOURCE_ROOT")
             children.append(ref)
-            resources.append(add(relative + "Build", "PBXBuildFile", fileRef=ref))
+            resources.append(add((name if relative.startswith("Shared/") else "") + relative + "Build", "PBXBuildFile", fileRef=ref))
         if name == "PhoneAgent":
             ref = add("PrivacyManifest", "PBXFileReference", lastKnownFileType="text.xml", path="PhoneAgent/PrivacyInfo.xcprivacy", sourceTree="SOURCE_ROOT")
             children.append(ref)
@@ -124,7 +127,9 @@ def generate():
         if name == "PhoneAgent":
             settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)",
                             INFOPLIST_KEY_NSSupportsLiveActivities="YES",
-                            INFOPLIST_KEY_NSLocalNetworkUsageDescription="Allow explicitly authorized phone-control devices and Muse clients to connect with Actell on the local network.",
+                            INFOPLIST_KEY_NSLocalNetworkUsageDescription="Allow paired phone-control devices and Muse Gadget to connect with Actell on the local network.",
+                            INFOPLIST_KEY_NSLocationWhenInUseUsageDescription="When you enable location for background execution, the app uses location services to help your task continue when you switch apps. Your location is never saved or uploaded. This uses more battery and shows the location indicator. You can decline or turn it off at any time.",
+                            INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription="Save the images you choose to your photo library.",
                             INFOPLIST_KEY_UIApplicationSceneManifest_Generation="YES",
                             INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents="YES",
                             INFOPLIST_KEY_UILaunchScreen_Generation="YES")
@@ -160,7 +165,7 @@ def generate():
                            buildPhases=phases, buildRules=[], dependencies=dependencies, packageProductDependencies=package_products))
     products_group = add("Products", "PBXGroup", name="Products", children=products, sourceTree="<group>")
     main_group = add("RootGroup", "PBXGroup", children=groups + [products_group], sourceTree="<group>")
-    common = dict(APP_DISPLAY_NAME="执言", SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
+    common = dict(APP_DISPLAY_NAME="Actell", SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete", SWIFT_EMIT_LOC_STRINGS="YES",
                   CLANG_ENABLE_MODULES="YES", CLANG_ENABLE_OBJC_ARC="YES", GCC_C_LANGUAGE_STANDARD="gnu17")
     project = add("Project", "PBXProject", attributes=dict(LastUpgradeCheck="2700", BuildIndependentTargetsInParallel="YES"),
                   buildConfigurationList=configs("Project", common), compatibilityVersion="Xcode 14.0", developmentRegion="en",

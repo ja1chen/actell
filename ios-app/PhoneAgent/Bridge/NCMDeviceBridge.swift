@@ -12,11 +12,10 @@ enum NCMRemoteAdmissionError: LocalizedError {
     }
     var errorDescription: String? {
         switch self {
-        case .notConnected(let detail):
-            let guidance = "手机操控通道尚未连接，请到设置 → 手机操控 → 连接与验证中完成连接。"
-            return guidance + (detail.map { " 原因：" + $0 } ?? "")
-        case .busy: return "手机操控通道正在处理连接或验证操作，请等待完成后重试"
-        case .reserved: return "手机操控通道已被其他任务占用，请先结束该任务"
+        case .notConnected:
+            return String(localized: "Phone control is disconnected. Connect in Settings → Phone Control → Connection & Validation.")
+        case .busy: return String(localized: "Phone control setup is in progress. Wait for it to finish and try again.")
+        case .reserved: return String(localized: "Another task is using phone control. Stop it first.")
         }
     }
 }
@@ -33,9 +32,9 @@ enum DeviceControlRoute: String, Sendable {
         // Retained capture route is not exposed by this setting.
         defaults.string(forKey: defaultsKey) == Self.ncmDeveloper.rawValue ? .ncmDeveloper : .vpnLoopback
     }
-    var title: String { self == .vpnLoopback ? "VPN 回环" : "ESP32 NCM" }
-    var connectionName: String { self == .vpnLoopback ? "VPN 回环" : "ESP32" }
-    var controlTitle: String { self == .vpnLoopback ? "VPN 回环控制" : "ESP32 控制" }
+    var title: String { self == .vpnLoopback ? String(localized: "VPN loopback") : "ESP32 NCM" }
+    var connectionName: String { self == .vpnLoopback ? String(localized: "VPN loopback") : "ESP32" }
+    var controlTitle: String { self == .vpnLoopback ? String(localized: "VPN loopback control") : String(localized: "ESP32 control") }
     var modelContext: String {
         switch self {
         case .ncmDeveloper:
@@ -74,20 +73,20 @@ enum DeviceControlRoute: String, Sendable {
 }
 
 extension NCMControlConnection {
-    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable("此通道缺少发送前几何校验") }
-    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable("此通道缺少发送前几何校验") }
+    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
+    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
 
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) { (try await agentCapture(owner: owner, session: session), nil) }
-    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws { throw AppError.unavailable("此通道缺少实时几何校验") }
+    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify the current screen layout.")) }
 
     func canActivateApplication(owner: UUID, session: UUID) -> Bool { !running && !agentReserved }
     var connectionStopID: UUID? { nil }
     func connectIfNeeded() throws {
-        guard ready else { throw NCMControlError.unavailable(connectionFailure ?? "ESP32 未连接") }
+        guard ready else { throw NCMControlError.unavailable(connectionFailure ?? String(localized: "ESP32 not connected")) }
     }
     var connectionFailure: String? { nil }
-    func agentApplications(owner: UUID, session: UUID) async throws -> Data { throw AppError.unavailable("当前连接不支持查询 App") }
-    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws { throw AppError.unavailable("当前连接不支持此操作") }
+    func agentApplications(owner: UUID, session: UUID) async throws -> Data { throw AppError.unavailable(String(localized: "This connection does not support app queries")) }
+    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
     func awaitControlRelease() async {}
     func retainConnection(owner: UUID) {}
     func releaseConnection(owner: UUID) {}
@@ -137,7 +136,7 @@ extension PairingFlow: NCMControlConnection {
             case "home": try await services.home()
             case "type_text": try await services.typeText(text)
             case "launch_app": try await services.launchApplication(bundleID: text, arguments: arguments)
-            default: throw AppError.invalid("未注册的系统操作")
+            default: throw AppError.invalid(String(localized: "Unregistered system action"))
             }
         }
     }
@@ -217,7 +216,7 @@ private final class NCMRunFence: @unchecked Sendable {
         var nextAttempt = ContinuousClock.now
         while !flow.ready {
             try Task.checkCancellation(); try fence.check()
-            guard stopID == flow.connectionStopID else { throw AppError.unavailable("手机操控连接等待已停止") }
+            guard stopID == flow.connectionStopID else { throw AppError.unavailable(String(localized: "Stopped waiting for the phone control connection")) }
             if ContinuousClock.now >= nextAttempt {
                 do { try flow.connectIfNeeded() }
                 catch NCMControlError.unavailable(let message) { throw AppError.unavailable(message) }
@@ -225,12 +224,12 @@ private final class NCMRunFence: @unchecked Sendable {
             }
             if flow.ready { break }
             guard ContinuousClock.now < deadline else {
-                throw AppError.unavailable("等待手机操控连接超时。" + (flow.connectionFailure ?? "请检查设备连接"))
+                throw AppError.unavailable(String(localized: "Timed out waiting for the phone control connection. \(flow.connectionFailure ?? String(localized: "Check your device connection"))"))
             }
             try await Task.sleep(for: .milliseconds(50))
         }
         try Task.checkCancellation(); try fence.check()
-        guard stopID == flow.connectionStopID else { throw AppError.unavailable("手机操控连接等待已停止") }
+        guard stopID == flow.connectionStopID else { throw AppError.unavailable(String(localized: "Stopped waiting for the phone control connection")) }
         if session != flow.controlSessionID {
             if let session { flow.releaseAgent(owner: owner, session: session) }
             imageID = nil; approvedImageID = nil; systemAuthorizationID = nil
@@ -243,11 +242,11 @@ private final class NCMRunFence: @unchecked Sendable {
         try fence.check()
         if let remoteDeadline, Date() >= remoteDeadline { throw AppError.stopped }
         guard flow.ready else {
-            throw AppError.unavailable(flow.connectionFailure ?? "手机操控未连接，请在设置 → 手机操控 → 连接与验证中连接")
+            throw AppError.unavailable(flow.connectionFailure ?? String(localized: "Phone control is not connected. Connect in Settings → Phone control → Connection and verification."))
         }
         if let session {
             guard flow.controlSessionID == session else {
-                throw AppError.unavailable("手机操控连接已改变，请重新发起操控任务")
+                throw AppError.unavailable(String(localized: "The phone control connection changed. Start a new control task."))
             }
         } else {
             session = flow.controlSessionID
@@ -262,7 +261,7 @@ private final class NCMRunFence: @unchecked Sendable {
     func approvalContext(imageID: String) async throws -> String {
         try await prepareConnection()
         let session = try requireSession()
-        guard self.imageID == imageID else { throw AppError.invalid("请先获取新的截图") }
+        guard self.imageID == imageID else { throw AppError.invalid(String(localized: "Get a new screenshot first")) }
         return "ncm:\(session.uuidString):\(owner.uuidString)"
     }
     func acceptApproval(imageID: String) async throws {
@@ -283,7 +282,7 @@ private final class NCMRunFence: @unchecked Sendable {
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0, width <= 16384, height <= 16384 else {
-            throw AppError.protocolViolation("NCM 截图格式无效")
+            throw AppError.protocolViolation(String(localized: "Invalid NCM screenshot format"))
         }
         let id = UUID().uuidString
         imageID = id; approvedImageID = nil
@@ -291,17 +290,17 @@ private final class NCMRunFence: @unchecked Sendable {
     }
     func validateRemoteObservation(_ frame: FrameImage) async throws {
         try await prepareConnection()
-        guard Date().timeIntervalSince(frame.capturedAt) < RemoteImageGeometry.maxAge, imageID == frame.id, let token = frame.remoteGeometryToken else { throw AppError.invalid("截图缺少可验证的几何参照，请重新截图") }
+        guard Date().timeIntervalSince(frame.capturedAt) < RemoteImageGeometry.maxAge, imageID == frame.id, let token = frame.remoteGeometryToken else { throw AppError.invalid(String(localized: "This screenshot cannot be used for phone control. Take another screenshot.")) }
         let session = try requireSession()
         try await perform { try await flow.agentValidateGeometry(owner: owner, session: session, token: token) }
         try check()
         checkedRemoteGeometry = (token, frame.capturedAt.addingTimeInterval(RemoteImageGeometry.maxAge))
-        guard imageID == frame.id else { throw AppError.invalid("截图几何参照已变化") }
+        guard imageID == frame.id else { throw AppError.invalid(String(localized: "The screen changed. Take another screenshot.")) }
     }
     private func consumeInputApproval(_ id: String, coordinates: [Int]) throws {
         try check()
-        guard imageID == id, approvedImageID == id else { throw AppError.invalid("输入需要有效坐标参照与本次动作授权") }
-        guard coordinates.allSatisfy({ (0...65535).contains($0) }) else { throw AppError.invalid("输入坐标越界") }
+        guard imageID == id, approvedImageID == id else { throw AppError.invalid(String(localized: "Input requires a valid coordinate reference and permission for this action")) }
+        guard coordinates.allSatisfy({ (0...65535).contains($0) }) else { throw AppError.invalid(String(localized: "Input coordinates are out of bounds")) }
         // Consume only this dispatch's approval, retaining the coordinate reference.
         approvedImageID = nil
     }
@@ -312,7 +311,7 @@ private final class NCMRunFence: @unchecked Sendable {
         let geometry = checkedRemoteGeometry; checkedRemoteGeometry = nil
         let validate = {
             try self.check()
-            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid("远程坐标参照已变化或过期") }
+            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid(String(localized: "The screen changed or the screenshot expired. Take another screenshot.")) }
         }
         if let geometry {
             try await perform { try await flow.agentTapWithGeometry(owner: owner, session: session, x: UInt16(x), y: UInt16(y), geometry: geometry.token, validate: validate) }
@@ -322,14 +321,14 @@ private final class NCMRunFence: @unchecked Sendable {
     }
 
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws {
-        guard (100...2000).contains(durationMS) else { throw AppError.invalid("拖动时长需为 100–2000 毫秒") }
+        guard (100...2000).contains(durationMS) else { throw AppError.invalid(String(localized: "Drag duration must be 100–2000 milliseconds")) }
         try await prepareConnection()
         try consumeInputApproval(imageID, coordinates: [fromX, fromY, toX, toY])
         let session = try requireSession()
         let geometry = checkedRemoteGeometry; checkedRemoteGeometry = nil
         let validate = {
             try self.check()
-            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid("远程坐标参照已变化或过期") }
+            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid(String(localized: "The screen changed or the screenshot expired. Take another screenshot.")) }
         }
         if let geometry {
             try await perform { try await flow.agentDragWithGeometry(owner: owner, session: session, fromX: UInt16(fromX), fromY: UInt16(fromY), toX: UInt16(toX), toY: UInt16(toY), durationMS: UInt16(durationMS), geometry: geometry.token, validate: validate) }
@@ -385,7 +384,7 @@ private final class NCMRunFence: @unchecked Sendable {
             // Connection generation loss is a tool failure; only this run's
             // explicit cancellation fence should end the Agent loop.
             try fence.check()
-            throw AppError.unavailable(flow.connectionFailure ?? "手机操控连接已中断；本次结果可能未知，请核对设备后再决定下一步")
+            throw AppError.unavailable(flow.connectionFailure ?? String(localized: "The phone control connection was interrupted. The result may be unknown. Check your device before continuing."))
         }
     }
 

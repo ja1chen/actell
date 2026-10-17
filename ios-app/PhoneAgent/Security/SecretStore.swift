@@ -18,7 +18,7 @@ enum SecretStore {
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data,
               let value = String(data: data, encoding: .utf8) else {
-            throw AppError.unavailable("无法读取钥匙串")
+            throw AppError.unavailable(String(localized: "Could not read the keychain"))
         }
         return value
     }
@@ -29,7 +29,7 @@ enum SecretStore {
         attributes[kSecMatchLimit as String] = kSecMatchLimitOne
         let status = SecItemCopyMatching(attributes as CFDictionary, nil)
         if status == errSecItemNotFound { return false }
-        guard status == errSecSuccess else { throw AppError.unavailable("无法检查钥匙串") }
+        guard status == errSecSuccess else { throw AppError.unavailable(String(localized: "Could not check the keychain")) }
         return true
     }
     static func save(_ value: String, account: String) throws {
@@ -39,12 +39,12 @@ enum SecretStore {
         if status == errSecItemNotFound {
             status = SecItemAdd(query(account).merging(update) { _, new in new } as CFDictionary, nil)
         }
-        guard status == errSecSuccess else { throw AppError.unavailable("无法保存到钥匙串") }
+        guard status == errSecSuccess else { throw AppError.unavailable(String(localized: "Could not save to the keychain")) }
     }
     static func delete(_ account: String) throws {
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppError.unavailable("无法删除钥匙串项目")
+            throw AppError.unavailable(String(localized: "Could not delete the keychain item"))
         }
     }
 }

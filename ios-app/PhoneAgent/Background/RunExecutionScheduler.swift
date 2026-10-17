@@ -1,28 +1,38 @@
 import Foundation
 
-/// One coordinator per run. A SCK run never also requests
-/// a BGContinuedProcessingTask. Neither source grants a device tool permission.
+/// SCK remains exclusive. Shared continuous receipts never bypass capture/USB validity.
 @MainActor final class RunExecutionScheduler: RunBackgroundScheduler {
     private let screen = ScreenCaptureRunScheduler()
     private let continued: any RunBackgroundScheduler
-    private let continuedWithPiP: any RunBackgroundScheduler
+    private let coordinator: BackgroundExecutionCoordinator
     private let foregroundOnly = ForegroundOnlyScheduler()
-    private let mediaOnly: MediaOnlyRunScheduler
-    private var selected: any RunBackgroundScheduler
+    private var selected: any RunBackgroundScheduler = ForegroundOnlyScheduler()
     private var owners: [String: any RunBackgroundScheduler] = [:]
-    init(continued: any RunBackgroundScheduler = ContinuedProcessingScheduler(), activity: PiPExecutionActivity = .shared) {
-        mediaOnly = MediaOnlyRunScheduler(activity: activity)
-        self.continued = continued
-        continuedWithPiP = PiPBackedRunScheduler(primary: continued, activity: activity)
-        selected = ForegroundOnlyScheduler()
+    private var demand: UUID?
+    private var foreground = true
+    init(continued: any RunBackgroundScheduler = ContinuedProcessingScheduler(), coordinator: BackgroundExecutionCoordinator = .shared) {
+        self.continued = continued; self.coordinator = coordinator
     }
-    func configure(context: ScreenUSBExecutionContext?, allowSystemProcessing: Bool, useSystemProcessing: Bool = false) {
+    func configure(context: ScreenUSBExecutionContext?, allowSystemProcessing: Bool,
+                   selection: Set<BackgroundMechanism> = [], runID: UUID = UUID(), userInitiated: Bool = false) {
+        if let demand { coordinator.releaseDemand(demand); self.demand = nil }
         screen.context = context
         if let context { selected = context.backgroundEnabled ? screen : foregroundOnly }
-        else { selected = allowSystemProcessing ? (useSystemProcessing ? continuedWithPiP : mediaOnly) : foregroundOnly }
+        else if allowSystemProcessing {
+            let token = coordinator.acquireDemand(runID: runID, allowed: selection, userInitiated: userInitiated)
+            demand = token
+            let scheduler = CompositeRunScheduler(primary: continued, registry: coordinator.registry,
+                allowed: { [weak coordinator] in coordinator?.allowed(token) ?? [] },
+                systemState: { [weak coordinator] in coordinator?.reportSystem($0, demand: token) })
+            scheduler.setForeground(foreground); selected = scheduler
+        } else { selected = foregroundOnly }
+    }
+    func endRun() {
+        if let demand { self.demand = nil; coordinator.releaseDemand(demand) }
     }
     func setForeground(_ active: Bool) {
-        mediaOnly.setForeground(active)
+        foreground = active; selected.setForeground(active)
+        for owner in owners.values { owner.setForeground(active) }
     }
     func submit(identifier: String, launched: @escaping @MainActor (any RunBackgroundLease) -> Void) throws {
         try submit(identifier: identifier, launched: launched, failed: {})
@@ -33,14 +43,7 @@ import Foundation
         try selected.submit(identifier: identifier, launched: launched, failed: failed)
     }
     func cancel(identifier: String) {
-        // The run may already have selected a different backend by the time an
-        // old callback arrives; cancel through the original owner only.
         if let owner = owners.removeValue(forKey: identifier) { owner.cancel(identifier: identifier) }
-        else {
-            // After process death the owner map is empty. The coordinator has
-            // validated this persisted ID's app prefix; cancel any old system
-            // request too. A SCK-only segment has no system request to cancel.
-            continued.cancel(identifier: identifier)
-        }
+        else { continued.cancel(identifier: identifier) }
     }
 }

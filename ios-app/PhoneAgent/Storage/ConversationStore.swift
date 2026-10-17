@@ -32,13 +32,13 @@ import Combine
             var values = URLResourceValues(); values.isExcludedFromBackup = true
             try folderURL.setResourceValues(values)
             file = folder.appendingPathComponent("conversations-v1.json")
-        } catch { file = nil; canWrite = false; warning = "会话暂时只能保存在内存中"; return }
+        } catch { file = nil; canWrite = false; warning = String(localized: "Conversations can only be kept in memory for now"); return }
         do {
             if let file, FileManager.default.fileExists(atPath: file.path) {
                 let data = try Data(contentsOf: file)
-                guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid("会话文件过大") }
+                guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Conversation file is too large")) }
                 let archive = try JSONDecoder().decode(Archive.self, from: data)
-                guard archive.version == 1 else { throw AppError.invalid("会话文件版本不兼容") }
+                guard archive.version == 1 else { throw AppError.invalid(String(localized: "Conversation file version is incompatible")) }
                 records = archive.conversations
                 for index in records.indices {
                     if [.running, .awaitingApproval].contains(records[index].phase) {
@@ -54,14 +54,14 @@ import Combine
                     conversation.phase = [.running, .awaitingApproval].contains(record.phase) ? .interrupted : record.phase
                     conversation.messages = [ChatMessage(role: .user, text: record.goal)]
                     conversation.messages += record.receipts.map { ChatMessage(role: .notice, text: $0.message, date: $0.date) }
-                    if !record.result.isEmpty { conversation.messages.append(ChatMessage(role: .notice, text: "历史运行结果：\n" + record.result)) }
+                    if !record.result.isEmpty { conversation.messages.append(ChatMessage(role: .notice, text: String(localized: "Previous run result:\n\(record.result)"))) }
                     return conversation
                 }
             }
             saveNow()
         } catch {
             canWrite = false // Preserve an unreadable original; never replace it with [].
-            warning = "历史会话未能读取；已保留原文件，本次会话暂不写入磁盘"
+            warning = String(localized: "Conversation history could not be read. The original file was kept. This conversation will not be saved to disk for now.")
         }
     }
 
@@ -289,8 +289,8 @@ import Combine
                 let uncertain = state == .executing
                 records[index].messages[message].tool?.state = uncertain ? .outcomeUnknown : (cancelled ? .cancelled : .interrupted)
                 records[index].messages[message].tool?.result = uncertain
-                    ? "执行已中断，未保存送达确认；结果未知，未自动重发。"
-                    : (cancelled ? "本次调用已取消。" : "执行已中断，未保存调用结果。")
+                    ? String(localized: "Execution was interrupted without delivery confirmation. The result is unknown and was not resent automatically.")
+                    : (cancelled ? String(localized: "This call was canceled.") : String(localized: "Execution was interrupted. Its result was not saved."))
             }
         }
     }
@@ -307,14 +307,14 @@ import Combine
             switch saved.delivery {
             case .acknowledged, .observedResult:
                 recovered.state = input ? .succeeded : .interrupted
-                recovered.result = input ? "Command delivery acknowledged." : "调用已完成，但结果未能保存。"
+                recovered.result = input ? "Command delivery acknowledged." : String(localized: "The call finished, but its result could not be saved.")
             case .dispatching, .outcomeUnknown:
                 recovered.state = input ? .outcomeUnknown : .interrupted
-                recovered.result = input ? "动作已发送，但未收到确认；结果未知，未自动重发。" : "调用已中断，未保存调用结果。"
+                recovered.result = input ? String(localized: "The action was sent without acknowledgment. The result is unknown and was not resent automatically.") : String(localized: "The call was interrupted. Its result was not saved.")
             case .prepared:
-                recovered.state = .cancelled; recovered.result = "执行已中断，本次调用未发送。"
+                recovered.state = .cancelled; recovered.result = String(localized: "Execution was interrupted. This call was not sent.")
             case .failed:
-                recovered.state = .failed; recovered.result = "调用失败，详细结果未能保存。"
+                recovered.state = .failed; recovered.result = String(localized: "The call failed and its detailed result could not be saved.")
             }
             if recovered.arguments == nil { recovered.arguments = ToolStep.nonemptyArguments(saved.parameterSummary) }
             if recovered != tool {
@@ -335,8 +335,8 @@ import Combine
         guard let file, canWrite else { return }
         do {
             let data = try JSONEncoder().encode(Archive(conversations: conversations))
-            guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid("会话存储已满，请删除旧会话") }
+            guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Conversation storage is full. Delete old conversations.")) }
             try data.write(to: file, options: [.atomic, .completeFileProtection])
-        } catch { warning = "会话未能保存；请检查存储空间，当前内容仍在内存中" }
+        } catch { warning = String(localized: "The conversation could not be saved. Check available storage. Your current content is still in memory.") }
     }
 }

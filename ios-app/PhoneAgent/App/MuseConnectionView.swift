@@ -12,23 +12,23 @@ struct MuseConnectionView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Muse Gadget 服务", isOn: Binding(get: { connection.isEnabled }, set: { enabled in
+                Toggle(String(localized: "Muse Gadget Service"), isOn: Binding(get: { connection.isEnabled }, set: { enabled in
                     if enabled { perform { try connection.start() } }
                     else { connection.stop() }
                 }))
                 .disabled(!connection.isEnabled && (connection.status == .starting || connection.status == .stopping || model.hasBusySessions))
                 .accessibilityIdentifier("museAllowConnection")
-                LabeledContent("状态", value: connectionStatus)
+                LabeledContent(String(localized: "Status"), value: connectionStatus)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("状态")
+                    .accessibilityLabel(String(localized: "Status"))
                     .accessibilityValue(connectionStatus)
                     .accessibilityIdentifier("museServiceStatus")
             } footer: {
-                Text(connection.connectionIssue ?? "与 Muse 处于同一局域网。")
+                Text(connection.connectionIssue ?? String(localized: "Connect to the same local network as Muse."))
             }
             Section {
                 if connection.settings.clients.isEmpty {
-                    Text("尚未添加设备").foregroundStyle(.secondary)
+                    Text(String(localized: "No devices added")).foregroundStyle(.secondary)
                         .accessibilityIdentifier("museNoDevices")
                 }
                 ForEach(connection.settings.clients) { client in
@@ -59,7 +59,7 @@ struct MuseConnectionView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
-                            Text("添加 Muse")
+                            Text(String(localized: "Add Muse"))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -68,13 +68,11 @@ struct MuseConnectionView: View {
                     .disabled(!connection.pairing.available || model.hasBusySessions)
                     .accessibilityIdentifier("museAddCompanion")
                 }
-            } header: { Text("设备") } footer: {
-                Text("添加设备后，可分别选择允许访问的内容。")
-            }
+            } header: { Text(String(localized: "Devices")) }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--muse-development") {
                 Section {
-                    NavigationLink("Muse 开发工具") { MuseDevelopmentView(model: model) }
+                    NavigationLink(String(localized: "Muse Developer Tools")) { MuseDevelopmentView(model: model) }
                 }
             }
             #endif
@@ -83,34 +81,34 @@ struct MuseConnectionView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button(diagnosticsCopied ? "诊断日志已复制" : "复制诊断日志") {
+                    Button(diagnosticsCopied ? String(localized: "Diagnostic log copied") : String(localized: "Copy diagnostic log")) {
                         UIPasteboard.general.string = model.usbDiagnosticReport()
                         diagnosticsCopied = true
                     }
                     .accessibilityIdentifier("copyMuseDiagnostics")
-                } label: { Label("更多", systemImage: "ellipsis") }
+                } label: { Label(String(localized: "More"), systemImage: "ellipsis") }
             }
         }
         .sheet(item: $selected) { MuseDevicePermissionsSheet(connection: connection, client: $0) }
         .sheet(isPresented: $adding, onDismiss: { connection.cancelPairing() }) {
             MuseLANPairingSheet(connection: connection)
         }
-        .alert("操作未完成", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("好", role: .cancel) { error = nil }
+        .alert(String(localized: "Could Not Complete Operation"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button(String(localized: "OK"), role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
-        .confirmationDialog("移除这个设备？", isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }), titleVisibility: .visible) {
-            Button("移除设备", role: .destructive) {
+        .confirmationDialog(String(localized: "Remove this device?"), isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }), titleVisibility: .visible) {
+            Button(String(localized: "Remove Device"), role: .destructive) {
                 if let client = revoking { perform { try connection.revoke(client) } }
                 revoking = nil
             }
-        } message: { Text("将停止此设备的任务并关闭访问权限。") }
+        } message: { Text(String(localized: "This stops the device’s task and removes its access.")) }
     }
     private var connectionStatus: String {
         switch connection.status {
-        case .stopped: return connection.connectionIssue != nil ? "服务未运行" : connection.isEnabled ? "已暂停" : "已停止"
-        case .starting: return "正在启动"
-        case .listening, .running: return "运行中"
-        case .stopping: return "正在停止"
+        case .stopped: return connection.connectionIssue != nil ? String(localized: "Service Not Running") : connection.isEnabled ? String(localized: "Paused") : String(localized: "Stopped")
+        case .starting: return String(localized: "Starting")
+        case .listening, .running: return String(localized: "Running")
+        case .stopping: return String(localized: "Stopping")
         }
     }
     private func deviceLabel(_ client: RemoteClientRegistration) -> some View {
@@ -128,15 +126,15 @@ struct MuseConnectionView: View {
     }
     private func deviceStatus(_ client: RemoteClientRegistration, now: Date) -> String {
         guard client.identityConfirmed else {
-            if client.lanPairingState == .pendingAck { return "正在完成配对" }
-            return client.bootstrapExpiresAt.map({ $0 <= now }) == true ? "配对已过期" : "配对未完成"
+            if client.lanPairingState == .pendingAck { return String(localized: "Completing pairing") }
+            return client.bootstrapExpiresAt.map({ $0 <= now }) == true ? String(localized: "Pairing Expired") : String(localized: "Pairing Incomplete")
         }
-        if client.scopes.isEmpty { return "权限未开放" }
-        guard connection.isPeerOnline(client.id) else { return "未连接" }
-        return "已连接"
+        if client.scopes.isEmpty { return String(localized: "Access Not Allowed") }
+        guard connection.isPeerOnline(client.id) else { return String(localized: "Not connected") }
+        return String(localized: "Connected")
     }
     private func removeButton(_ client: RemoteClientRegistration) -> some View {
-        Button("移除", role: .destructive) { revoking = client }
+        Button(String(localized: "Remove"), role: .destructive) { revoking = client }
             .accessibilityIdentifier("museRemoveDevice-" + client.id)
     }
     private func perform(_ action: () throws -> Void) {
@@ -158,8 +156,8 @@ private struct MuseDevicePermissionsSheet: View {
             Form {
                 Section {
                     HStack {
-                        Text("名称")
-                        TextField("设备名称", text: $name)
+                        Text(String(localized: "Name"))
+                        TextField(String(localized: "Device Name"), text: $name)
                             .multilineTextAlignment(.trailing)
                             .autocorrectionDisabled()
                             .accessibilityIdentifier("museDeviceName")
@@ -172,12 +170,12 @@ private struct MuseDevicePermissionsSheet: View {
                         }))
                         .accessibilityIdentifier("musePermission-" + scope.rawValue)
                     }
-                } header: { Text("允许访问") } footer: {
-                    Text("截图和应用信息可能经 Muse 发送给其服务或模型。已开放的操作直接执行，无需逐次确认。")
+                } header: { Text(String(localized: "Allow Access")) } footer: {
+                    Text(String(localized: "Screenshots and app information may be sent through Muse to its service or model. Allowed actions run without further prompts."))
                         .accessibilityIdentifier("museCapabilityDataDisclosure")
                 }
                 Section {
-                    Button("移除设备", role: .destructive) { removing = true }
+                    Button(String(localized: "Remove Device"), role: .destructive) { removing = true }
                         .accessibilityIdentifier("museRemoveSelectedDevice")
                 }
                 if let error { Text(error).foregroundStyle(.red) }
@@ -188,16 +186,16 @@ private struct MuseDevicePermissionsSheet: View {
                 let current = connection.settings.clients.first(where: { $0.id == client.id }) ?? client
                 scopes = current.scopes; name = current.name
             }
-            .confirmationDialog("移除这个设备？", isPresented: $removing, titleVisibility: .visible) {
-                Button("移除设备", role: .destructive) {
+            .confirmationDialog(String(localized: "Remove this device?"), isPresented: $removing, titleVisibility: .visible) {
+                Button(String(localized: "Remove Device"), role: .destructive) {
                     do { try connection.revoke(client); dismiss() }
                     catch { self.error = error.localizedDescription }
                 }
-            } message: { Text("将停止此设备的任务并关闭访问权限。") }
+            } message: { Text(String(localized: "This stops the device’s task and removes its access.")) }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+                    Button(String(localized: "Save")) {
                         do { try connection.authorize(client, scopes: scopes, identityConfirmed: true, name: name); dismiss() }
                         catch { self.error = error.localizedDescription }
                     }
@@ -219,7 +217,7 @@ private struct MuseLANPairingSheet: View {
                 Form {
                     if let name = connection.pairing.completedName {
                         Section {
-                            Label("已配对", systemImage: "checkmark.circle.fill")
+                            Label(String(localized: "Paired"), systemImage: "checkmark.circle.fill")
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                                 .accessibilityIdentifier("musePairingComplete")
@@ -233,32 +231,32 @@ private struct MuseLANPairingSheet: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
                             if pending.approved {
-                                ProgressView("正在完成配对")
+                                ProgressView(String(localized: "Completing pairing"))
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .multilineTextAlignment(.center)
                                     .padding(.vertical, 8)
                             } else {
-                                Button("允许") { perform { try connection.approvePairing() } }
+                                Button(String(localized: "Allow")) { perform { try connection.approvePairing() } }
                                     .accessibilityIdentifier("musePairingAllow")
-                                Button("拒绝", role: .destructive) { connection.pairing.reject() }
+                                Button(String(localized: "Deny"), role: .destructive) { connection.pairing.reject() }
                                     .accessibilityIdentifier("musePairingReject")
                             }
                         }
                     } else if connection.pairing.windowRemaining > 0 {
                         Section {
-                            ProgressView("等待 Muse 申请")
+                            ProgressView(String(localized: "Waiting for Muse"))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
                                 .padding(.vertical, 8)
                         } footer: {
-                            Text("在 Muse 上选择“连接 Actell”。")
+                            Text(String(localized: "Choose “Connect Actell” on Muse."))
                         }
                     } else {
                         Section {
-                            Text("添加已结束")
+                            Text(String(localized: "Pairing Ended"))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
-                            Button("重新添加") { perform { try connection.openPairingWindow() } }
+                            Button(String(localized: "Add Again")) { perform { try connection.openPairingWindow() } }
                                 .disabled(!connection.pairing.available)
                         }
                     }
@@ -269,10 +267,10 @@ private struct MuseLANPairingSheet: View {
                     }
                 }
             }
-            .navigationTitle("添加 Muse").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(String(localized: "Add Muse")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(connection.pairing.completedName == nil ? "取消" : "完成") { dismiss() }
+                    Button(connection.pairing.completedName == nil ? String(localized: "Cancel") : String(localized: "Done")) { dismiss() }
                 }
             }
         }

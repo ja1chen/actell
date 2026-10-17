@@ -28,10 +28,10 @@ struct ContentView: View {
                         Image(systemName: "sparkle").font(.system(size: 46, weight: .light)).foregroundStyle(.blue)
                             .frame(width: 98, height: 98).background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 30))
                         VStack(spacing: 8) {
-                            Text("从一个想法开始").font(.title2.bold())
-                            Text("与 Agent 对话，查看执行过程，\n在需要时确认下一步。").multilineTextAlignment(.center).foregroundStyle(.secondary)
+                            Text(String(localized: "Start with an idea")).font(.title2.bold())
+                            Text(String(localized: "Talk with the agent and follow its progress.\nConfirm the next step when needed.")).multilineTextAlignment(.center).foregroundStyle(.secondary)
                         }
-                        Button(action: createConversation) { Label("新建会话", systemImage: "plus").padding(.horizontal, 20).padding(.vertical, 6) }
+                        Button(action: createConversation) { Label(String(localized: "New conversation"), systemImage: "plus").padding(.horizontal, 20).padding(.vertical, 6) }
                             .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("newConversation")
                         Spacer(); Spacer()
                     }.padding(28).frame(maxWidth: .infinity)
@@ -44,17 +44,17 @@ struct ContentView: View {
                                     .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                             }
                             .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 16))
-                            .swipeActions { if !model.isRunning(in: session.id) { Button("删除", role: .destructive) { sessions.delete(session.id) } } }
+                            .swipeActions { if !model.isRunning(in: session.id) { Button(String(localized: "Delete"), role: .destructive) { sessions.delete(session.id) } } }
                         }
                         if visible.isEmpty { ContentUnavailableView.search(text: search) }
                     }.listStyle(.plain)
                 }
             }
-            .navigationTitle("会话")
-            .searchable(text: $search, prompt: "搜索会话")
+            .navigationTitle(String(localized: "Conversations"))
+            .searchable(text: $search, prompt: String(localized: "Search conversations"))
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { panel = .settings } label: { Image(systemName: "gear") }.accessibilityLabel("设置") }
-                ToolbarItem(placement: .topBarTrailing) { Button(action: createConversation) { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建会话").accessibilityIdentifier("newConversationToolbar") }
+                ToolbarItem(placement: .topBarLeading) { Button { panel = .settings } label: { Image(systemName: "gear") }.accessibilityLabel(String(localized: "Settings")) }
+                ToolbarItem(placement: .topBarTrailing) { Button(action: createConversation) { Image(systemName: "square.and.pencil") }.accessibilityLabel(String(localized: "New conversation")).accessibilityIdentifier("newConversationToolbar") }
             }
             .navigationDestination(for: UUID.self) { id in
                 ConversationView(model: model, conversationID: id).id(id)
@@ -86,8 +86,8 @@ struct ContentView: View {
         .onChange(of: model.activityNavigation, initial: true) { _, _ in
             routeActivityNavigation()
         }
-        .alert("实时活动链接", isPresented: Binding(get: { model.activityLinkError != nil }, set: { if !$0 { model.activityLinkError = nil } })) {
-            Button("知道了") { model.activityLinkError = nil }
+        .alert(String(localized: "Live Activity link"), isPresented: Binding(get: { model.activityLinkError != nil }, set: { if !$0 { model.activityLinkError = nil } })) {
+            Button(String(localized: "Got it")) { model.activityLinkError = nil }
         } message: { Text(model.activityLinkError ?? "") }
         .onChange(of: commands.pendingRoute, initial: true) { _, _ in routePreparedTask() }
         .onChange(of: model.running) { _, _ in routePreparedTask() }

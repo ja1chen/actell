@@ -109,7 +109,7 @@ struct ConversationView: View {
                 .onAppear { presentation.open(); draft = session.draft }
                 .onDisappear { sendingTask?.cancel(); presentation.close() }
                 .onChange(of: draft) { _, text in presentation.saveDraft(text) }
-            } else { ContentUnavailableView("会话已删除", systemImage: "bubble.left") }
+            } else { ContentUnavailableView(String(localized: "Conversation deleted"), systemImage: "bubble.left") }
         }
         .environment(\.conversationDisclosureChanged, {
             followLatest = false
@@ -127,11 +127,11 @@ struct ConversationView: View {
     @ViewBuilder private func messageRows(_ session: AgentConversation) -> some View {
         if presentation.awaitingTaskConfirmation {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Siri · 待确认", systemImage: "waveform").font(.headline)
-                Text("请核对或编辑下方文本，再点“确认开始”。")
+                Label(String(localized: "Siri · Awaiting confirmation"), systemImage: "waveform").font(.headline)
+                Text(String(localized: "Review or edit the text below, then choose “Confirm and start”."))
                     .foregroundStyle(.secondary)
                 Text(session.draft).textSelection(.enabled).accessibilityIdentifier("siriRecognizedTask")
-                Button("取消这份草稿", role: .cancel) {
+                Button(String(localized: "Discard this draft"), role: .cancel) {
                     presentation.dismissPreparedTask()
                     if !presentation.awaitingTaskConfirmation { draft = "" }
                 }.accessibilityIdentifier("dismissSiriTask")
@@ -170,7 +170,7 @@ struct ConversationView: View {
         Button { showingModelSettings = true } label: {
             HStack(spacing: 4) {
                 Text(presentation.modelName).lineLimit(1)
-                if let effort = presentation.reasoningEffort { Text(effort).foregroundStyle(.secondary) }
+                if let effort = presentation.reasoningEffort { Text(ReasoningEffortLabel.title(effort)).foregroundStyle(.secondary) }
                 Image(systemName: "chevron.down").imageScale(.small).accessibilityHidden(true)
             }
         }
@@ -190,10 +190,10 @@ struct ConversationView: View {
                     }
                 }
             } label: {
-                modelSettingRow("供应商", value: presentation.selectedProvider?.name ?? "未选择")
+                modelSettingRow(String(localized: "Provider"), value: presentation.selectedProvider?.name ?? String(localized: "Not selected"))
             }.accessibilityIdentifier("conversationProviderRow")
-                .accessibilityLabel("供应商")
-                .accessibilityValue(presentation.selectedProvider?.name ?? "未选择")
+                .accessibilityLabel(String(localized: "Provider"))
+                .accessibilityValue(presentation.selectedProvider?.name ?? String(localized: "Not selected"))
             Divider()
             Menu {
                 ForEach(modelMenuOptions, id: \.self) { name in
@@ -201,30 +201,30 @@ struct ConversationView: View {
                         Text(name + (name == presentation.selectedModel ? "  ✓" : ""))
                     }
                 }
-                Button("浏览全部模型") {
+                Button(String(localized: "Browse all models")) {
                     showingModelSettings = false
                     browsingModels = true
                 }
             } label: {
-                modelSettingRow("模型", value: presentation.modelName)
+                modelSettingRow(String(localized: "Model"), value: presentation.modelName)
             }.disabled(presentation.providerID == nil)
                 .accessibilityIdentifier("conversationModelRow")
-                .accessibilityLabel("模型")
+                .accessibilityLabel(String(localized: "Model"))
                 .accessibilityValue(presentation.modelName)
             Divider()
             Menu {
                 Button(reasoningDefaultLabel) { presentation.selectReasoningEffort(nil) }
                 ForEach(presentation.reasoningMetadata?.reasoningEfforts ?? [], id: \.self) { effort in
                     Button { presentation.selectReasoningEffort(effort) } label: {
-                        Text(effort + (effort == presentation.reasoningEffort ? "  ✓" : ""))
+                        Text(ReasoningEffortLabel.title(effort) + (effort == presentation.reasoningEffort ? "  ✓" : ""))
                     }
                 }
             } label: {
-                modelSettingRow("推理强度", value: presentation.reasoningEffort ?? reasoningDefaultLabel)
+                modelSettingRow(String(localized: "Reasoning effort"), value: presentation.reasoningEffort.map(ReasoningEffortLabel.title) ?? reasoningDefaultLabel)
             }.disabled(!presentation.canChangeReasoningEffort || presentation.providerID == nil)
                 .accessibilityIdentifier("conversationReasoningEffort")
-                .accessibilityLabel("推理强度")
-                .accessibilityValue(presentation.reasoningEffort ?? reasoningDefaultLabel)
+                .accessibilityLabel(String(localized: "Reasoning effort"))
+                .accessibilityValue(presentation.reasoningEffort.map(ReasoningEffortLabel.title) ?? reasoningDefaultLabel)
         }
         .menuOrder(.fixed)
         .buttonStyle(.plain)
@@ -234,7 +234,7 @@ struct ConversationView: View {
         .disabled(running || presentation.stopping)
     }
     private var reasoningDefaultLabel: String {
-        presentation.reasoningMetadata?.defaultReasoningEffort.map { "服务商默认（\($0)）" } ?? "服务商默认"
+        presentation.reasoningMetadata?.defaultReasoningEffort.map { String(localized: "Provider default (\(ReasoningEffortLabel.title($0)))") } ?? String(localized: "Provider default")
     }
     private func modelSettingRow(_ title: String, value: String) -> some View {
         HStack(spacing: 16) {
@@ -251,11 +251,11 @@ struct ConversationView: View {
     private func welcome(_ mode: RunMode) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.blue).padding(.top, 34)
-            Text("有什么可以一起完成？").font(.title2.bold())
-            Text(mode == .demo ? "这个会话使用固定脚本，带你走一遍查看屏幕、确认点击和检查结果的流程。" : "描述你的问题或目标。Agent 的回复和每次工具执行都会保留在这里。")
+            Text(String(localized: "What can we accomplish together?")).font(.title2.bold())
+            Text(mode == .demo ? String(localized: "This conversation uses a fixed script to demonstrate viewing the screen, approving a tap, and checking the result.") : String(localized: "Describe your question or goal. Agent replies and tool activity will be kept here."))
                 .foregroundStyle(.secondary)
-            Button(mode == .demo ? "体验一次完整演示" : "帮我梳理一个任务的执行步骤") {
-                draft = mode == .demo ? "查看演示画面，点击计数器一次，再检查结果" : "帮我梳理一个任务的执行步骤"
+            Button(mode == .demo ? String(localized: "Try a complete demo") : String(localized: "Help me outline the steps for a task")) {
+                draft = mode == .demo ? String(localized: "View the demo screen, tap the counter once, then check the result") : String(localized: "Help me outline the steps for a task")
                 focused = true
             }.buttonStyle(.bordered).accessibilityIdentifier("suggestedPrompt")
         }.padding(.bottom, 24)
@@ -308,9 +308,9 @@ struct ConversationView: View {
                     Markdown(message.text).markdownTheme(.basic)
                         .markdownImageProvider(NoRemoteMarkdownImages()).markdownInlineImageProvider(NoRemoteInlineImages())
                         .textSelection(.enabled)
-                } else if message.state == .streaming && message.reasoning == nil { Text("正在准备回复…").foregroundStyle(.secondary) }
-                if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? "思考已中断" : "回复已中断").font(.caption).foregroundStyle(.secondary) }
-                if message.state == .failed { Text("回复未完成").font(.caption).foregroundStyle(.secondary) }
+                } else if message.state == .streaming && message.reasoning == nil { Text(String(localized: "Preparing a reply…")).foregroundStyle(.secondary) }
+                if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? String(localized: "Reasoning interrupted") : String(localized: "Reply interrupted")).font(.caption).foregroundStyle(.secondary) }
+                if message.state == .failed { Text(String(localized: "Reply incomplete")).font(.caption).foregroundStyle(.secondary) }
                 MessageAttachmentsView(message: message, presentation: presentation)
             }.frame(maxWidth: .infinity, alignment: .leading)
         case .tool:
@@ -336,8 +336,8 @@ struct ConversationView: View {
             if let attachmentFailure { Text(attachmentFailure).font(.caption).foregroundStyle(.orange).accessibilityIdentifier("attachmentFailure") }
             if importingAttachments || sendingAttachments {
                 HStack {
-                    ProgressView(importingAttachments ? "正在复制附件到本机…" : "正在准备附件…")
-                    Button("取消") { importCancellation += 1; sendingTask?.cancel() }
+                    ProgressView(importingAttachments ? String(localized: "Copying attachments to this device…") : String(localized: "Preparing attachments…"))
+                    Button(String(localized: "Cancel")) { importCancellation += 1; sendingTask?.cancel() }
                 }.font(.caption)
             }
             if let assets = session?.draftAttachments, !assets.isEmpty {
@@ -347,14 +347,14 @@ struct ConversationView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 AttachmentThumbnail(attachment: asset, store: presentation.attachments, conversationID: presentation.sessionID)
                                     .frame(width: 100, height: 90).clipped()
-                                Button("移除", systemImage: "xmark.circle") { presentation.removeAttachment(asset.id) }
+                                Button(String(localized: "Remove"), systemImage: "xmark.circle") { presentation.removeAttachment(asset.id) }
                                     .font(.caption).disabled(running || sendingAttachments)
                                     .accessibilityIdentifier("removeAttachment-" + asset.id.uuidString)
                             }
                         }
                     }
                 }.accessibilityIdentifier("draftAttachments")
-                Text("发送后将图片及文本内容交给当前模型。支持单帧图片 ≤20 MiB、UTF-8 TXT/MD/JSON/CSV ≤256 KiB；暂不支持 PDF/Office。图片按最长边 2048 像素发送，原图保留本机。")
+                Text(String(localized: "Images and text will be sent to the current model after you send the message. Supports single-frame images up to 20 MiB and UTF-8 TXT/MD/JSON/CSV up to 256 KiB; PDF and Office files are not supported. Images are sent at a maximum dimension of 2,048 pixels. Originals stay on this device."))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             VStack(spacing: 0) {
@@ -384,7 +384,7 @@ struct ConversationView: View {
     private var messageField: some View {
         ZStack(alignment: .topLeading) {
             if draft.isEmpty {
-                Text("随心输入").foregroundStyle(.tertiary).padding(.vertical, 10)
+                Text(String(localized: "Type anything")).foregroundStyle(.tertiary).padding(.vertical, 10)
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
             MessageInput(text: $draft, focused: $focused, disabled: running || presentation.stopping || sendingAttachments, onSubmit: send)
@@ -393,15 +393,15 @@ struct ConversationView: View {
     @ViewBuilder private var sendButton: some View {
         if running {
             Button { if let run = presentation.activeRun { presentation.dispatch(.stop(run: run)) } } label: { Image(systemName: "stop.fill").font(.body.bold()).frame(width: 38, height: 38).background(Color(uiColor: .label), in: Circle()).foregroundStyle(Color(uiColor: .systemBackground)) }
-                .accessibilityLabel("停止执行").accessibilityIdentifier("stopRun")
+                .accessibilityLabel(String(localized: "Stop execution")).accessibilityIdentifier("stopRun")
         } else if presentation.awaitingTaskConfirmation {
-            Button("确认开始") { sendConfirmedTask() }
+            Button(String(localized: "Confirm and start")) { sendConfirmedTask() }
                 .buttonStyle(.borderedProminent).disabled(!canSend)
                 .accessibilityIdentifier("confirmSiriTask")
         } else {
             Button { send() } label: { Image(systemName: "arrow.up").font(.body.bold()).frame(width: 38, height: 38).background(.blue, in: Circle()).foregroundStyle(.white) }
                 .disabled(!canSend)
-                .accessibilityLabel("发送").accessibilityIdentifier("sendMessage")
+                .accessibilityLabel(String(localized: "Send")).accessibilityIdentifier("sendMessage")
         }
     }
     @ViewBuilder private func toolPreview(_ item: ToolPresentation) -> some View {
@@ -412,9 +412,9 @@ struct ConversationView: View {
         } else if let image = item.image, let uiImage = UIImage(data: image.png) {
             Image(uiImage: uiImage).resizable().scaledToFit().frame(maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                .accessibilityLabel(image.isDemo ? "演示合成屏幕，不是真机截图" : "当前步骤的设备截图")
+                .accessibilityLabel(image.isDemo ? String(localized: "Synthetic demo screen, not a device screenshot") : String(localized: "Device screenshot for the current step"))
         } else if item.tool.name == "screenshot", item.tool.state == .succeeded {
-            Text("此历史截图未保存本地原图，无法从工具记录恢复。").font(.caption).foregroundStyle(.secondary)
+            Text(String(localized: "This historical screenshot has no saved local original and cannot be recovered from the tool record.")).font(.caption).foregroundStyle(.secondary)
         }
     }
     private func send() {
@@ -461,7 +461,7 @@ private struct MessageInput: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.returnKeyType = .send
         view.enablesReturnKeyAutomatically = true
-        view.accessibilityLabel = "随心输入"
+        view.accessibilityLabel = String(localized: "Type anything")
         view.accessibilityIdentifier = "messageInput"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view
@@ -510,7 +510,7 @@ private struct MessageInput: UIViewRepresentable {
 }
 
 private struct NoRemoteMarkdownImages: MarkdownUI.ImageProvider {
-    func makeImage(url: URL?) -> some View { Text("图片见下方").font(.caption).foregroundStyle(.secondary) }
+    func makeImage(url: URL?) -> some View { Text(String(localized: "See image below")).font(.caption).foregroundStyle(.secondary) }
 }
 private struct NoRemoteInlineImages: MarkdownUI.InlineImageProvider {
     func image(with url: URL, label: String) async throws -> Image { Image(systemName: "photo") }

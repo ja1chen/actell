@@ -39,7 +39,7 @@ struct DeviceTool: AgentTool {
     // Authorization is enforced after validation and again at transport. The
     // caller selects per-action or task-scoped grants; the model cannot change it.
     var isConcurrencySafe: Bool { false }
-    func execute(parameters: [String: Any]) async throws -> AgentToolResult { throw AppError.invalid("此工具只允许带请求上下文调用") }
+    func execute(parameters: [String: Any]) async throws -> AgentToolResult { throw AppError.invalid(String(localized: "This tool requires a request context")) }
     func execute(context: ToolContext) async throws -> AgentToolResult {
         do {
             let result = try await coordinator.execute(name: name, parameters: context.parameters, callID: context.callId)
@@ -94,7 +94,7 @@ actor ActionCoordinator {
         try checkActive()
         let isInput = ["tap", "drag", "home", "launch_app", "type_text"].contains(name)
         if isInput {
-            guard !inputInFlight else { throw AppError.unavailable("已有输入动作正在执行") }
+            guard !inputInFlight else { throw AppError.unavailable(String(localized: "An input action is already running")) }
             inputInFlight = true
         }
         defer { if isInput { inputInFlight = false } }
@@ -111,12 +111,12 @@ actor ActionCoordinator {
             let frame = try await bridge.screenshot(); try checkActive()
             if remoteCallInFlight {
                 guard frame.png.count <= 8 * 1024 * 1024, ["image/png", "image/jpeg"].contains(frame.mimeType) else {
-                    throw AppError.protocolViolation("远程截图超过 8 MiB 或格式不受支持")
+                    throw AppError.protocolViolation(String(localized: "The remote screenshot exceeds 8 MiB or uses an unsupported format."))
                 }
             }
             image = frame
             try await lifecycle?.acknowledge(callID: callID, generation: generation, observation: true)
-            await onImage(frame, callID); await onReceipt(frame.isDemo ? "演示截图已更新" : (remoteCallInFlight ? "截图已校验；仅供已授权远程客户端读取" : "截图已校验并更新；图像将发送给已确认的模型服务"))
+            await onImage(frame, callID); await onReceipt(frame.isDemo ? String(localized: "Demo screenshot updated") : (remoteCallInFlight ? String(localized: "Screenshot validated for the authorized remote client.") : String(localized: "Screenshot validated and updated. The image will be sent to the confirmed model provider.")))
             var metadata: [String: Any] = ["image_id": frame.id, "width": frame.width, "height": frame.height, "is_demo": frame.isDemo]
             if let capture = frame.capture {
                 metadata["sequence"] = capture.sequence
@@ -130,7 +130,7 @@ actor ActionCoordinator {
         case "list_apps":
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: backgroundCapable)
             let data = try await bridge.installedApplications(); try checkActive()
-            guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]], rows.count <= 4096 else { throw AppError.protocolViolation("App 列表格式无效") }
+            guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]], rows.count <= 4096 else { throw AppError.protocolViolation(String(localized: "Invalid app list format")) }
             // Do not expose filesystem paths or service-private metadata.
             let safeRows = rows.map { $0.filter { ["name", "bundle_id", "version"].contains($0.key) } }
             let output = try JSONSerialization.data(withJSONObject: safeRows, options: [.sortedKeys])
@@ -146,18 +146,18 @@ actor ActionCoordinator {
             let purpose = try string(p, "purpose", max: 160)
             var text = "", arguments: [String] = []
             if name == "type_text" {
-                guard let value = p["text"] as? String, !value.isEmpty else { throw AppError.invalid("text 缺失或为空") }
+                guard let value = p["text"] as? String, !value.isEmpty else { throw AppError.invalid(String(localized: "Text is missing or empty")) }
                 text = value
-                guard text.utf8.count <= 8192, !text.utf8.contains(0) else { throw AppError.invalid("文本过长或含无效字符；未发送任何按键。") }
+                guard text.utf8.count <= 8192, !text.utf8.contains(0) else { throw AppError.invalid(String(localized: "The text is too long or contains invalid characters. No keystrokes were sent.")) }
             }
             if name == "launch_app" {
                 text = try string(p, "bundle_id", max: 256)
-                guard text.utf8.count <= 256, text.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || [45,46,95].contains($0) }) else { throw AppError.invalid("App 标识无效") }
+                guard text.utf8.count <= 256, text.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || [45,46,95].contains($0) }) else { throw AppError.invalid(String(localized: "Invalid app identifier")) }
                 if let raw = p["arguments"] {
-                    guard let values = raw as? [String], values.count <= 32, values.allSatisfy({ $0.utf8.count <= 1024 && !$0.utf8.contains(0) }) else { throw AppError.invalid("启动参数无效") }
+                    guard let values = raw as? [String], values.count <= 32, values.allSatisfy({ $0.utf8.count <= 1024 && !$0.utf8.contains(0) }) else { throw AppError.invalid(String(localized: "Invalid launch arguments")) }
                     arguments = values
                 }
-                guard (try JSONSerialization.data(withJSONObject: ["bundle_id": text, "arguments": arguments])).count <= 16 * 1024 else { throw AppError.invalid("启动参数过长") }
+                guard (try JSONSerialization.data(withJSONObject: ["bundle_id": text, "arguments": arguments])).count <= 16 * 1024 else { throw AppError.invalid(String(localized: "Launch arguments are too long")) }
             }
             let x = coordinateAction ? try integer(p, name == "tap" ? "x" : "from_x") : 0
             let y = coordinateAction ? try integer(p, name == "tap" ? "y" : "from_y") : 0
@@ -168,9 +168,9 @@ actor ActionCoordinator {
                 tx = try Wire.normalized(pixel: integer(p, "to_x"), dimension: frame!.width)
                 ty = try Wire.normalized(pixel: integer(p, "to_y"), dimension: frame!.height)
                 duration = try integer(p, "duration_ms")
-                guard (100...2_000).contains(duration) else { throw AppError.invalid("拖动时长必须为 100–2000 毫秒") }
+                guard (100...2_000).contains(duration) else { throw AppError.invalid(String(localized: "Drag duration must be 100–2,000 milliseconds")) }
             }
-            let detail = !coordinateAction ? purpose : name == "tap" ? "\(purpose)\n点击像素 (\(x), \(y))" : "\(purpose)\n从像素 (\(x), \(y)) 拖动至 (\(try integer(p, "to_x")), \(try integer(p, "to_y")))，\(duration) ms"
+            let detail = !coordinateAction ? purpose : name == "tap" ? String(localized: "\(purpose)\nTap pixel (\(x), \(y))") : String(localized: "\(purpose)\nDrag from pixel (\(x), \(y)) to (\(try integer(p, "to_x")), \(try integer(p, "to_y"))) over \(duration) ms")
             let deviceContext = try await (coordinateAction ? bridge.approvalContext(imageID: reference) : bridge.systemActionContext())
             try checkActive()
             pendingCallID = callID
@@ -181,7 +181,7 @@ actor ActionCoordinator {
             if coordinateAction { _ = try currentImage(reference) }
             authorizationStage = "contextAfterGrant"
             let currentContext = try await (coordinateAction ? bridge.approvalContext(imageID: reference) : bridge.systemActionContext())
-            guard currentContext == deviceContext else { throw AppError.invalid("设备会话已变化；本次动作授权失效，请重新决定下一步") }
+            guard currentContext == deviceContext else { throw AppError.invalid(String(localized: "The device session changed. This action's authorization expired. Decide the next step again.")) }
             try checkActive()
             if coordinateAction { _ = try currentImage(reference) }
             if authorizationMode == .perAction {
@@ -214,15 +214,15 @@ actor ActionCoordinator {
                 // return control to the model. Never resend this dispatch here.
                 let message = Self.safeToolError(error)
                 throw AppError.unavailable((error as? AppError) == .unknownOutcome
-                    ? message : message + "\n本次动作结果未知；未自动重发。")
+                    ? message : String(localized: "\(message)\nThe action outcome is unknown. It was not resent automatically."))
             }
             try checkActive()
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
-            await onReceipt("\(name) 已确认送达")
+            await onReceipt(String(localized: "Delivery of \(name) confirmed"))
             return .success(toolCallId: callID, toolName: name, result: "Command delivery acknowledged.")
         case "wait":
             let milliseconds = try integer(p, "duration_ms")
-            guard (1...3_000).contains(milliseconds) else { throw AppError.invalid("等待必须为 1–3000 毫秒") }
+            guard (1...3_000).contains(milliseconds) else { throw AppError.invalid(String(localized: "Wait duration must be 1–3,000 milliseconds")) }
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: true)
             try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000); try checkActive()
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
@@ -232,9 +232,9 @@ actor ActionCoordinator {
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: true)
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
             finishSummary = summary; stopped = true
-            await onReceipt("模型 / 演示脚本已结束本轮；请结合执行记录核对结果")
+            await onReceipt(String(localized: "The model or demo script ended this turn. Check the result against the execution records."))
             return .success(toolCallId: callID, toolName: name, result: summary)
-        default: throw AppError.invalid("未注册的工具")
+        default: throw AppError.invalid(String(localized: "Unregistered tool"))
         }
     }
     /// Remote entry shares the exact local validator, approval and Bridge path.
@@ -242,14 +242,14 @@ actor ActionCoordinator {
     /// This actor fence additionally spans every suspension, including screenshots.
     func executeRemote(name: String, parameters: [String: Any], callID: String,
                        expectedImageID: String?, deadline: Date) async throws -> AgentToolResult {
-        guard !remoteCallInFlight else { throw AppError.unavailable("远程工具正在执行") }
+        guard !remoteCallInFlight else { throw AppError.unavailable(String(localized: "A remote tool is running. Wait for it to finish.")) }
         remoteCallInFlight = true; remoteDeadline = deadline
         defer { remoteCallInFlight = false; remoteDeadline = nil }
         do {
             try checkActive()
             try await bridge.setRemoteDeadline(deadline)
             if name == "tap" || name == "drag" {
-                guard let expectedImageID else { throw AppError.invalid("远程坐标动作需要截图引用") }
+                guard let expectedImageID else { throw AppError.invalid(String(localized: "Take a screenshot before tapping or dragging.")) }
                 _ = try currentImage(expectedImageID)
             }
             return try await execute(name: name, parameters: parameters, callID: callID)
@@ -289,7 +289,7 @@ actor ActionCoordinator {
     private static func safeToolError(_ error: Error) -> String {
         // Bridge/validation AppErrors contain local public messages, never raw
         // remote responses, credentials or arbitrary NSError diagnostics.
-        String(((error as? AppError)?.localizedDescription ?? "工具执行失败；未自动重试，请检查设备连接或调整请求").prefix(1_000))
+        String(((error as? AppError)?.localizedDescription ?? String(localized: "The tool failed. It was not retried automatically. Check the device connection or adjust the request.")).prefix(1_000))
     }
     func stop() async {
         if let stopTask { await stopTask.value; return }
@@ -304,19 +304,19 @@ actor ActionCoordinator {
         if let remoteDeadline, Date() >= remoteDeadline { throw AppError.stopped }
     }
     private func currentImage(_ expectedID: String? = nil) throws -> FrameImage {
-        guard let frame = image else { throw AppError.invalid("缺少点击或拖动所需的坐标参照画面") }
+        guard let frame = image else { throw AppError.invalid(String(localized: "A reference image is required for tapping or dragging")) }
         // Internal reentrancy fence only. Models do not supply image identifiers,
         // and elapsed time does not invalidate an observation.
-        guard expectedID == nil || expectedID == frame.id else { throw AppError.invalid("坐标参照已变化；本次动作未发送") }
+        guard expectedID == nil || expectedID == frame.id else { throw AppError.invalid(String(localized: "The coordinate reference changed. This action was not sent.")) }
         return frame
     }
     private func integer(_ p: [String: Any], _ key: String) throws -> Int {
         guard let n = p[key] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite,
-              n.doubleValue.rounded() == n.doubleValue, n.doubleValue >= 0, n.doubleValue <= 100_000 else { throw AppError.invalid("\(key) 必须是有效非负整数") }
+              n.doubleValue.rounded() == n.doubleValue, n.doubleValue >= 0, n.doubleValue <= 100_000 else { throw AppError.invalid(String(localized: "\(key) must be a valid nonnegative integer")) }
         return n.intValue
     }
     private func string(_ p: [String: Any], _ key: String, max: Int) throws -> String {
-        guard let s = p[key] as? String, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, s.count <= max else { throw AppError.invalid("\(key) 缺失或过长") }
+        guard let s = p[key] as? String, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, s.count <= max else { throw AppError.invalid(String(localized: "\(key) is missing or too long")) }
         return s
     }
 }

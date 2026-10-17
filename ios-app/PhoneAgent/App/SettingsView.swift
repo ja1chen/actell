@@ -3,8 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AgentViewModel
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(BackgroundPlaybackMode.defaultsKey) private var backgroundMode = BackgroundPlaybackMode.defaultMode.rawValue
-    @AppStorage(BackgroundPlaybackMode.residentDefaultsKey) private var backgroundResident = false
     @State private var control = PairingFlow.shared
     @State private var clear = false
     @State private var clearAssets = false
@@ -12,66 +10,141 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("模型") {
+                Section(String(localized: "Model")) {
                     NavigationLink { ProvidersView(model: model) } label: {
-                        Text("供应商")
+                        Text(String(localized: "Provider"))
                     }.accessibilityIdentifier("openProviders")
                 }
-                Section("手机操控") {
-                    Picker("连接模式", selection: Binding(get: { control.route }, set: { _ = control.selectRoute($0) })) {
+                Section(String(localized: "Phone control")) {
+                    Picker(String(localized: "Connection mode"), selection: Binding(get: { control.route }, set: { _ = control.selectRoute($0) })) {
                         Text(DeviceControlRoute.vpnLoopback.title).tag(DeviceControlRoute.vpnLoopback)
                         Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
                     }.disabled(model.hasBusySessions || !control.canChangeRoute)
                         .accessibilityIdentifier("deviceControlMode")
                     NavigationLink { ESP32ControlSettingsView() } label: {
-                        Text("连接与验证")
+                        Text(String(localized: "Connection and verification"))
                     }.accessibilityIdentifier("esp32ControlSettings")
                 }
-                Section {
-                    Picker("执行模式", selection: $backgroundMode) {
-                        ForEach(BackgroundPlaybackMode.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
-                    }.accessibilityIdentifier("backgroundPlaybackMode")
-                    Toggle("后台常驻", isOn: $backgroundResident)
-                        .accessibilityIdentifier("backgroundResidentEnabled")
-                } header: {
-                    Text("后台执行")
-                } footer: {
-                    Text(backgroundMode == BackgroundPlaybackMode.systemTask.rawValue
-                         ? "系统任务会显示系统进度。开启常驻后，空闲时用音频等待新任务。"
-                         : "开启后，无任务时也保持所选后台模式。")
+                Section(String(localized: "Execution mode")) {
+                    NavigationLink { BackgroundSettingsView() } label: {
+                        Text(String(localized: "Mode"))
+                    }.accessibilityIdentifier("openBackgroundSettings")
                 }
-                Section("扩展能力") {
+                Section(String(localized: "Extensions")) {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {
-                        Text("技能")
+                        Text(String(localized: "Skills"))
                     }.accessibilityIdentifier("manageSkills")
                     NavigationLink { MuseConnectionView(model: model) } label: {
                         Text("Muse Gadget")
                     }.accessibilityIdentifier("openMuseConnection")
                 }
-                Section("本地记录") {
-                    Button("清空本地会话与任务记录", role: .destructive) { clear = true }
+                Section(String(localized: "Local records")) {
+                    Button(String(localized: "Clear local conversations and task records"), role: .destructive) { clear = true }
                         .disabled(model.hasBusySessions)
-                    Button("清理未引用附件", role: .destructive) { clearAssets = true }
+                    Button(String(localized: "Remove unused attachments"), role: .destructive) { clearAssets = true }
                         .disabled(model.hasBusySessions).accessibilityIdentifier("clearUnusedAttachments")
                     if !assetStatus.isEmpty { Text(assetStatus).font(.caption) }
                 }
                 if let warning = model.storageWarning { Text(warning).foregroundStyle(.orange) }
             }
-            .navigationTitle("设置")
+            .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
-            .confirmationDialog("删除本机保存的任务和结果？无法在 App 内恢复。", isPresented: $clear, titleVisibility: .visible) {
-                Button("清空记录", role: .destructive) { model.clearHistory() }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Close")) { dismiss() } } }
+            .confirmationDialog(String(localized: "Delete tasks and results saved on this device? They cannot be recovered in the app."), isPresented: $clear, titleVisibility: .visible) {
+                Button(String(localized: "Clear records"), role: .destructive) { model.clearHistory() }
             }
-            .alert("清理未引用附件？", isPresented: $clearAssets) {
-                Button("取消", role: .cancel) {}
-                Button("清理", role: .destructive) {
+            .alert(String(localized: "Remove unused attachments?"), isPresented: $clearAssets) {
+                Button(String(localized: "Cancel"), role: .cancel) {}
+                Button(String(localized: "Clean up"), role: .destructive) {
                     Task {
-                        do { assetStatus = "已清理 \(try await model.clearUnreferencedAttachments()) 个未引用文件" }
-                        catch { assetStatus = "未能清理附件；原文件保留" }
+                        do { assetStatus = String(localized: "Removed \(try await model.clearUnreferencedAttachments()) unused files") }
+                        catch { assetStatus = String(localized: "Could not clean up attachments. Original files were kept.") }
                     }
                 }
-            } message: { Text("现有消息与草稿引用的原图和文件会保留。未引用文件删除后无法恢复。") }
+            } message: { Text(String(localized: "Original images and files referenced by messages and drafts will be kept. Deleted unused files cannot be recovered.")) }
+        }
+    }
+}
+
+
+private struct BackgroundSettingsView: View {
+    @ObservedObject private var settings = BackgroundSettingsStore.shared
+    @ObservedObject private var background = BackgroundExecutionCoordinator.shared
+
+    var body: some View {
+        Form {
+            ForEach(BackgroundMechanism.allCases) { mechanism in
+                Section {
+                    Toggle(mechanism.title, isOn: Binding(
+                        get: { settings.selection.contains(mechanism) },
+                        set: { selected in
+                            if mechanism == .location { background.setLocationSelected(selected) }
+                            else { settings.set(mechanism, selected: selected) }
+                        }))
+                        .disabled(settings.futureSchema)
+                        .accessibilityIdentifier("backgroundMechanism." + mechanism.rawValue)
+                    if mechanism == .location && settings.selection.contains(.location) {
+                        if background.location?.authorization == .denied {
+                            Link(String(localized: "Open system Settings"), destination: URL(string: UIApplication.openSettingsURLString)!)
+                                .accessibilityIdentifier("backgroundLocationSettings")
+                        }
+                    }
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(explanation(mechanism))
+                        if mechanism == .location && settings.selection.contains(.location) {
+                            Text(locationPermissionStatus)
+                                .accessibilityIdentifier("backgroundLocationPermissionStatus")
+                        }
+                    }
+                }
+            }
+            Section {
+                Toggle(String(localized: "Keep running in background"), isOn: Binding(
+                    get: { settings.residentEnabled }, set: { settings.setResident($0) }))
+                    .disabled(settings.futureSchema)
+                    .accessibilityIdentifier("backgroundResidentEnabled")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "Keep the selected audio, picture-in-picture, or location options active after a task ends so later tasks can start in the background. Uses more battery; turn off when not needed."))
+                    if settings.residentEnabled && settings.selection.intersection(BackgroundMechanism.continuous).isEmpty {
+                        Text(String(localized: "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby."))
+                            .accessibilityIdentifier("backgroundNoIdleSource")
+                    }
+                }
+            }
+            if let warning = settings.warning {
+                Section { Text(warning).foregroundStyle(.orange) }
+            }
+        }
+        .navigationTitle(String(localized: "Background execution"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func explanation(_ mechanism: BackgroundMechanism) -> String {
+        switch mechanism {
+        case .audio:
+            return String(localized: "Plays silent audio to help tasks continue after switching apps. No additional permission is needed. Playback stops when the task ends, or continues during background standby. May use more battery.")
+        case .pictureInPicture:
+            return background.media?.supported == true
+                ? String(localized: "Shows task status in a floating window to help tasks continue after switching apps. No additional permission is needed. Closing the window stops this option.")
+                : String(localized: "This device does not support picture-in-picture. Choose another background option.")
+        case .systemTask:
+            return String(localized: "Requests system time to continue the current task. No additional permission is needed. The system decides availability and duration; the task pauses if the system cancels or ends background execution.")
+        case .location:
+            return String(localized: "Uses location services to help tasks continue after switching apps. Requires location access while using the app. Only used during a task or background standby. Coordinates are not saved or uploaded. Shows the system location indicator and uses more battery. Other features do not require location.")
+        }
+    }
+
+    private var locationPermissionStatus: String {
+        guard let location = background.location else { return String(localized: "Location is currently unavailable.") }
+        if !location.servicesEnabled { return String(localized: "System Location Services are off. Turn them on in system Settings.") }
+        switch location.authorization {
+        case .notDetermined: return String(localized: "Not authorized yet. Turning on location requests permission.")
+        case .denied: return String(localized: "Location access is not allowed. Change it in system Settings. Other background options are unaffected.")
+        case .restricted: return String(localized: "System restrictions prevent location access. This option is currently unavailable.")
+        case .authorizedWhenInUse, .authorizedAlways: return String(localized: "Location access is allowed. It is only used during a task or background standby.")
+        @unknown default: return String(localized: "Location permission could not be determined. Check system Settings.")
         }
     }
 }

@@ -43,8 +43,8 @@ import Observation
     }
     func openWindow() throws {
         tick()
-        guard available else { throw RemoteSetupError("请先开启 Muse 连接，等待服务运行后重试") }
-        guard context?.clientID == nil, retired.count < 256 else { throw RemoteSetupError("请等待当前配对完成，或移除未完成的设备后重试") }
+        guard available else { throw RemoteSetupError(String(localized: "Turn on Muse Gadget Service and wait for it to start, then try again.")) }
+        guard context?.clientID == nil, retired.count < 256 else { throw RemoteSetupError(String(localized: "Wait for pairing to finish, or remove the unfinished device and try again.")) }
         retire(rejected: false)
         attempts = 0; windowDeadline = now() + 120; error = nil; completedName = nil
         changed?()
@@ -56,7 +56,7 @@ import Observation
     }
     func cancelCurrent() {
         do { try store.cancelLANPending(cancel: fence) }
-        catch { available = false; self.error = "未完成配对无法清理，请解锁后重新打开执言" }
+        catch { available = false; self.error = String(localized: "Unfinished pairing could not be removed. Unlock the phone and reopen Actell.") }
         retire(rejected: false); closeWindow()
     }
     func stop() {
@@ -65,14 +65,14 @@ import Observation
         available = false; windowDeadline = nil
         retire(rejected: false)
         do { try store.cancelLANPending(cancel: fence) }
-        catch { self.error = "未完成配对无法清理，请解锁后重新打开执言" }
+        catch { self.error = String(localized: "Unfinished pairing could not be removed. Unlock the phone and reopen Actell.") }
         changed?()
     }
     func tick() {
         if let deadline = context?.deadline, now() >= deadline {
             diagnostic?("pairing.expired", context?.id, context?.clientID, "ack_timeout")
             do { try store.cancelLANPending(cancel: fence) }
-            catch { available = false; self.error = "配对已停止，请解锁后重新打开执言" }
+            catch { available = false; self.error = String(localized: "Pairing stopped. Unlock the phone and reopen Actell.") }
             retire(rejected: false); changed?()
         }
         if let deadline = windowDeadline, now() >= deadline {
@@ -83,14 +83,14 @@ import Observation
     }
     func approve() throws {
         tick()
-        guard available, windowRemaining > 0, var c = context, c.clientID == nil else { throw RemoteSetupError("申请已过期，请重新添加 Muse") }
+        guard available, windowRemaining > 0, var c = context, c.clientID == nil else { throw RemoteSetupError(String(localized: "The request expired. Add Muse again.")) }
         let deadline = now() + 300
         do {
             let client = try store.createLANPending(name: c.name, requestID: c.id)
             c.clientID = client.id; c.deadline = deadline; c.lastClaim = nil
             context = c; pending?.approved = true; changed?()
             diagnostic?("pairing.approved", c.id, client.id, nil)
-        } catch { available = false; self.error = "无法保存配对，请解锁后重新打开执言"; changed?(); throw error }
+        } catch { available = false; self.error = String(localized: "Pairing could not be saved. Unlock the phone and reopen Actell."); changed?(); throw error }
     }
     func reject() {
         guard context?.clientID == nil else { return }
@@ -126,7 +126,7 @@ import Observation
         do { try store.activateLANClient(clientID, name: name) }
         catch {
             diagnostic?("pairing.ack.rejected", c.id, clientID, "storage_failed")
-            available = false; self.error = "配对无法保存，请解锁后重新打开执言"; changed?(); throw error
+            available = false; self.error = String(localized: "Pairing could not be stored. Unlock the phone and reopen Actell."); changed?(); throw error
         }
         diagnostic?("pairing.ack.completed", c.id, clientID, nil)
         completedName = name

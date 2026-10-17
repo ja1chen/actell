@@ -20,7 +20,7 @@ struct PrepareAgentTaskIntent: LiveActivityIntent, TargetContentProvidingIntent 
         let runtime = PhoneAgentRuntime.shared
         runtime.model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
         let needsForeground = runtime.model.commandNeedsForeground
-        runtime.model.usbDiagnostics.record("siri.execute handoffRequired=\(needsForeground) mediaActive=\(PiPExecutionActivity.shared.active)")
+        runtime.model.usbDiagnostics.record("siri.execute handoffRequired=\(needsForeground) residentSourceReady=\(BackgroundExecutionCoordinator.shared.residentReady)")
         if needsForeground {
             try await continueInForeground(alwaysConfirm: false)
             try Task.checkCancellation()

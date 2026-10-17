@@ -28,7 +28,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
               try profile.providerKind.baseURL(profile.settings.baseURL) == ChatGPTSubscriptionPolicy.resource, !model.isEmpty else { throw ChatGPTAuthError.disconnected }
         // Other profile parameters must be removed, never forwarded on this route.
         let fields = try profile.parameters(for: model).requestFields(providerKind: .chatGPTSubscription, model: profile.metadata(for: model))
-        guard fields.keys.allSatisfy({ $0 == "reasoning_effort" }) else { throw AppError.invalid("ChatGPT 订阅仅支持已核实的思考档位；请清空其它模型参数") }
+        guard fields.keys.allSatisfy({ $0 == "reasoning_effort" }) else { throw AppError.invalid(String(localized: "ChatGPT subscriptions only support verified reasoning levels. Clear other model parameters.")) }
         effort = fields["reasoning_effort"] as? String
         configuration = .init(name: Self.name, baseURL: ChatGPTSubscriptionPolicy.resource, defaultModel: model)
         let scope = ProviderScope(provider: Self.name, endpoint: ChatGPTSubscriptionPolicy.resource.absoluteString, account: account, model: model, run: runID, branch: UUID())
@@ -149,7 +149,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                                     try await manager.report(.usageLimited, account: account); throw ChatGPTAuthError.usageLimited
                                 }
                                 if response.error?.code == "subscription_sharing_usage_unavailable" {
-                                    recordFailure("ChatGPT 订阅额度暂时无法核验；凭据保留，未重试或改变计费")
+                                    recordFailure(String(localized: "ChatGPT subscription usage could not be checked. Credentials were kept. No retry or billing change was made."))
                                     throw ModelError.providerError("Subscription usage unavailable")
                                 }
                                 stage = "terminal.validate"
@@ -176,7 +176,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     } else if case ModelError.httpError(let status, _) = error {
                         if status == 401 { try? await manager.report(.expired, account: account) }
                         if status == 429 { try? await manager.report(.usageLimited, account: account) }
-                        continuation.finish(throwing: ModelError.providerError(status == 429 ? ChatGPTConnectionStatus.usageLimited.message : "ChatGPT 订阅请求被拒绝（HTTP \(status)）；请检查账户权限，未重试或改变计费"))
+                        continuation.finish(throwing: ModelError.providerError(status == 429 ? ChatGPTConnectionStatus.usageLimited.message : String(localized: "The ChatGPT subscription request was denied (HTTP \(status)). Check account permissions. No retry or billing change was made.")))
                     } else if let safe = error as? ChatGPTAuthError { continuation.finish(throwing: ModelError.providerError(safe.localizedDescription)) }
                     else if let safe = error as? ModelError { continuation.finish(throwing: safe) }
                     else { continuation.finish(throwing: ModelError.interrupted) }
@@ -191,23 +191,23 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         if let auth = error as? ChatGPTAuthError { return auth.localizedDescription }
         if let network = error as? URLError {
             switch network.code {
-            case .notConnectedToInternet: return "ChatGPT 请求未完成：设备未联网；未自动重试"
-            case .timedOut: return "ChatGPT 请求超时；受理结果不明，未自动重试"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 OpenAI 推理服务；请检查网络，未自动重试"
-            case .secureConnectionFailed, .serverCertificateUntrusted: return "OpenAI 推理服务的安全连接失败；请检查网络，未自动重试"
+            case .notConnectedToInternet: return String(localized: "The ChatGPT request did not finish because the device is offline. It was not retried automatically.")
+            case .timedOut: return String(localized: "The ChatGPT request timed out. Acceptance is unknown. It was not retried automatically.")
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Could not connect to OpenAI inference. Check the network. The request was not retried automatically.")
+            case .secureConnectionFailed, .serverCertificateUntrusted: return String(localized: "A secure connection to OpenAI inference failed. Check the network. The request was not retried automatically.")
             default: break
             }
         }
         if let model = error as? ModelError {
             switch model {
-            case .httpError(let status, _): return "ChatGPT 请求被拒绝（HTTP \(status)）；未自动重试"
-            case .invalidRequest: return "ChatGPT 请求未发送：当前模型或上下文参数不兼容"
-            case .protocolViolation, .invalidResponse, .streamingError: return "ChatGPT 返回的响应格式或工具状态不兼容；本轮未完成，未自动重试"
-            case .cancelledLocally: return "ChatGPT 请求已在本地停止；未核实远端取消"
+            case .httpError(let status, _): return String(localized: "The ChatGPT request was denied (HTTP \(status)). It was not retried automatically.")
+            case .invalidRequest: return String(localized: "The ChatGPT request was not sent. The current model or context parameters are incompatible.")
+            case .protocolViolation, .invalidResponse, .streamingError: return String(localized: "The ChatGPT response format or tool state is incompatible. This turn did not finish and was not retried automatically.")
+            case .cancelledLocally: return String(localized: "The ChatGPT request was stopped locally. Remote cancellation was not confirmed.")
             default: break
             }
         }
-        return "ChatGPT 响应流中断；受理结果不明，未自动重试"
+        return String(localized: "The ChatGPT response stream was interrupted. Acceptance is unknown. It was not retried automatically.")
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
         var terminal: ModelResponse?
@@ -292,16 +292,16 @@ struct ChatGPTAdmissionFailure: Error, LocalizedError {
     var errorDescription: String? {
         let summary: String
         if code == "subscription_sharing_usage_limit_exceeded" { summary = ChatGPTConnectionStatus.usageLimited.message }
-        else if code == "subscription_sharing_usage_unavailable" { summary = "订阅额度暂时无法核验；请稍后手动重试" }
+        else if code == "subscription_sharing_usage_unavailable" { summary = String(localized: "Subscription usage could not be checked. Retry manually later.") }
         else {
             switch status {
-            case 400, 422: summary = "ChatGPT 请求参数被拒绝；需要检查请求格式"
-            case 401: summary = "ChatGPT 身份或订阅权限未被接受；请重新连接"
-            case 403: summary = "此账户、工作区、服务地区或路由不允许该订阅请求；请核对权限"
-            case 404: summary = "ChatGPT 模型或推理路由不可用；请刷新此账户的模型列表"
-            case 429: summary = "ChatGPT 请求受限；可能是订阅额度或请求频率限制"
-            case 503: summary = "ChatGPT 订阅服务或额度核验暂时不可用；凭据已保留"
-            default: summary = "ChatGPT 订阅请求失败"
+            case 400, 422: summary = String(localized: "ChatGPT request parameters were rejected. Check the request format.")
+            case 401: summary = String(localized: "The ChatGPT identity or subscription permission was not accepted. Reconnect.")
+            case 403: summary = String(localized: "This account, workspace, service region, or route does not permit this subscription request. Check permissions.")
+            case 404: summary = String(localized: "The ChatGPT model or inference route is unavailable. Refresh this account's model list.")
+            case 429: summary = String(localized: "The ChatGPT request was limited. Subscription usage or request frequency may be restricted.")
+            case 503: summary = String(localized: "The ChatGPT subscription service or usage check is temporarily unavailable. Credentials were kept.")
+            default: summary = String(localized: "The ChatGPT subscription request failed")
             }
         }
         let codes: Set<String> = ["invalid_request_error", "unsupported_parameter", "unknown_parameter", "invalid_value", "model_not_found", "permission_denied", "insufficient_permissions", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable"]
@@ -310,7 +310,7 @@ struct ChatGPTAdmissionFailure: Error, LocalizedError {
         let safeParam = fields.first { param == $0 || param?.hasPrefix($0 + ".") == true || param?.hasPrefix($0 + "[") == true }
         var details = ["HTTP \(status)"]
         if let safeCode { details.append(safeCode) }
-        if let safeParam { details.append("字段 " + safeParam) }
-        return summary + "（" + details.joined(separator: "；") + "）；未自动重试或改变计费"
+        if let safeParam { details.append(String(localized: "Field \(safeParam)")) }
+        return String(localized: "\(summary) (\(details.joined(separator: "; "))); no automatic retry or billing change was made")
     }
 }

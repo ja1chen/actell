@@ -8,8 +8,8 @@ enum ChatGPTSubscriptionPolicy {
     static let resource = URL(string: "https://api.openai.com/v1")!
     static let authorize = URL(string: "https://auth.openai.com/api/accounts/authorize")!
     static let token = URL(string: "https://auth.openai.com/api/accounts/oauth/token")!
-    static let mobileLoginNotice = "通过系统浏览器连接 ChatGPT；身份登录还需订阅额度授权。仅对已授权模型使用套餐额度，不自动改用付费 API。"
-    static let usageNotice = "仅获授权的账户／模型使用订阅额度，受套餐与工作区限制。HTTP 请求必须 store=false、stream=true，发送本地上下文；不支持 previous_response_id。"
+    static let mobileLoginNotice = String(localized: "Connect ChatGPT in your browser. Subscription access needs separate authorization. Only authorized models use your plan allowance. The app will not switch to a paid API automatically.")
+    static let usageNotice = String(localized: "Subscription access applies only to authorized accounts and models, subject to plan and workspace limits. Requests send local context with store=false and stream=true. previous_response_id is not supported.")
 }
 
 /// Offline-testable authorization attempt. Kept in memory, never serialized or logged.
@@ -27,13 +27,13 @@ struct ChatGPTAuthorizationAttempt: CustomStringConvertible {
               parts.scheme == "http", parts.host == "127.0.0.1", parts.port.map({ (1...65535).contains($0) }) == true,
               parts.path == "/auth/callback", parts.user == nil, parts.password == nil,
               parts.query == nil, parts.fragment == nil,
-              clientID != "dynamic_agent_client" else { throw AppError.invalid("授权回调或注册 ID 无效") }
+              clientID != "dynamic_agent_client" else { throw AppError.invalid(String(localized: "Invalid authorization callback or registration ID")) }
         self.redirect = redirect; self.clientID = clientID
         state = try Self.random(); nonce = try Self.random(); verifier = try Self.random()
     }
     private static func random() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AppError.unavailable("无法生成安全授权随机值") }
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AppError.unavailable(String(localized: "Could not generate secure authorization randomness")) }
         return base64url(Data(bytes))
     }
     private static func base64url(_ data: Data) -> String {
@@ -55,23 +55,23 @@ struct ChatGPTAuthorizationAttempt: CustomStringConvertible {
         return parts.url!
     }
     func validateCallback(_ callback: URL) throws -> (code: String, issuedClientID: String) {
-        guard var parts = URLComponents(url: callback, resolvingAgainstBaseURL: false), parts.fragment == nil else { throw AppError.invalid("授权回调无效") }
+        guard var parts = URLComponents(url: callback, resolvingAgainstBaseURL: false), parts.fragment == nil else { throw AppError.invalid(String(localized: "Invalid authorization callback")) }
         let items = parts.queryItems ?? []; parts.query = nil
-        guard parts.url == redirect else { throw AppError.invalid("授权回调地址不匹配") }
-        guard Set(items.map(\.name)).count == items.count else { throw AppError.invalid("授权回调参数重复") }
+        guard parts.url == redirect else { throw AppError.invalid(String(localized: "Authorization callback address mismatch")) }
+        guard Set(items.map(\.name)).count == items.count else { throw AppError.invalid(String(localized: "Duplicate authorization callback parameters")) }
         let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
-        guard values["state"] == state else { throw AppError.invalid("授权 state 不匹配") }
-        if values["error"] != nil { throw AppError.unavailable("授权已取消或被拒绝；未交换凭据") }
-        guard let code = values["code"], !code.isEmpty else { throw AppError.invalid("授权码缺失") }
+        guard values["state"] == state else { throw AppError.invalid(String(localized: "Authorization state mismatch")) }
+        if values["error"] != nil { throw AppError.unavailable(String(localized: "Authorization was canceled or denied. Credentials were not exchanged.")) }
+        guard let code = values["code"], !code.isEmpty else { throw AppError.invalid(String(localized: "Authorization code missing")) }
         let issued = values["client_id"] ?? clientID
         guard let issued, !issued.isEmpty, issued != "dynamic_agent_client", clientID == nil || issued == clientID else {
-            throw AppError.invalid("授权注册 ID 不匹配")
+            throw AppError.invalid(String(localized: "Authorization registration ID mismatch"))
         }
         return (code, issued)
     }
     /// Call only after JWKS signature, issuer, audience and expiry validation.
     func validateVerifiedNonce(_ verifiedNonce: String) throws {
-        guard verifiedNonce == nonce else { throw AppError.invalid("授权 nonce 不匹配") }
+        guard verifiedNonce == nonce else { throw AppError.invalid(String(localized: "Authorization nonce mismatch")) }
     }
 }
 
@@ -84,14 +84,14 @@ enum ChatGPTConnectionStatus: Equatable {
     }
     var message: String {
         switch self {
-        case .disconnected: return "未连接 ChatGPT"
-        case .identityOnly: return "身份已连接，尚未获订阅额度授权"
-        case .planAuthorized: return "已获订阅额度授权；仍需核对可用模型与额度"
-        case .expired: return "授权已到期，请重新登录"
-        case .refreshFailed: return "授权刷新失败，未发送或重试请求"
-        case .revoked: return "授权已撤销，请重新登录"
-        case .usageLimited: return "此 App 的订阅额度受限或限流；请查看 ChatGPT 使用设置。未购买额度或改用付费 API"
-        case .noModels: return "此账户暂无可用模型"
+        case .disconnected: return String(localized: "ChatGPT not connected")
+        case .identityOnly: return String(localized: "Identity connected. Subscription access has not been authorized.")
+        case .planAuthorized: return String(localized: "Subscription access authorized. Check available models and usage limits.")
+        case .expired: return String(localized: "Authorization expired. Sign in again.")
+        case .refreshFailed: return String(localized: "Authorization refresh failed. No request was sent or retried.")
+        case .revoked: return String(localized: "Authorization revoked. Sign in again.")
+        case .usageLimited: return String(localized: "Subscription access is limited or rate-limited for this app. Check ChatGPT usage settings. No credits were purchased and no paid API was used.")
+        case .noModels: return String(localized: "No models are available for this account")
         }
     }
 }

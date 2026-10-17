@@ -364,3 +364,21 @@ ProviderStore 的兼容 v1 归档新增可选 lastSelection，仅保存供应商
 最终撤掉 ScrollView 的 activeTurnID 标识重建；执行中保留 LazyVStack，已完成历史使用 VStack，避免长执行过程折叠后沿用懒加载视口几何。完成切换继续重置 ScrollPosition、拖动与延期位移并滚到最终回复；消息存储和执行清理顺序不变。此方案替代上一节的容器重建方案。通过合成场景确认这一布局路径；尚未取得用户真机现场的布局诊断，不能将 SwiftUI 内部缓存机制当作已观测事实。
 
 默认核心 **423 tests，0 失败**：`.build/validation/core.tEEjdB/Tests.xcresult`；无签名 iPhoneOS **BUILD SUCCEEDED**：`.build/validation/background-message-stable-history-iphoneos.log`。六项 UI 批次中五项通过，延迟完成用例一次静态文本 isHittable 断言失败，但当时可访问性树的文字及坐标仍在可见区域（`background-message-stable-history-ui.xcresult`）。将该用例改为连续十秒检查文字存在、非零尺寸及导航栏和输入框之间的可见区域，并在第 1、3、10 秒截图，单独重跑通过：`.build/validation/background-message-delayed-visibility-ui.xcresult`。三张截图已逐张检查，最终回复和折叠摘要持续可见：`background-message-delayed-visibility-shots/manifest.json`。这些检查验证真实显示，不要求静态文本能点击；未声称整批六项原断言全部通过。真机同场景仍待安装复测，未提交／推送。
+
+
+## 2026-10-14 · 后台设置独立页面与定位开关授权
+
+后台执行改为独立设置子页面，音频、画中画、系统后台任务、定位及常驻各自分组，footer 说明用途、权限必要性和开启效果。移除“启用定位”“重试已选持续方式”和内部运行回执文案。新安装默认只开启音频，定位与常驻关闭；已保存选择保留。打开定位开关时尚未请求过权限则直接申请 WhenInUse，无需任务或常驻；曾拒绝时提供系统设置入口。授权不会启动无需求的定位，关闭后的迟到授权不重新启用选项或运行。
+
+默认核心 **451 项，0 失败**（`.build/validation/core.dF6DHX/Tests.xcresult`）；配置／权限专项核心 **14 项，0 失败**；最终设置专项 UI **5 项，0 失败**（`.build/validation/background-settings/ui-final.xcresult`），另有 **1 项原生定位弹窗 UI 通过**（`ui.xcresult`）。最终无签名 iPhoneOS **BUILD SUCCEEDED**（`device-build-final.log`）。原生弹窗仅在隔离模拟器 `76236B0F-67DD-4348-AD83-8A2F4E401D43` 验证，其他定位 UI 用例使用 fake。默认、拒绝、原生弹窗截图已检查，记录见 [后台实施记录](background-execution/IMPLEMENTATION.md)。首轮两项失败与修正原因保留。
+
+未重跑完整 UI，交接中的相册用途声明／生成器缺口及其他 UI 失败仍待处理。本次不代表真机定位或跨 App 后台持续运行验收，未操作真机、串口或其他 worktree，未提交／推送。
+
+
+## 2026-10-15 · 画中画返回前台的生命周期竞争
+
+保留画中画入口。两项可控回调测试复现旧实例尚未停止、同一显示层即创建新实例的缺陷（`pip-return/repro.xcresult`）。已串行隔离停止与重新创建，超时不当作停止证据，已终止回调不再次调用 stop，迟到回调保持对象身份并不影响新一轮；返回先恢复任务的前台状态，再撤销 PiP 后台凭据。音频所有权独立保留。
+
+全部核心 **455 项 + 返回专项 UI 1 项通过**（`.build/validation/pip-return/final.xcresult`）；最后回调对象生命周期调整后 **5 项定向核心 + UI 1 项通过**（`callback-lifetime.xcresult`）；最终无签名 iPhoneOS **BUILD SUCCEEDED**（`device-build-callback-lifetime.log`）。截图已检查，细节见 [后台实施记录](background-execution/IMPLEMENTATION.md)。
+
+模拟器不支持原生 PiP 窗口，控制器生命周期证据来自可控回调；未取得用户本次崩溃栈，不能据此确认真机崩溃已消失。未进行真机操作或提交／推送。

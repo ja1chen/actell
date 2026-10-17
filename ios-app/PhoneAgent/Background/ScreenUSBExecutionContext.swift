@@ -20,7 +20,7 @@ final class USBTransportHealth: @unchecked Sendable {
             // Read the monotonic clock alongside the receipt. Sampling it
             // before taking this lock can make a concurrent PING look future-dated.
             guard let pingAt, (0...0.75).contains(clock() - pingAt) else {
-                throw AppError.unavailable("USB 心跳已失效，输入已停止")
+                throw AppError.unavailable(String(localized: "USB connection lost. Input has stopped."))
             }
         }
     }
@@ -38,9 +38,9 @@ final class ScreenUSBExecutionContext: @unchecked Sendable {
         case captureEnded, firstFrameTimeout, usbHeartbeat
         var message: String {
             switch self {
-            case .captureEnded: return "采集会话已结束或改变，输入已停止"
-            case .firstFrameTimeout: return "采集启动后 5 秒仍未收到有效画面，输入已停止"
-            case .usbHeartbeat: return "USB 心跳超过 750 毫秒未更新，输入已停止"
+            case .captureEnded: return String(localized: "The capture session ended or changed. Input has stopped.")
+            case .firstFrameTimeout: return String(localized: "No valid image was received within 5 seconds. Input has stopped.")
+            case .usbHeartbeat: return String(localized: "The USB connection has not responded for 750 milliseconds. Input has stopped.")
             }
         }
     }
@@ -142,7 +142,7 @@ final class ScreenUSBExecutionContext: @unchecked Sendable {
             // Only the initial empty session gets this bounded startup grace.
             if frames.diagnostics(now: time).accepted == 0 {
                 checking = .firstFrameTimeout
-                guard time < firstFrameDeadline else { throw AppError.unavailable("采集启动后 5 秒仍未收到有效画面；本轮已停止。\(frames.diagnostics(now: time).summary)") }
+                guard time < firstFrameDeadline else { throw AppError.unavailable(String(localized: "No valid image was received within 5 seconds. This run has stopped. \(frames.diagnostics(now: time).summary)")) }
             } else {
                 // Static content may produce no new samples. Only capture
                 // invalidation, not the age of the retained frame, ends this run.
@@ -181,7 +181,7 @@ final class ScreenUSBExecutionContext: @unchecked Sendable {
     func enqueue(observation: Observation? = nil, sequence: UInt64? = nil, _ send: () -> Void) throws {
         try lock.withLock {
             try validate()
-            guard health != nil else { throw AppError.unavailable("只读采集不能授权 USB 输入") }
+            guard health != nil else { throw AppError.unavailable(String(localized: "Read-only capture cannot authorize USB input")) }
             // Only revocation/session loss is serialized with enqueue. A new
             // frame or app transition does not revoke a live task capability.
             try frames.withSession(epoch, send)
@@ -253,6 +253,6 @@ final class USBInputPermit: @unchecked Sendable {
     }
 }
 @MainActor private struct UnavailableCheckpointStore: RunCheckpointStorage {
-    func load() throws -> RunCheckpoint? { throw AppError.unavailable("检查点不可用") }
-    func save(_ checkpoint: RunCheckpoint) throws { throw AppError.unavailable("检查点不可用") }
+    func load() throws -> RunCheckpoint? { throw AppError.unavailable(String(localized: "Saved progress unavailable")) }
+    func save(_ checkpoint: RunCheckpoint) throws { throw AppError.unavailable(String(localized: "Saved progress unavailable")) }
 }

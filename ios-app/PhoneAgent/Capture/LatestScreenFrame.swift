@@ -152,12 +152,12 @@ final class LatestScreenFrame: @unchecked Sendable {
             }
             try await Task.sleep(nanoseconds: 40_000_000)
         } while ProcessInfo.processInfo.systemUptime < deadline
-        throw AppError.unavailable("等待有效采集画面超时。\(diagnostics().summary)。请复制诊断日志检查接收状态。")
+        throw AppError.unavailable(String(localized: "Timed out waiting for a valid captured image. \(diagnostics().summary). Copy the diagnostic log to check reception."))
     }
     func latestStamp() throws -> CaptureStamp {
         try lock.withLock {
             guard accepting, let stamp = frame?.1 else {
-                throw AppError.unavailable("屏幕采集已停止或尚未提供画面；输入已禁用")
+                throw AppError.unavailable(String(localized: "Screen capture stopped or has not provided an image. Input is disabled."))
             }
             return stamp
         }
@@ -181,7 +181,7 @@ final class LatestScreenFrame: @unchecked Sendable {
                  maxDimension: Int = 1280) throws -> FrameImage {
         let snapshot = try lock.withLock { () throws -> (CVPixelBuffer, CaptureStamp, Date, UUID) in
             guard accepting, let (pixel, stamp, date) = frame,
-                  stamp.sequence > sequence, stamp.uptime > uptime else { throw AppError.unavailable("等待动作之后的新画面") }
+                  stamp.sequence > sequence, stamp.uptime > uptime else { throw AppError.unavailable(String(localized: "Waiting for a new image after the action")) }
             return (pixel, stamp, date, epoch)
         }
         let (pixel, stamp, date, capturedEpoch) = snapshot
@@ -189,12 +189,12 @@ final class LatestScreenFrame: @unchecked Sendable {
         let scale = min(1, CGFloat(max(1, maxDimension)) / max(image.extent.width, image.extent.height))
         image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cgImage = context.createCGImage(image, from: image.extent.integral) else {
-            throw AppError.unavailable("无法编码采集画面")
+            throw AppError.unavailable(String(localized: "Could not encode the captured image"))
         }
         let data = NSMutableData()
-        guard let png = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { throw AppError.unavailable("PNG 编码不可用") }
+        guard let png = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { throw AppError.unavailable(String(localized: "PNG encoding unavailable")) }
         CGImageDestinationAddImage(png, cgImage, nil)
-        guard CGImageDestinationFinalize(png) else { throw AppError.unavailable("PNG 编码失败") }
+        guard CGImageDestinationFinalize(png) else { throw AppError.unavailable(String(localized: "PNG encoding failed")) }
         try lock.withLock {
             guard accepting, epoch == capturedEpoch else { throw AppError.stopped }
         }

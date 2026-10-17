@@ -2,6 +2,7 @@
 """Offline source/packaging checks only. This does NOT compile or execute Swift."""
 from pathlib import Path
 import hashlib
+import json
 import hmac
 import re
 import unittest
@@ -101,8 +102,13 @@ class PackagingChecks(unittest.TestCase):
         view = (ROOT / 'ios-app/PhoneAgent/App/MuseConnectionView.swift').read_text()
         sheet = view.split('private struct MuseDevicePermissionsSheet: View {', 1)[1].split('private struct MuseLANPairingSheet', 1)[0]
         self.assertIn('museCapabilityDataDisclosure', sheet)
-        self.assertIn('截图和应用信息可能经 Muse 发送给其服务或模型', sheet)
-        self.assertIn('已开放的操作直接执行，无需逐次确认', sheet)
+        key = 'Screenshots and app information may be sent through Muse to its service or model. Allowed actions run without further prompts.'
+        self.assertIn('String(localized: "' + key + '")', sheet)
+        catalog = json.loads((ROOT / 'ios-app/Shared/Localizable.xcstrings').read_text())
+        localized = catalog['strings'][key]['localizations']
+        self.assertEqual(localized['en']['stringUnit']['value'], key)
+        self.assertIn('Muse 发送给其服务或模型', localized['zh-Hans']['stringUnit']['value'])
+        self.assertIn('无需逐次确认', localized['zh-Hans']['stringUnit']['value'])
         self.assertIn('@State private var scopes: Set<MuseCompanionScope> = []', sheet)
 
     def test_original_licenses_exist(self):

@@ -13,7 +13,7 @@ struct ProvidersView: View {
             List {
                 if let warning = providers.warning { Text(warning).foregroundStyle(.orange) }
                 if providers.profiles.isEmpty {
-                    ContentUnavailableView("添加模型供应商", systemImage: "server.rack", description: Text("配置地址和模型后，在会话中选择。"))
+                    ContentUnavailableView(String(localized: "Add a model provider"), systemImage: "server.rack", description: Text(String(localized: "Configure an address and model, then select them in a conversation.")))
                 }
                 ForEach(providers.profiles) { profile in
                     Button { editing = profile } label: {
@@ -26,38 +26,38 @@ struct ProvidersView: View {
                         }
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityIdentifier("provider-\(profile.id)")
-                    .swipeActions { Button("移除", role: .destructive) { removing = profile }.disabled(model.hasBusySessions) }
+                    .swipeActions { Button(String(localized: "Remove"), role: .destructive) { removing = profile }.disabled(model.hasBusySessions) }
                 }
                 if !providers.removed.isEmpty {
-                    Section("已移除 · 可恢复") {
+                    Section(String(localized: "Removed · Restorable")) {
                         ForEach(providers.removed) { profile in
                             HStack {
                                 Text(profile.name)
                                 Spacer()
-                                Button("恢复") { model.restoreProvider(profile.id) }.disabled(model.hasBusySessions)
+                                Button(String(localized: "Restore")) { model.restoreProvider(profile.id) }.disabled(model.hasBusySessions)
                             }
                         }
                     }
                 }
             }
-            .navigationTitle("供应商")
+            .navigationTitle(String(localized: "Provider"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { adding = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("添加供应商").accessibilityIdentifier("addProvider")
+                        .accessibilityLabel(String(localized: "Add provider")).accessibilityIdentifier("addProvider")
                         .disabled(model.hasBusySessions || providers.warning != nil)
                 }
             }
             .sheet(item: $editing) { profile in ProviderEditor(model: model, profile: profile) }
             .sheet(isPresented: $adding) { ProviderCreationView(model: model) }
-            .alert("移除此供应商？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-                Button("移除供应商", role: .destructive) {
+            .alert(String(localized: "Remove this provider?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+                Button(String(localized: "Remove provider"), role: .destructive) {
                     if let removing { model.removeProvider(removing.id) }; removing = nil
                 }
-                Button("取消", role: .cancel) { removing = nil }
+                Button(String(localized: "Cancel"), role: .cancel) { removing = nil }
             } message: {
-                Text("配置和密钥会保留，可在本页恢复。")
+                Text(String(localized: "Configuration and keys will be kept. You can restore them here."))
             }
         }
     }
@@ -74,13 +74,13 @@ private struct ProviderCreationView: View {
         } else {
             NavigationStack {
                 List {
-                    Button("OpenAI") { select(.openAI) }.accessibilityIdentifier("providerPresetOpenAI")
-                    Button("OpenRouter") { select(.openRouter) }.accessibilityIdentifier("providerPresetOpenRouter")
-                    Button("ChatGPT 订阅") { select(.chatGPTSubscription) }.accessibilityIdentifier("providerPresetChatGPTSubscription")
-                    Button("自定义供应商") { select(nil) }.accessibilityIdentifier("providerPresetCustom")
+                    Button(String(localized: "OpenAI")) { select(.openAI) }.accessibilityIdentifier("providerPresetOpenAI")
+                    Button(String(localized: "OpenRouter")) { select(.openRouter) }.accessibilityIdentifier("providerPresetOpenRouter")
+                    Button(String(localized: "ChatGPT subscription")) { select(.chatGPTSubscription) }.accessibilityIdentifier("providerPresetChatGPTSubscription")
+                    Button(String(localized: "Custom provider")) { select(nil) }.accessibilityIdentifier("providerPresetCustom")
                 }
-                .navigationTitle("添加供应商").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+                .navigationTitle(String(localized: "Add provider")).navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } } }
             }
         }
     }
@@ -119,11 +119,11 @@ private struct ProviderEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("供应商") {
-                    TextField("名称", text: $profile.name).accessibilityIdentifier("providerName")
-                    LabeledContent("供应商", value: profile.providerKind.title).accessibilityIdentifier("providerKind")
+                Section(String(localized: "Provider")) {
+                    TextField(String(localized: "Name"), text: $profile.name).accessibilityIdentifier("providerName")
+                    LabeledContent(String(localized: "Provider"), value: profile.providerKind.title).accessibilityIdentifier("providerKind")
                     if !profile.providerKind.isSelectable {
-                        Text("此供应商类型已从列表移除。原配置与密钥保留；请返回列表添加新的供应商。")
+                        Text(String(localized: "This provider type was removed from the list. Its configuration and key are kept. Return to the list to add a new provider."))
                             .font(.caption).foregroundStyle(.orange)
                     }
                     if profile.providerKind == .chatGPTSubscription {
@@ -132,42 +132,42 @@ private struct ProviderEditor: View {
                             Text(connectionStatus.message).accessibilityIdentifier("chatGPTConnectionStatus")
                         }
                         if let account = signIn.accounts.first(where: { $0.id == signIn.selected }) {
-                            LabeledContent("登录账号", value: account.label).accessibilityIdentifier("chatGPTAccount")
+                            LabeledContent(String(localized: "Signed-in account"), value: account.label).accessibilityIdentifier("chatGPTAccount")
                         }
                         if connectionStatus == .disconnected {
-                            Button("使用 ChatGPT 登录") { connect() }
+                            Button(String(localized: "Sign in with ChatGPT")) { connect() }
                                 .disabled(signIn.busy || model.hasBusySessions).accessibilityIdentifier("chatGPTSignIn")
                         }
                         if signIn.selected != nil {
-                            Button("退出此账户", role: .destructive) { Task { await signIn.disconnect(profileID: profile.id); profile.catalog = nil; profile.settings.model = ""; profile.models = []; connectedAccountChanged(); _ = model.saveProvider(profile, key: "") } }
+                            Button(String(localized: "Sign out of this account"), role: .destructive) { Task { await signIn.disconnect(profileID: profile.id); profile.catalog = nil; profile.settings.model = ""; profile.models = []; connectedAccountChanged(); _ = model.saveProvider(profile, key: "") } }
                                 .disabled(model.hasBusySessions).accessibilityIdentifier("chatGPTDisconnect")
                         }
-                        if signIn.busy { Button("取消 ChatGPT 登录") { signIn.cancel() }.accessibilityIdentifier("chatGPTCancelSignIn") }
+                        if signIn.busy { Button(String(localized: "Cancel ChatGPT sign-in")) { signIn.cancel() }.accessibilityIdentifier("chatGPTCancelSignIn") }
                         if let message = signIn.message { Text(message).accessibilityIdentifier("chatGPTSignInMessage") }
-                        LabeledContent("API 格式", value: "OpenAI Responses")
+                        LabeledContent(String(localized: "API format"), value: "OpenAI Responses")
                     } else {
-                    TextField("HTTPS API 基础地址", text: $profile.settings.baseURL)
+                    TextField(String(localized: "HTTPS API base URL"), text: $profile.settings.baseURL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         .accessibilityIdentifier("providerURL")
-                    SecureField("API 密钥", text: $key, prompt: Text(hasSavedKey && key.isEmpty && !keyFocused ? "" : "API 密钥"))
+                    SecureField(String(localized: "API key"), text: $key, prompt: Text(hasSavedKey && key.isEmpty && !keyFocused ? "" : String(localized: "API key")))
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .focused($keyFocused)
                         .overlay(alignment: .leading) {
                             if hasSavedKey && key.isEmpty && !keyFocused {
-                                Text("••••••••").foregroundStyle(.primary)
+                                Text(verbatim: "••••••••").foregroundStyle(.primary)
                                     .allowsHitTesting(false).accessibilityHidden(true)
                             }
                         }
-                        .accessibilityLabel("API 密钥")
-                        .accessibilityValue(key.isEmpty ? (hasSavedKey ? "已保存密钥" : "未设置密钥") : "已输入密钥")
+                        .accessibilityLabel(String(localized: "API key"))
+                        .accessibilityValue(key.isEmpty ? (hasSavedKey ? String(localized: "Saved key") : String(localized: "No key set")) : String(localized: "Key entered"))
                         .accessibilityIdentifier("providerKey")
                     if profile.providerKind.supportsResponses {
-                        Picker("API格式", selection: Binding(get: { profile.inferenceAPI }, set: { api in
+                        Picker(String(localized: "API format"), selection: Binding(get: { profile.inferenceAPI }, set: { api in
                             profile.inferenceKind = api
                             if api == .chatCompletions { profile.contextKind = .stateless }
                         })) { ForEach(InferenceAPI.allCases) { Text($0.title).tag($0) } }.accessibilityIdentifier("providerInferenceAPI")
                         if profile.inferenceAPI == .responses {
-                            if profile.providerKind.supportsResponseChain { Picker("上下文", selection: Binding(get: { profile.contextPolicy }, set: { profile.contextKind = $0 })) {
+                            if profile.providerKind.supportsResponseChain { Picker(String(localized: "Context"), selection: Binding(get: { profile.contextPolicy }, set: { profile.contextKind = $0 })) {
                                 ForEach(ProviderContextPolicy.allCases) { Text($0.title).tag($0) }
                             }.accessibilityIdentifier("providerContextPolicy") }
                         }
@@ -179,25 +179,25 @@ private struct ProviderEditor: View {
                         Button { profile.settings.model = id } label: {
                             ProviderModelRow(id: id, metadata: profile.metadata(for: id), selected: id == profile.settings.model)
                         }.buttonStyle(.plain).accessibilityIdentifier("providerModel-" + id)
-                            .accessibilityValue(id == profile.settings.model ? "已选中" : "未选中")
+                            .accessibilityValue(id == profile.settings.model ? String(localized: "Selected") : String(localized: "Unselected"))
                     }
                     if profile.availableModels.count > 5 {
-                        Button("浏览全部模型") { showingModels = true }.accessibilityIdentifier("browseAllProviderModels")
+                        Button(String(localized: "Browse all models")) { showingModels = true }.accessibilityIdentifier("browseAllProviderModels")
                     }
                 } header: {
                     HStack(spacing: 0) {
-                        Text("模型")
+                        Text(String(localized: "Model"))
                         Spacer(minLength: 12)
                         HStack(spacing: 0) {
                             if profile.providerKind != .chatGPTSubscription { Button { manualModel = ""; addingModel = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
-                                .accessibilityLabel("添加模型").accessibilityIdentifier("addProviderModel") }
+                                .accessibilityLabel(String(localized: "Add model")).accessibilityIdentifier("addProviderModel") }
                             if discovery.loading || subscriptionLoading {
                                 Button { discovery.cancel(); subscriptionTask?.cancel(); subscriptionLoading = false } label: {
                                     ProgressView().frame(width: 44, height: 44)
-                                }.accessibilityLabel("取消刷新模型").accessibilityIdentifier("cancelModels")
+                                }.accessibilityLabel(String(localized: "Cancel model refresh")).accessibilityIdentifier("cancelModels")
                             } else {
                                 Button { refresh() } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44) }
-                                    .accessibilityLabel("刷新模型").accessibilityIdentifier("fetchModels")
+                                    .accessibilityLabel(String(localized: "Refresh models")).accessibilityIdentifier("fetchModels")
                                     .disabled(!profile.providerKind.isSelectable || (profile.providerKind == .chatGPTSubscription && profile.chatGPTAccountReference == nil))
                             }
                         }
@@ -221,28 +221,28 @@ private struct ProviderEditor: View {
                 if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
             }
             .disabled(model.hasBusySessions)
-            .navigationTitle("编辑供应商").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(String(localized: "Edit provider")).navigationBarTitleDisplayMode(.inline)
             .task { if profile.providerKind == .chatGPTSubscription { await signIn.reload(profileID: profile.id) } }
             .sheet(isPresented: $showingModels) {
                 ProviderModelPicker(profile: profile) { profile.settings.model = $0 }
             }
-            .alert("添加模型", isPresented: $addingModel) {
-                TextField("模型 ID", text: $manualModel).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("添加") {
+            .alert(String(localized: "Add model"), isPresented: $addingModel) {
+                TextField(String(localized: "Model ID"), text: $manualModel).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button(String(localized: "Add")) {
                     let id = manualModel.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !profile.models.contains(id) { profile.models.append(id) }
                     profile.settings.model = id
                 }.disabled(manualModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("取消", role: .cancel) { manualModel = "" }
+                Button(String(localized: "Cancel"), role: .cancel) { manualModel = "" }
             }
             .onChange(of: profile.settings.baseURL) { _, _ in invalidateDiscovery(); hasSavedKey = model.hasSavedProviderKey(for: profile) }
             .onChange(of: profile.protocolKind) { _, _ in invalidateDiscovery(); hasSavedKey = model.hasSavedProviderKey(for: profile) }
             .onChange(of: key) { _, _ in discovery.cancel(); profile.catalog = nil }
             .onDisappear { discovery.cancel(); subscriptionTask?.cancel(); signIn.cancel() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { key = ""; dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { key = ""; dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+                    Button(String(localized: "Save")) {
                         if model.saveProvider(profile, key: key) { key = ""; dismiss() }
                     }.disabled(model.hasBusySessions || signIn.busy || !profile.providerKind.isSelectable).accessibilityIdentifier("saveProvider")
                 }
@@ -302,10 +302,10 @@ struct ProviderModelPicker: View {
                 }.buttonStyle(.plain)
                     .accessibilityIdentifier("providerModelOption-" + id)
             }
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索模型 ID")
-            .navigationTitle("选择模型")
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: String(localized: "Search model IDs"))
+            .navigationTitle(String(localized: "Choose a model"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } } }
         }
     }
 }
@@ -318,10 +318,10 @@ private struct ProviderModelRow: View {
         HStack(spacing: 8) {
             Text(id).foregroundStyle(.primary)
             HStack(spacing: 6) {
-                capabilityIcon("photo", label: "支持图片输入", support: metadata?.vision)
-                capabilityIcon("wrench.and.screwdriver", label: "支持工具调用", support: metadata?.tools)
-                capabilityIcon("brain", label: "支持思考", support: metadata?.thinking)
-                capabilityIcon("text.bubble", label: "支持文本生成", support: metadata?.generation)
+                capabilityIcon("photo", label: String(localized: "Supports image input"), support: metadata?.vision)
+                capabilityIcon("wrench.and.screwdriver", label: String(localized: "Supports tool calls"), support: metadata?.tools)
+                capabilityIcon("brain", label: String(localized: "Supports reasoning"), support: metadata?.thinking)
+                capabilityIcon("text.bubble", label: String(localized: "Supports text generation"), support: metadata?.generation)
             }
             .font(.caption).foregroundStyle(.secondary)
             Spacer()
@@ -341,17 +341,17 @@ private struct ModelReasoningSection: View {
     var body: some View {
         Section {
             if let efforts = metadata?.reasoningEfforts, !efforts.isEmpty {
-                Picker("思考强度", selection: Binding(get: { parameters.reasoningEffort ?? "" }, set: { parameters.reasoningEffort = $0.isEmpty ? nil : $0 })) {
-                    Text(metadata?.defaultReasoningEffort.map { "服务商默认（\($0)）" } ?? "服务商默认").tag("")
-                    ForEach(efforts, id: \.self) { Text($0).tag($0) }
+                Picker(String(localized: "Reasoning effort"), selection: Binding(get: { parameters.reasoningEffort ?? "" }, set: { parameters.reasoningEffort = $0.isEmpty ? nil : $0 })) {
+                    Text(metadata?.defaultReasoningEffort.map { String(localized: "Provider default (\($0))") } ?? String(localized: "Provider default")).tag("")
+                    ForEach(efforts, id: \.self) { Text(ReasoningEffortLabel.title($0)).tag($0) }
                 }.accessibilityIdentifier("reasoningEffort")
                 if let selected = parameters.reasoningEffort, !efforts.contains(selected) {
-                    Text("原思考强度已不可用，请选择当前档位或默认值。").foregroundStyle(.orange)
+                    Text(String(localized: "The previous reasoning effort is no longer available. Choose a current level or the default.")).foregroundStyle(.orange)
                 }
             } else {
-                Text("此模型未报告可用思考档位；使用服务商默认值。")
-                if parameters.reasoningEffort != nil { Button("清除原思考强度") { parameters.reasoningEffort = nil } }
+                Text(String(localized: "This model has not reported available reasoning levels. Using the provider default."))
+                if parameters.reasoningEffort != nil { Button(String(localized: "Clear previous reasoning effort")) { parameters.reasoningEffort = nil } }
             }
-        } header: { Text("思考强度") }
+        } header: { Text(String(localized: "Reasoning effort")) }
     }
 }

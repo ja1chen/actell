@@ -5,7 +5,7 @@ import SwiftAgentKit
 /// chat messages, task-history projection or Live Activity conversation links.
 @MainActor final class RemoteToolRuntime {
     let lifecycle: RunLifecycleCoordinator
-    private let scheduler = RunExecutionScheduler()
+    private let scheduler: RunExecutionScheduler
     private let bridge: any DeviceBridge
     private let approvalRecords: ApprovalRecordStore
     private let diagnostics: USBDiagnosticsLog
@@ -23,20 +23,22 @@ import SwiftAgentKit
     private var onStop: (@MainActor () -> Void)?
 
     init(bridge: any DeviceBridge, persistent: Bool, directory: URL? = nil,
+         backgroundCoordinator: BackgroundExecutionCoordinator = .shared,
          approvalRecords: ApprovalRecordStore, diagnostics: USBDiagnosticsLog,
          onImage: @escaping @MainActor (FrameImage) -> Void,
          onStop: @escaping @MainActor () -> Void) throws {
         self.bridge = bridge; self.approvalRecords = approvalRecords; self.diagnostics = diagnostics
+        scheduler = RunExecutionScheduler(coordinator: backgroundCoordinator)
         let root = directory ?? URL.applicationSupportDirectory.appending(path: "PhoneAgent/Remote/Execution")
         lifecycle = RunLifecycleFactory.make(persistent: persistent, scheduler: scheduler, directory: root)
         scheduler.configure(context: bridge.executionContext, allowSystemProcessing: persistent,
-                            useSystemProcessing: BackgroundPlaybackMode.selected.usesSystemProcessing)
+                            selection: backgroundCoordinator.selection, runID: identity.runID, userInitiated: false)
         do { try lifecycle.begin(identity: identity, generation: generation) }
         catch {
             bridge.executionContext?.revoke(); bridge.cancelTransport()
             scheduler.configure(context: nil, allowSystemProcessing: false)
             Task { await bridge.stop() }
-            throw RemoteRPCError("checkpoint_unavailable", "无法保存 Muse 执行检查点：" + error.localizedDescription, underlying: error)
+            throw RemoteRPCError("checkpoint_unavailable", String(localized: "The Muse task could not be saved and has not started. Reopen Actell and try again."), underlying: error)
         }
         self.onStop = onStop; running = true
         lifecycle.onPause = { [weak self] message in self?.stop(message: message, interrupted: true) }
@@ -50,7 +52,7 @@ import SwiftAgentKit
             lifecycle: lifecycle, generation: generation,
             authorizationMode: MuseCompanionAuthorization.inputMode, diagnostics: diagnostics)
         healthObserver = bridge.executionContext?.observeHealth { [weak self] in
-            Task { @MainActor in self?.stop(message: "手机操控通道已失效；输入已停止", interrupted: true) }
+            Task { @MainActor in self?.stop(message: String(localized: "Phone control disconnected. Input has stopped."), interrupted: true) }
         }
     }
     private func authorize(_ request: Approval) -> Bool {
@@ -60,12 +62,12 @@ import SwiftAgentKit
             try approvalRecords.register(request, run: identity, authorizationMode: .task)
             try approvalRecords.resolve(request, run: identity, approved: true)
             return true
-        } catch { stop(message: "Muse 动作授权记录不可用；未发送输入", interrupted: true); return false }
+        } catch { stop(message: String(localized: "Muse authorization could not be saved. No input was sent."), interrupted: true); return false }
     }
     private func claim(_ callID: String) {
         guard running, !stopping else { return }
         do { try approvalRecords.claimExecution(callID: callID, run: identity) }
-        catch { stop(message: "Muse 动作授权已失效；未发送输入", interrupted: true) }
+        catch { stop(message: String(localized: "Muse authorization expired. No input was sent."), interrupted: true) }
     }
     private func receive(_ frame: FrameImage, callback: @MainActor (FrameImage) -> Void) {
         if running, !stopping { callback(frame) }
@@ -88,7 +90,7 @@ import SwiftAgentKit
     }
     func setProtectedDataAvailable(_ available: Bool) {
         protectedDataAvailable = available
-        if !available { stop(message: "设备已锁定或保护数据不可用；Muse 输入已停止", interrupted: true) }
+        if !available { stop(message: String(localized: "The device is locked or its data is unavailable. Muse input has stopped."), interrupted: true) }
     }
     func stop(message: String, interrupted: Bool = false) {
         guard running, !stopping else { return }

@@ -154,7 +154,7 @@ struct AgentActivitySnapshot: Equatable {
               executionPresented.insert(run).inserted else { return nil }
         // An alerting update requests a brief expanded presentation. The system
         // owns its duration; progress updates must not repeatedly interrupt it.
-        return AlertConfiguration(title: "任务开始处理", body: "\(snapshot.state.title)", sound: .default)
+        return AlertConfiguration(title: "Task started", body: "\(snapshot.state.title)", sound: .default)
     }
 
     private func update(_ activity: any AgentActivityHandle,
@@ -237,7 +237,7 @@ struct AgentActivitySnapshot: Equatable {
         if snapshot.state.phase.isTerminal {
             if residentRunID == run, let activity = residentActivity {
                 let alert = !foreground && snapshot.state.phase == .completed && !terminalPresented.contains(run)
-                    ? AlertConfiguration(title: "任务已完成", body: "点击查看任务结果", sound: .default) : nil
+                    ? AlertConfiguration(title: "Task completed", body: "Tap to view the result", sound: .default) : nil
                 await update(activity, content: ActivityContent(state: projectedState(snapshot), staleDate: nil, relevanceScore: 100), alert: alert)
                 terminalPresented.insert(run)
             }
@@ -297,7 +297,7 @@ struct AgentActivitySnapshot: Equatable {
                     // end(.after) only retains the Lock Screen card. Keep the
                     // terminal island until foreground or the next run instead.
                     let alert = snapshot.state.phase == .completed && !terminalPresented.contains(run)
-                        ? AlertConfiguration(title: "任务已完成", body: "点击查看任务结果", sound: .default) : nil
+                        ? AlertConfiguration(title: "Task completed", body: "Tap to view the result", sound: .default) : nil
                     await update(current, content: ActivityContent(state: snapshot.state, staleDate: nil, relevanceScore: 100), alert: alert)
                     terminalPresented.insert(run)
                     BackgroundExecutionTrace.record("activity.terminalUpdateReturned phase=\(snapshot.state.phase) alertRequested=\(alert != nil)")
@@ -339,7 +339,7 @@ struct AgentActivitySnapshot: Equatable {
         } else {
             guard createActivity != nil || ActivityAuthorizationInfo().areActivitiesEnabled else {
                 BackgroundExecutionTrace.record("activity.denied authorization=false")
-                notice = "实时活动未开启；仍可在 App 内查看与确认"; return
+                notice = String(localized: "Live Activities are off. You can still view and confirm in the app."); return
             }
             do {
                 let activity: any AgentActivityHandle
@@ -355,7 +355,7 @@ struct AgentActivitySnapshot: Equatable {
                 // Record system error metadata only, never task text or credentials.
                 let systemError = error as NSError
                 BackgroundExecutionTrace.record("activity.requestFailed domain=\(systemError.domain) code=\(systemError.code) foreground=\(foreground)")
-                notice = "实时活动暂不可用；仍可在 App 内查看与确认"
+                notice = String(localized: "Live Activities are unavailable. You can still view and confirm in the app.")
             }
         }
     }

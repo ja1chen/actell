@@ -67,11 +67,14 @@ import AppIntents
     }
     func testBackgroundExecuteCreatesIndependentSessionWithoutForegroundOrReplay() async throws {
         let store = ConversationStore(inMemory: true)
-        let activity = PiPExecutionActivity.shared
+        let activity = BackgroundExecutionRegistry.shared
+        BackgroundExecutionCoordinator.shared.applySelection([.audio])
+        BackgroundExecutionCoordinator.shared.setResident(true)
+        defer { BackgroundExecutionCoordinator.shared.setResident(false) }
         let owner = UUID()
         activity.update(owner: owner, active: true)
         defer { activity.update(owner: owner, active: false) }
-        let lifecycle = RunLifecycleCoordinator(scheduler: MediaOnlyRunScheduler(activity: activity), storage: MemoryRunCheckpointStore())
+        let lifecycle = RunLifecycleCoordinator(scheduler: CompositeRunScheduler(registry: activity, allowed: { [.audio] }), storage: MemoryRunCheckpointStore())
         let model = AgentViewModel(sessions: store, loadPersistentState: false,
             runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()), lifecycle: lifecycle)
         XCTAssertTrue(model.commandNeedsForeground)
@@ -105,9 +108,12 @@ import AppIntents
         model.setScene(.background)
         XCTAssertTrue(model.commandNeedsForeground)
         let owner = UUID()
-        PiPExecutionActivity.shared.update(owner: owner, active: true)
+        BackgroundExecutionCoordinator.shared.applySelection([.audio])
+        BackgroundExecutionCoordinator.shared.setResident(true)
+        defer { BackgroundExecutionCoordinator.shared.setResident(false) }
+        BackgroundExecutionRegistry.shared.update(owner: owner, active: true)
         XCTAssertFalse(model.commandNeedsForeground)
-        PiPExecutionActivity.shared.update(owner: owner, active: false)
+        BackgroundExecutionRegistry.shared.update(owner: owner, active: false)
         XCTAssertTrue(model.commandNeedsForeground)
         model.setScene(.inactive) // Siri can cover an idle App without granting playback.
         XCTAssertTrue(model.commandNeedsForeground)
