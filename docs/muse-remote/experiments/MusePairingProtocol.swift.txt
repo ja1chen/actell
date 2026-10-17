@@ -1,0 +1,154 @@
+import Foundation
+import CryptoKit
+import CoreFoundation
+
+struct MusePairingError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+// Wire format derived from Meta Muse Gadgets SDK 812c46f (Apache-2.0).
+// See docs/muse-remote/LOCAL-PAIRING.md for sources and supported scope.
+enum MuseWire {
+    static let service = "7fdd3d1c-38ea-46cf-8b46-314ecf5f240c"
+    static let rx = "4d593029-28a2-4a6e-a1f0-3c2d5e8f9b01"
+    static let tx = "d75dc4ca-7b2b-4e9c-8f0a-1d2e3f4a5b6c"
+    static func encode(_ object: [String: Any]) throws -> Data {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        guard data.count <= 8192 else { throw MusePairingError("设备消息过大") }; return data
+    }
+    static func decode(_ data: Data) throws -> [String: Any] {
+        guard data.count <= 8192 else { throw MusePairingError("设备消息过大") }
+        try RemoteStrictJSON.validate(data)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MusePairingError("设备消息格式无效") }
+        return object
+    }
+    static func text(_ object: [String: Any], _ key: String) throws -> String {
+        guard let value = object[key] as? String, !value.isEmpty, value.utf8.count <= 256,
+              !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { throw MusePairingError("设备配对信息无效") }
+        return value
+    }
+    static func integer(_ object: [String: Any], _ key: String) throws -> Int {
+        guard let value = object[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+              value.doubleValue == Double(value.intValue) else { throw MusePairingError("设备协议版本无效") }
+        return value.intValue
+    }
+    static func b64(_ data: Data) -> String { data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") }
+    static func unb64(_ value: String, count: Int? = nil) throws -> Data {
+        guard !value.isEmpty, value.utf8.count <= 12000, value.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { throw MusePairingError("设备加密信息无效") }
+        var padded = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        padded += String(repeating: "=", count: (4 - padded.count % 4) % 4)
+        guard let data = Data(base64Encoded: padded), b64(data) == value, count == nil || data.count == count else { throw MusePairingError("设备加密信息无效") }
+        return data
+    }
+    static func chunks(_ data: Data, packetSize: Int) throws -> [Data] {
+        let usable = min(packetSize, 160) - 3
+        guard usable > 0, !data.isEmpty, data.count <= 8192 else { throw MusePairingError("蓝牙消息大小无效") }
+        let count = (data.count + usable - 1) / usable
+        guard count <= 255 else { throw MusePairingError("蓝牙消息分片过多") }
+        return (0..<count).map { Data([0xfe, UInt8($0), UInt8(count)]) + data.subdata(in: ($0 * usable)..<min(data.count, ($0 + 1) * usable)) }
+    }
+}
+struct MuseChunkAssembler {
+    private var buffer = Data()
+    private var total = 0, next = 0
+    mutating func reset() { buffer.removeAll(); total = 0; next = 0 }
+    mutating func feed(_ packet: Data) throws -> Data? {
+        guard !packet.isEmpty, packet.count <= 8192 else { reset(); throw MusePairingError("蓝牙消息大小无效") }
+        if packet.first != 0xfe { reset(); return packet }
+        guard packet.count >= 3 else { reset(); throw MusePairingError("蓝牙分片不完整") }
+        let bytes = [UInt8](packet), index = Int(bytes[1]), count = Int(bytes[2])
+        if index == 0 { reset(); total = count }
+        guard count > 0, count == total, index == next, index < total, buffer.count + packet.count - 3 <= 8192 else { reset(); throw MusePairingError("蓝牙分片顺序无效") }
+        buffer.append(packet.dropFirst(3)); next += 1
+        if next != total { return nil }; let result = buffer; reset(); return result
+    }
+}
+struct MuseDeviceInfo: Equatable {
+    let deviceID: String, nodeID: String, mac: String, firmware: String, policy: String
+    init(_ object: [String: Any]) throws {
+        guard object["type"] as? String == "device_info", try MuseWire.integer(object, "pairing_protocol") == 5,
+              object["model"] as? String == "hatch_link" else { throw MusePairingError("此设备不支持 Muse v5 配对") }
+        guard object["pairing_auth"] as? String == "none", try MuseWire.integer(object, "pairing_auth_epoch") == 0 else {
+            throw MusePairingError("此设备需要官方 Muse App 验证身份，请在官方 App 中连接")
+        }
+        deviceID = try MuseWire.text(object, "device_id"); nodeID = try MuseWire.text(object, "node_id")
+        mac = try MuseWire.text(object, "mac"); firmware = try MuseWire.text(object, "version")
+        policy = try MuseWire.text(object, "pairing_policy")
+        guard ["confirm_press", "confirm_app"].contains(policy) else { throw MusePairingError("设备确认方式不受支持") }
+    }
+}
+final class MusePairingSession {
+    private let info: MuseDeviceInfo
+    private let privateKey: P256.KeyAgreement.PrivateKey
+    private let mobileNonce: Data
+    private var tx: SymmetricKey?, rx: SymmetricKey?, sessionID: String?
+    private var txCounter: UInt64 = 0, rxCounter: UInt64 = 0
+    init(info: MuseDeviceInfo, privateKey: P256.KeyAgreement.PrivateKey = .init(), nonce: Data? = nil) throws {
+        self.info = info; self.privateKey = privateKey
+        if let nonce { guard nonce.count == 16 else { throw MusePairingError("配对随机数无效") }; mobileNonce = nonce }
+        else { mobileNonce = SymmetricKey(size: .bits128).withUnsafeBytes { Data($0) } }
+    }
+    func hello() -> [String: Any] {
+        ["action": "pairing_client_hello", "version": 5, "pairing_auth": "none", "pairing_policy": info.policy,
+         "mobile_pub": MuseWire.b64(privateKey.publicKey.x963Representation), "mobile_nonce": MuseWire.b64(mobileNonce)]
+    }
+    func acceptReady(_ object: [String: Any]) throws -> Data {
+        do {
+            guard tx == nil, object["type"] as? String == "pairing_ready", try MuseWire.integer(object, "version") == 5,
+                  object["device_id"] as? String == info.deviceID, object["node_id"] as? String == info.nodeID,
+                  object["mac"] as? String == info.mac, object["firmware_version"] as? String == info.firmware,
+                  object["model"] as? String == "hatch_link", object["pairing_auth"] as? String == "none",
+                  try MuseWire.integer(object, "pairing_auth_epoch") == 0, object["pairing_policy"] as? String == info.policy else {
+                throw MusePairingError("设备身份或配对协议发生变化，请重新发现设备")
+            }
+            let devicePubText = try MuseWire.text(object, "device_pub"), deviceNonceText = try MuseWire.text(object, "device_nonce")
+            let devicePub = try MuseWire.unb64(devicePubText, count: 65), deviceNonce = try MuseWire.unb64(deviceNonceText, count: 16)
+            let mobilePubText = MuseWire.b64(privateKey.publicKey.x963Representation)
+            let transcript = ["hatch-link-pairing-v5", "version=5", "initiator_role=mobile", "responder_role=link",
+                "device_id=\(info.deviceID)", "node_id=\(info.nodeID)", "mac=\(info.mac)", "model=hatch_link",
+                "firmware_version=\(info.firmware)", "selected_cipher_suite=p256-hkdf-sha256-aes-gcm-v1", "pairing_auth=none",
+                "pairing_auth_epoch=0", "pairing_policy=\(info.policy)", "confirm_timeout_seconds=\(info.policy == "confirm_press" ? 60 : 0)",
+                "mobile_pub=\(mobilePubText)", "device_pub=\(devicePubText)", "mobile_nonce=\(MuseWire.b64(mobileNonce))", "device_nonce=\(deviceNonceText)"].joined(separator: "\n")
+            let hash = Data(SHA256.hash(data: Data(transcript.utf8)))
+            guard MuseWire.b64(hash) == object["transcript_hash"] as? String else { throw MusePairingError("设备配对校验失败") }
+            let peer = try P256.KeyAgreement.PublicKey(x963Representation: devicePub)
+            let shared = try privateKey.sharedSecretFromKeyAgreement(with: peer).withUnsafeBytes { Data($0) }
+            let salt = Data(SHA256.hash(data: mobileNonce + deviceNonce + hash))
+            let secret = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: shared), salt: salt, info: Data("hatch-link ble setup v1".utf8), outputByteCount: 32)
+            let secretData = secret.withUnsafeBytes { Data($0) }
+            let id = MuseWire.b64(Data(SHA256.hash(data: Data("hatch-link session id v1".utf8) + hash + shared)).prefix(16))
+            guard id == object["session_id"] as? String else { throw MusePairingError("设备配对会话校验失败") }
+            tx = HKDF<SHA256>.expand(pseudoRandomKey: secretData, info: Data("mobile->device".utf8), outputByteCount: 32)
+            rx = HKDF<SHA256>.expand(pseudoRandomKey: secretData, info: Data("device->mobile".utf8), outputByteCount: 32)
+            sessionID = id
+            return try seal(Data("{\"action\":\"pairing_client_finished\"}".utf8))
+        } catch { invalidate(); throw error }
+    }
+    private func nonce(direction: UInt8, counter: UInt64) throws -> AES.GCM.Nonce {
+        let bytes = [direction, 0, 0, 0] + (0..<8).map { UInt8(truncatingIfNeeded: counter >> ((7 - $0) * 8)) }
+        return try AES.GCM.Nonce(data: bytes)
+    }
+    private func aad(_ id: String, direction: String, counter: UInt64) -> Data { Data("hatch-link ble setup v1|\(id)|\(direction)|\(counter)".utf8) }
+    func seal(_ plaintext: Data) throws -> Data {
+        guard let tx, let id = sessionID, txCounter < UInt64.max else { throw MusePairingError("配对会话已结束") }
+        let counter = txCounter
+        let sealed = try AES.GCM.seal(plaintext, using: tx, nonce: nonce(direction: 0, counter: counter), authenticating: aad(id, direction: "m2d", counter: counter))
+        txCounter += 1
+        return try MuseWire.encode(["action": "pairing_encrypted", "session_id": id, "counter": String(counter), "ciphertext": MuseWire.b64(sealed.ciphertext), "tag": MuseWire.b64(sealed.tag)])
+    }
+    func open(_ object: [String: Any]) throws -> [String: Any] {
+        do {
+            guard let rx, let id = sessionID, object["type"] as? String == "pairing_encrypted", object["session_id"] as? String == id,
+                  let text = object["counter"] as? String, !text.isEmpty, text.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let counter = UInt64(text), counter == rxCounter, counter < UInt64.max,
+                  let cipherText = object["ciphertext"] as? String, let tagText = object["tag"] as? String else { throw MusePairingError("设备配对消息顺序无效") }
+            let cipher = try MuseWire.unb64(cipherText), tag = try MuseWire.unb64(tagText, count: 16)
+            let sealed = try AES.GCM.SealedBox(nonce: nonce(direction: 1, counter: counter), ciphertext: cipher, tag: tag)
+            let plaintext = try AES.GCM.open(sealed, using: rx, authenticating: aad(id, direction: "d2m", counter: counter))
+            let result = try MuseWire.decode(plaintext); rxCounter += 1; return result
+        } catch { invalidate(); throw MusePairingError("设备配对消息校验失败，请重新连接") }
+    }
+    func invalidate() { tx = nil; rx = nil; sessionID = nil }
+}

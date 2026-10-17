@@ -118,3 +118,12 @@ vendored or patched. Actell's own adapter uses public SDK request/output DTOs
 plus a privacy-bounded local transport. The former model Kit is no longer a
 direct or transitive runtime dependency; its existing license records remain
 for historical attribution. See ios-app/ProviderKit/README.md.
+
+## Apple Swift Certificates
+
+Remote Swift Package Manager dependency, fixed at version 1.10.0, product
+`X509`, from https://github.com/apple/swift-certificates. Apache-2.0;
+see `ios-app/Licenses/SwiftCertificates-Apache-2.0.txt`
+for the complete upstream notice. No SDK source is vendored or patched. The
+optional Muse companion integration uses the package's public certificate
+and Security framework interoperability APIs for an app-owned local TLS identity.

@@ -1,0 +1,99 @@
+import XCTest
+@testable import PhoneAgent
+
+private actor RemoteRuntimeTestBridge: DeviceBridge {
+    private let demo = DemoBridge()
+    private(set) var inputs = 0
+    private(set) var stops = 0
+    func setRemoteDeadline(_ deadline: Date) throws { guard deadline > Date() else { throw AppError.stopped } }
+    func screenshot() async throws -> FrameImage { try await demo.screenshot() }
+    func validateRemoteObservation(_ frame: FrameImage) {}
+    func tap(x: Int, y: Int, imageID: String) throws { throw AppError.stopped }
+    func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) throws { throw AppError.stopped }
+    func systemActionContext() -> String { "synthetic-remote-control" }
+    func authorizeSystemAction(authorizationID: String, taskScoped: Bool) throws {
+        guard taskScoped, !authorizationID.isEmpty else { throw AppError.stopped }
+    }
+    func systemAction(name: String, text: String, arguments: [String], imageID: String) { inputs += 1 }
+    func stop() async { stops += 1; await demo.stop() }
+}
+
+@MainActor final class RemoteToolRuntimeTests: XCTestCase {
+    func testRemoteToolsNeverCreateSelectOrWriteAnAgentConversation() async throws {
+        let sessions = ConversationStore(inMemory: true), bridge = RemoteRuntimeTestBridge()
+        let model = AgentViewModel(sessions: sessions, loadPersistentState: false, makeRemoteBridge: { bridge })
+        model.setForeground(true); model.setProtectedDataAvailable(true)
+        let selected = model.createConversationDraft(mode: .demo)
+        sessions.setDraft("Local draft stays here", in: selected)
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let before = try encoder.encode(sessions.conversation(selected))
+        var captured: FrameImage?
+        var stopped = 0
+        let runtime = try model.acquireRemoteRun("remote-test", onImage: { captured = $0 }, onStop: { stopped += 1 })
+        XCTAssertTrue(model.hasBusySessions)
+        XCTAssertEqual(model.selectedConversationID, selected)
+        XCTAssertNil(model.currentRun)
+        XCTAssertTrue(sessions.activeRuns.isEmpty)
+        let screenshot = try await runtime.executeRemoteTool(name: "screenshot", arguments: [:], callID: "screen", imageID: nil, deadline: Date().addingTimeInterval(20))
+        XCTAssertFalse(screenshot.isError)
+        XCTAssertNotNil(captured)
+        for id in ["home-one", "home-two"] {
+            let result = try await runtime.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic test"], callID: id, imageID: nil, deadline: Date().addingTimeInterval(20))
+            XCTAssertFalse(result.isError, result.result)
+        }
+        let inputs = await bridge.inputs
+        XCTAssertEqual(inputs, 2)
+        XCTAssertEqual(model.approvalRecords.records.count, 2)
+        XCTAssertTrue(model.approvalRecords.records.allSatisfy { $0.state == .finished && $0.authorizationMode == .task })
+        XCTAssertEqual(runtime.remoteDelivery("home-two"), .acknowledged)
+        do {
+            let replay = try await runtime.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic test"], callID: "home-two", imageID: nil, deadline: Date().addingTimeInterval(20))
+            XCTAssertTrue(replay.isError)
+        } catch {}
+        let afterReplay = await bridge.inputs
+        XCTAssertEqual(afterReplay, 2)
+        model.stop()
+        XCTAssertEqual(stopped, 1)
+        XCTAssertTrue(model.hasBusySessions) // The lease stays claimed until release finishes.
+        await runtime.waitForRemoteRelease()
+        let stops = await bridge.stops
+        XCTAssertEqual(stops, 1)
+        model.releaseRemoteRun("remote-test")
+        XCTAssertFalse(model.hasBusySessions)
+        XCTAssertEqual(model.selectedConversationID, selected)
+        XCTAssertEqual(try encoder.encode(sessions.conversation(selected)), before)
+        XCTAssertTrue(sessions.conversations.isEmpty) // Composer draft remains a draft.
+        XCTAssertTrue(sessions.activeRuns.isEmpty)
+        XCTAssertTrue(model.records.isEmpty)
+        XCTAssertNil(model.activitySnapshot)
+    }
+    func testFailedAdmissionDoesNotLeaveEmptyConversationsOrChangeSelection() throws {
+        let sessions = ConversationStore(inMemory: true)
+        let model = AgentViewModel(sessions: sessions, loadPersistentState: false, makeRemoteBridge: {
+            throw RemoteRPCError("control_not_connected", "Synthetic disconnected route")
+        })
+        model.setForeground(true); model.setProtectedDataAvailable(true)
+        XCTAssertThrowsError(try model.acquireRemoteRun("failed", onImage: { _ in }, onStop: {}))
+        XCTAssertTrue(sessions.conversations.isEmpty)
+        XCTAssertNil(model.selectedConversationID)
+        XCTAssertTrue(sessions.activeRuns.isEmpty)
+        XCTAssertFalse(model.hasBusySessions)
+    }
+    func testLockStopsIndependentRuntimeAndRetainsLeaseUntilDrained() async throws {
+        let sessions = ConversationStore(inMemory: true), bridge = RemoteRuntimeTestBridge()
+        let model = AgentViewModel(sessions: sessions, loadPersistentState: false, makeRemoteBridge: { bridge })
+        model.setForeground(true); model.setProtectedDataAvailable(true)
+        var stopped = 0
+        let runtime = try model.acquireRemoteRun("locked", onImage: { _ in }, onStop: { stopped += 1 })
+        model.setProtectedDataAvailable(false)
+        XCTAssertEqual(stopped, 1)
+        XCTAssertFalse(runtime.running)
+        XCTAssertTrue(model.hasBusySessions)
+        await runtime.waitForRemoteRelease()
+        model.releaseRemoteRun("old-id")
+        XCTAssertTrue(model.hasBusySessions)
+        model.releaseRemoteRun("locked")
+        XCTAssertFalse(model.hasBusySessions)
+        XCTAssertTrue(sessions.conversations.isEmpty)
+    }
+}

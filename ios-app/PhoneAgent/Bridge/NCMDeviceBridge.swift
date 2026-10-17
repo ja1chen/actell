@@ -1,6 +1,26 @@
 import Foundation
 import ImageIO
 
+enum NCMRemoteAdmissionError: LocalizedError {
+    case notConnected(String?), busy, reserved
+    var code: String {
+        switch self {
+        case .notConnected: return "control_not_connected"
+        case .busy: return "control_busy"
+        case .reserved: return "control_reserved"
+        }
+    }
+    var errorDescription: String? {
+        switch self {
+        case .notConnected(let detail):
+            let guidance = "手机操控通道尚未连接，请到设置 → 手机操控 → 连接与验证中完成连接。"
+            return guidance + (detail.map { " 原因：" + $0 } ?? "")
+        case .busy: return "手机操控通道正在处理连接或验证操作，请等待完成后重试"
+        case .reserved: return "手机操控通道已被其他任务占用，请先结束该任务"
+        }
+    }
+}
+
 /// Persisted developer route; active bridges retain the shared connection and
 /// prevent route changes until their run has released it.
 enum DeviceControlRoute: String, Sendable {
@@ -37,8 +57,12 @@ enum DeviceControlRoute: String, Sendable {
     var connectionStopID: UUID? { get }
     func connectIfNeeded() throws
     func agentCapture(owner: UUID, session: UUID) async throws -> Data
+    func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?)
+    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws
     func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws
     func agentDrag(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, validate: () throws -> Void) async throws
+    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws
+    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws
     func agentApplications(owner: UUID, session: UUID) async throws -> Data
     func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws
     func canActivateApplication(owner: UUID, session: UUID) -> Bool
@@ -50,6 +74,12 @@ enum DeviceControlRoute: String, Sendable {
 }
 
 extension NCMControlConnection {
+    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable("此通道缺少发送前几何校验") }
+    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable("此通道缺少发送前几何校验") }
+
+    func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) { (try await agentCapture(owner: owner, session: session), nil) }
+    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws { throw AppError.unavailable("此通道缺少实时几何校验") }
+
     func canActivateApplication(owner: UUID, session: UUID) -> Bool { !running && !agentReserved }
     var connectionStopID: UUID? { nil }
     func connectIfNeeded() throws {
@@ -65,6 +95,35 @@ extension NCMControlConnection {
 }
 
 extension PairingFlow: NCMControlConnection {
+    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws {
+        try await agentOperation(owner: owner, session: session) { services in
+            try await self.prepareAgentInput(services)
+            try await services.validateVideoGeometry(geometry)
+            try Task.checkCancellation(); try validate()
+            _ = try await services.tapDelivery(x: x, y: y, geometryToken: geometry)
+        }
+    }
+    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws {
+        try await agentOperation(owner: owner, session: session) { services in
+            try await self.prepareAgentInput(services)
+            try await services.validateVideoGeometry(geometry)
+            try Task.checkCancellation(); try validate()
+            _ = try await services.dragDelivery(fromX: fromX, fromY: fromY, toX: toX, toY: toY, durationMS: durationMS, geometryToken: geometry)
+        }
+    }
+
+    func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) {
+        try await agentOperation(owner: owner, session: session) { services in
+            try await self.prepareAgentInput(services)
+            defer { if let diagnostic = services.videoSnapshotDiagnostics { BackgroundExecutionTrace.record(diagnostic) } }
+            let data = try await services.captureVideoJPEG()
+            return (data, services.capturedVideoGeometryToken)
+        }
+    }
+    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws {
+        try await agentOperation(owner: owner, session: session) { services in try await services.validateVideoGeometry(token) }
+    }
+
     var connectionFailure: String? { lastFailure }
     func awaitControlRelease() async { await mediaLifetimeWait() }
     func agentApplications(owner: UUID, session: UUID) async throws -> Data {
@@ -124,12 +183,27 @@ private final class NCMRunFence: @unchecked Sendable {
     private var session: UUID?
     private let owner = UUID()
     private nonisolated let fence = NCMRunFence()
+    private var remoteDeadline: Date?
+    func setRemoteDeadline(_ deadline: Date) async throws {
+        guard deadline > Date() else { throw AppError.stopped }
+        remoteDeadline = deadline
+    }
+    private var checkedRemoteGeometry: (token: String, expires: Date)?
     private var imageID: String?
     private var approvedImageID: String?
     private var systemAuthorizationID: String?
     private let connectionTimeout: Duration
-    init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20)) throws {
+    init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20), remoteExclusive: Bool = false) throws {
         self.flow = flow; self.connectionTimeout = connectionTimeout
+        if remoteExclusive {
+            // Atomically reserve the existing connected route before admitting a
+            // remote run. Local diagnostic buttons use the same agentReserved fence.
+            guard !flow.running else { throw NCMRemoteAdmissionError.busy }
+            guard !flow.agentReserved else { throw NCMRemoteAdmissionError.reserved }
+            guard flow.ready else { throw NCMRemoteAdmissionError.notConnected(flow.connectionFailure) }
+            session = flow.controlSessionID
+            flow.registerAgent(owner: owner, session: flow.controlSessionID)
+        }
         flow.retainConnection(owner: owner)
     }
     // Scheduling capability is independent of connection readiness; transport
@@ -167,6 +241,7 @@ private final class NCMRunFence: @unchecked Sendable {
     }
     private func check() throws {
         try fence.check()
+        if let remoteDeadline, Date() >= remoteDeadline { throw AppError.stopped }
         guard flow.ready else {
             throw AppError.unavailable(flow.connectionFailure ?? "手机操控未连接，请在设置 → 手机操控 → 连接与验证中连接")
         }
@@ -199,9 +274,9 @@ private final class NCMRunFence: @unchecked Sendable {
     }
     func screenshot() async throws -> FrameImage {
         try await prepareConnection()
-        imageID = nil; approvedImageID = nil
+        imageID = nil; approvedImageID = nil; checkedRemoteGeometry = nil
         let session = try requireSession()
-        let png = try await perform { try await flow.agentCapture(owner: owner, session: session) }
+        let (png, geometryToken) = try await perform { try await flow.agentCaptureWithGeometry(owner: owner, session: session) }
         try check()
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -212,7 +287,16 @@ private final class NCMRunFence: @unchecked Sendable {
         }
         let id = UUID().uuidString
         imageID = id; approvedImageID = nil
-        return FrameImage(id: id, png: png, width: width, height: height, capturedAt: Date(), isDemo: false)
+        return FrameImage(id: id, png: png, width: width, height: height, capturedAt: Date(), isDemo: false, remoteGeometryToken: geometryToken)
+    }
+    func validateRemoteObservation(_ frame: FrameImage) async throws {
+        try await prepareConnection()
+        guard Date().timeIntervalSince(frame.capturedAt) < RemoteImageGeometry.maxAge, imageID == frame.id, let token = frame.remoteGeometryToken else { throw AppError.invalid("截图缺少可验证的几何参照，请重新截图") }
+        let session = try requireSession()
+        try await perform { try await flow.agentValidateGeometry(owner: owner, session: session, token: token) }
+        try check()
+        checkedRemoteGeometry = (token, frame.capturedAt.addingTimeInterval(RemoteImageGeometry.maxAge))
+        guard imageID == frame.id else { throw AppError.invalid("截图几何参照已变化") }
     }
     private func consumeInputApproval(_ id: String, coordinates: [Int]) throws {
         try check()
@@ -225,7 +309,16 @@ private final class NCMRunFence: @unchecked Sendable {
         try await prepareConnection()
         try consumeInputApproval(imageID, coordinates: [x, y])
         let session = try requireSession()
-        try await perform { try await flow.agentTap(owner: owner, session: session, x: UInt16(x), y: UInt16(y), validate: { try self.check() }) }
+        let geometry = checkedRemoteGeometry; checkedRemoteGeometry = nil
+        let validate = {
+            try self.check()
+            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid("远程坐标参照已变化或过期") }
+        }
+        if let geometry {
+            try await perform { try await flow.agentTapWithGeometry(owner: owner, session: session, x: UInt16(x), y: UInt16(y), geometry: geometry.token, validate: validate) }
+        } else {
+            try await perform { try await flow.agentTap(owner: owner, session: session, x: UInt16(x), y: UInt16(y), validate: validate) }
+        }
     }
 
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws {
@@ -233,7 +326,16 @@ private final class NCMRunFence: @unchecked Sendable {
         try await prepareConnection()
         try consumeInputApproval(imageID, coordinates: [fromX, fromY, toX, toY])
         let session = try requireSession()
-        try await perform { try await flow.agentDrag(owner: owner, session: session, fromX: UInt16(fromX), fromY: UInt16(fromY), toX: UInt16(toX), toY: UInt16(toY), durationMS: UInt16(durationMS), validate: { try self.check() }) }
+        let geometry = checkedRemoteGeometry; checkedRemoteGeometry = nil
+        let validate = {
+            try self.check()
+            guard self.imageID == imageID, geometry.map({ Date() < $0.expires }) ?? true else { throw AppError.invalid("远程坐标参照已变化或过期") }
+        }
+        if let geometry {
+            try await perform { try await flow.agentDragWithGeometry(owner: owner, session: session, fromX: UInt16(fromX), fromY: UInt16(fromY), toX: UInt16(toX), toY: UInt16(toY), durationMS: UInt16(durationMS), geometry: geometry.token, validate: validate) }
+        } else {
+            try await perform { try await flow.agentDrag(owner: owner, session: session, fromX: UInt16(fromX), fromY: UInt16(fromY), toX: UInt16(toX), toY: UInt16(toY), durationMS: UInt16(durationMS), validate: validate) }
+        }
     }
     func installedApplications() async throws -> Data {
         try await prepareConnection()

@@ -327,13 +327,16 @@ impl Session {
     /// No replay on timeout/uncertain release. A negotiated screen session must belong to
     /// this same authenticated generation; result never claims a visible tap.
     pub async fn tap(&mut self, x: u16, y: u16) -> Result<TouchDelivery, Error> {
+        self.tap_guarded(x, y, None).await
+    }
+    async fn tap_guarded(&mut self, x: u16, y: u16, geometry: Option<u64>) -> Result<TouchDelivery, Error> {
         self.check()?;
         let media = self
             .media
             .as_mut()
             .ok_or(error(Stage::Input, Cause::MediaInactive))?;
         let mut guard = OperationGuard(Some(self.owner.0.clone()));
-        match media.tap(x, y).await {
+        match media.tap(x, y, geometry.map(|g| (&*self.video, g))).await {
             Ok(()) => {
                 guard.0 = None;
                 Ok(TouchDelivery::ReportsWrittenVisualEffectUnverified)
@@ -352,6 +355,10 @@ impl Session {
         end_y: u16,
         duration: u16,
     ) -> Result<TouchDelivery, Error> {
+        self.drag_guarded(x, y, end_x, end_y, duration, None).await
+    }
+    async fn drag_guarded(&mut self, x: u16, y: u16, end_x: u16, end_y: u16,
+        duration: u16, geometry: Option<u64>) -> Result<TouchDelivery, Error> {
         self.check()?;
         if !(100..=2000).contains(&duration) {
             return Err(error(Stage::Input, Cause::InvalidParameters));
@@ -361,7 +368,7 @@ impl Session {
             .as_mut()
             .ok_or(error(Stage::Input, Cause::MediaInactive))?;
         let mut guard = OperationGuard(Some(self.owner.0.clone()));
-        match media.drag(x, y, end_x, end_y, duration).await {
+        match media.drag(x, y, end_x, end_y, duration, geometry.map(|g| (&*self.video, g))).await {
             Ok(()) => {
                 guard.0 = None;
                 Ok(TouchDelivery::ReportsWrittenVisualEffectUnverified)

@@ -42,7 +42,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Connect to your explicitly paired development bridge while this app is open."
+            "value" : "Allow explicitly authorized phone-control devices and Muse clients to connect with Actell on the local network."
           }
         }
       }

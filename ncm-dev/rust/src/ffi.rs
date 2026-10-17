@@ -107,6 +107,7 @@ struct Request {
     end_y: u16,
     duration: u16,
     payload: Zeroizing<Vec<u8>>,
+    expected_geometry: Option<u64>,
 }
 struct Receiver {
     pending: Option<Event>,
@@ -449,6 +450,9 @@ pub unsafe extern "C" fn ncm_lockdown_start(
         }
     })
 }
+fn request_geometry_valid(r: &Request, video: &crate::video::VideoMailbox) -> bool {
+    r.expected_geometry.is_none_or(|g| video.matches_geometry(g))
+}
 async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
     let required = match r.action {
         1 | 11 => 0,
@@ -471,6 +475,9 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             },
         );
     }
+    if !request_geometry_valid(&r, &session.video) {
+        return Event::failed(r.id, Error { stage: Stage::Input, cause: Cause::InvalidParameters });
+    }
     let result = match r.action {
         1 => session
             .check_developer_readiness()
@@ -489,11 +496,11 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             .await
             .map(|_| Event::ok(r.id, 2, Vec::new())),
         4 => session
-            .tap(r.x, r.y)
+            .tap_guarded(r.x, r.y, r.expected_geometry)
             .await
             .map(|_| Event::ok(r.id, 2, Vec::new())),
         6 => session
-            .drag(r.x, r.y, r.end_x, r.end_y, r.duration)
+            .drag_guarded(r.x, r.y, r.end_x, r.end_y, r.duration, r.expected_geometry)
             .await
             .map(|_| Event::ok(r.id, 2, Vec::new())),
         7 => session.home().await.map(|_| Event::ok(r.id, 2, Vec::new())),
@@ -589,6 +596,29 @@ pub unsafe extern "C" fn ncm_backend_video_get_snapshot(
         }
         0
     })
+}
+/// Additive ABI: nonzero per-handle credential; no struct layout changes.
+#[unsafe(no_mangle)]
+pub extern "C" fn ncm_backend_video_geometry_generation(handle: u64) -> u64 {
+    get(handle).filter(|e| e.screen_allowed && !e.done.load(Ordering::SeqCst))
+        .map(|e| e.video.geometry_generation()).unwrap_or(0)
+}
+/// Swift publishes a changed decoded crop using this in-memory invalidation only.
+#[unsafe(no_mangle)]
+pub extern "C" fn ncm_backend_video_invalidate_geometry(handle: u64) -> u64 {
+    get(handle).filter(|e| e.screen_allowed && !e.done.load(Ordering::SeqCst))
+        .map(|e| e.video.invalidate_geometry()).unwrap_or(0)
+}
+/// Bind a decoder observation to the exact sample emitted by video_poll.
+#[unsafe(no_mangle)]
+pub extern "C" fn ncm_backend_video_sample_geometry(handle: u64, serial: u64, epoch: u64) -> u64 {
+    get(handle).filter(|e| e.screen_allowed && !e.done.load(Ordering::SeqCst))
+        .map(|e| e.video.sample_geometry(serial, epoch)).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn ncm_backend_video_publish_geometry(handle: u64, expected: u64) -> u64 {
+    get(handle).filter(|e| e.screen_allowed && !e.done.load(Ordering::SeqCst))
+        .map(|e| e.video.publish_decoded_geometry(expected)).unwrap_or(0)
 }
 /// Request one fresh keyframe on the already authorized video channel.
 #[unsafe(no_mangle)]
@@ -763,6 +793,7 @@ pub extern "C" fn ncm_backend_submit(handle: u64, id: u64, action: u32, x: u16, 
             end_x: 0,
             end_y: 0,
             duration: 0,
+            expected_geometry: None,
             payload: Zeroizing::new(Vec::new()),
         },
     )
@@ -790,9 +821,19 @@ pub extern "C" fn ncm_backend_drag(
             end_x,
             end_y,
             duration,
+            expected_geometry: None,
             payload: Zeroizing::new(Vec::new()),
         },
     )
+}
+/// V2 coordinate input carries its capture credential through the native queue.
+#[unsafe(no_mangle)]
+pub extern "C" fn ncm_backend_input_guarded(handle: u64, id: u64, action: u32,
+    x: u16, y: u16, end_x: u16, end_y: u16, duration: u16, expected_geometry: u64) -> i32 {
+    if expected_geometry == 0 || ![4, 6].contains(&action)
+        || (action == 6 && !(100..=2000).contains(&duration)) { return INVALID; }
+    submit_request(handle, Request { id, action, x, y, end_x, end_y, duration,
+        expected_geometry: Some(expected_geometry), payload: Zeroizing::new(Vec::new()) })
 }
 fn valid_command(action: u32, bytes: &[u8]) -> bool {
     if bytes.len() > 16 * 1024 {
@@ -849,6 +890,7 @@ pub unsafe extern "C" fn ncm_backend_command(
                 end_x: 0,
                 end_y: 0,
                 duration: 0,
+                expected_geometry: None,
                 payload: Zeroizing::new(data.to_vec()),
             },
         )
@@ -1387,6 +1429,46 @@ mod tests {
             CLOSED
         );
         ncm_backend_close(id);
+    }
+    #[tokio::test]
+    async fn queued_geometry_fence_rejects_changed_capture_before_dispatch() {
+        let _test = TEST_LOCK.lock().await;
+        let (tx, mut rx) = mpsc::channel(4);
+        let (_send, queue) = mpsc::channel(1);
+        let (cancel, _) = watch::channel(false);
+        let video = Arc::new(crate::video::VideoMailbox::default());
+        video.begin_stream();
+        let entry = Arc::new(Entry {
+            pairing: false, pairing_state: AtomicUsize::new(0),
+            submit: Mutex::new((0, tx)), receive: Mutex::new(Receiver { pending: None, queue }),
+            cancel, ready: AtomicBool::new(true), done: AtomicBool::new(false),
+            video: video.clone(), screen_allowed: true,
+        });
+        let handle = NEXT.fetch_add(1, Ordering::SeqCst);
+        registry().lock().unwrap().insert(handle, entry);
+        let capture = ncm_backend_video_geometry_generation(handle);
+        assert_ne!(capture, 0);
+        assert_eq!(ncm_backend_input_guarded(handle, 1, 4, 10, 20, 0, 0, 0, 0), INVALID);
+        assert_eq!(ncm_backend_input_guarded(handle, 1, 4, 10, 20, 0, 0, 0, capture), 0);
+        // Simulate blocked dequeue while the independent video receiver resets.
+        video.reset();
+        let queued = rx.recv().await.unwrap();
+        assert!(!request_geometry_valid(&queued, &video), "Production execute gate must reject before calling Session.tap");
+        let renewed = ncm_backend_video_geometry_generation(handle);
+        assert_eq!(ncm_backend_input_guarded(handle, 2, 6, 1, 2, 3, 4, 100, renewed), 0);
+        video.set_visible_size(Some((1179, 2556)));
+        let queued = rx.recv().await.unwrap();
+        assert!(!request_geometry_valid(&queued, &video), "Size changes while drag is queued must reject both endpoints");
+        let renewed = ncm_backend_video_geometry_generation(handle);
+        assert_eq!(ncm_backend_input_guarded(handle, 3, 4, 1, 2, 0, 0, 0, renewed), 0);
+        assert!(request_geometry_valid(&rx.recv().await.unwrap(), &video));
+        assert_eq!(ncm_backend_submit(handle, 4, 4, 1, 2), 0);
+        video.reset();
+        assert!(request_geometry_valid(&rx.recv().await.unwrap(), &video), "Legacy local input has no v2 geometry contract");
+        assert_eq!(ncm_backend_video_invalidate_geometry(handle), video.geometry_generation());
+        ncm_backend_close(handle);
+        assert_eq!(ncm_backend_video_geometry_generation(handle), 0);
+        assert_eq!(ncm_backend_input_guarded(handle, 5, 4, 1, 2, 0, 0, 0, renewed), CLOSED);
     }
     #[tokio::test]
     async fn command_queue_is_bounded_and_duplicate_ids_are_rejected() {

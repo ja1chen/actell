@@ -17,6 +17,12 @@ final class NativeBackendTests: XCTestCase {
         let source = try XCTUnwrap(CGImageSourceCreateWithData(try XCTUnwrap(output) as CFData,nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
         XCTAssertEqual(image.width,62); XCTAssertEqual(image.height,94)
+        let firstGeometry = await decoder.currentGeometryToken()
+        bytes[0] = 2; bytes[64] = 61
+        try await decoder.consume(bytes)
+        let changedGeometry = await decoder.currentGeometryToken()
+        XCTAssertNotNil(changedGeometry)
+        XCTAssertNotEqual(changedGeometry, firstGeometry, "Visible crop changes invalidate the geometry token")
         bytes[64] = 65
         XCTAssertThrowsError(try NCMVideoSample(bytes))
     }
@@ -35,14 +41,23 @@ final class NativeBackendTests: XCTestCase {
         try await decoder.consume(first)
         let initial = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
         let green = try XCTUnwrap(initial)
+        let initialGeometry = await decoder.currentGeometryToken()
+        XCTAssertNotNil(initialGeometry)
+        let capturedGeometry = await decoder.capturedGeometryToken()
+        XCTAssertEqual(capturedGeometry, initialGeometry)
         try await Task.sleep(for: .milliseconds(1100))
         try await decoder.consume(second)
         let updated = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
         let blue = try XCTUnwrap(updated)
+        let updatedGeometry = await decoder.currentGeometryToken()
+        XCTAssertEqual(updatedGeometry, initialGeometry, "Animation changes pixels, not geometry")
         XCTAssertNotEqual(green, blue, "A P-frame must update the screenshot without input or another keyframe")
         let source = try XCTUnwrap(CGImageSourceCreateWithData(blue as CFData, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
         XCTAssertEqual(image.width,62); XCTAssertEqual(image.height,94, "Content geometry persists when later P-frames omit the trailer")
+        await decoder.reset()
+        let resetGeometry = await decoder.currentGeometryToken()
+        XCTAssertNil(resetGeometry, "A reset invalidates geometry before another frame")
     }
     func testSWContentsRectFooterHandlesEscapingAcrossSliceBoundary() throws {
         func escaped(_ raw: [UInt8]) -> [UInt8] {

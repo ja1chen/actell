@@ -1,0 +1,1 @@
+公开非生产测试输入。dummy-request.json无末尾换行，SHA256=10fb78b0779f29b6d17a37395de02c967943129bb45a997c053bce0beeb90e77。示例claim_token为32个0x00编码：AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA，仅用于无网络codec测试，不在生产使用。未执行TLS、状态机或真机测试。

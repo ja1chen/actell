@@ -107,3 +107,15 @@ Rust 其余直接及传递依赖见 [Cargo.toml](ncm-dev/rust/Cargo.toml) 和 [C
 - [主工程整合](docs/ncm-coredevice/MAIN-INTEGRATION.md) · [系统配对记录](docs/ncm-coredevice/PAIRING.md)
 - [后台执行诊断](docs/BACKGROUND-RUN-RECOVERY.md) · [会话停止与释放](docs/CONTROL-SESSION-TEARDOWN.md)
 - [PA3 协议](docs/usb-device/PROTOCOL.md) · [历史归档入口](archives/README.md)
+
+## Muse 远程工具原型
+
+可选的 [Muse 适配层](docs/muse-remote/README.md) 由 Muse 规划，执言通过独立远程运行对象按已配对设备权限执行工具，保留生命周期、互斥执行和截图时效检查。远程调用不创建 Agent 会话，也不切换当前聊天。设置 → 扩展能力 → Muse Gadget现只保留设备列表、添加入口，以及显式连接开关。每台已配对设备可修改并保存显示名称、分别设置截图、应用列表和操控权限，并可移除。证书材料与客户端密钥保存在本机专用钥匙串，服务会保存上次开关状态，在 App 已解锁、处于前台且空闲时恢复。技术连接配置已从普通导航移除。
+
+### 独立 Muse 伴侣连接
+
+正常连接流程采用 [Simple LAN 配对（SLAN/1）](docs/muse-remote/COMPANION-PAIRING.md)：开启“Muse Gadget 服务”，点“添加 Muse”，在 Muse 上选择“连接 Actell”，再在手机允许收到的申请。唯一合法开放窗口会自动申请，不再在 Muse 选择服务名称；多个窗口时只保留目标手机的添加窗口后重试。执言复用稳定的本机 P-256 TLS 身份，交付设备专属凭据，仅在收到经过认证的 `companion.hello` 后显示已配对。Bonjour TXT `host` 提供现有证书 SAN 与 TLS SNI，Muse 使用发现的 SRV 地址联网，IP 变化保留原身份。配对成功默认开启截图、应用列表和操控三项权限，之后可分别关闭；已开放的 Muse 操作直接执行，无需逐次确认。关闭服务会取消未完成配对，保留已完成设备和权限。普通后台切换和远程运行结束不主动关闭监听，也不清空已认证设备的在线记录；工具执行仍须已有后台租约。未完成配对在进入后台时关闭。系统挂起仍可能中断通信；监听停止后，回到已解锁且空闲的前台会自动恢复，不重开配对窗口、不重放任务。重新启动 App 会恢复上次开关状态；首次安装默认关闭。用户选择会在启动检查前保存，启动失败时仍保留开关开启，并显示服务未运行。网络监听中断会在已解锁、空闲的前台以 1–32 秒退避自动重试；关闭开关或离开前台会取消重试。权限或存储故障导致的安全停止不自动重启。
+
+Muse 执行准入失败会返回具体错误码及诊断编号。Agent 排查时先按[诊断流程](docs/muse-remote/DIAGNOSTICS.md)优先通过系统日志、Xcode 原生接口和 CLI 自行提取证据，界面读取仅作兜底，不以用户复制日志为前提。**Muse Gadget → 更多 → 复制诊断日志**保留为手动导出入口，内容包括请求当时的前后台、保护数据、任务占用及手机操控通道状态。Muse 最近 300 条诊断跨 App 重启保留，不记录请求正文、工具参数、凭据或截图。导出使用运行中的日志实例，最近一次写盘失败时仍保留最新事件及存储错误。前置鉴权 401 的格式、时间、凭据可用性、签名、重放及 nonce 容量原因也仅在本地诊断中区分，对外仍返回通用认证失败。
+
+请仅在可信 Wi-Fi 下首次配对：首次 TOFU 不防同一局域网中的主动攻击者。后续连接必须保留精确证书 pin 和逐客户端 HMAC，不复用 Muse 官方账号或 setup token。iPhone／Muse 真机互通和长期后台行为仍待验证。见[实施、清理与验证记录](docs/muse-remote/SLAN-IMPLEMENTATION.md)。旧手动配置仅在带 `--muse-development` 启动参数的 Debug 版本中提供。

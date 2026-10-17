@@ -2,11 +2,13 @@ import Foundation
 
 protocol DeviceBridge: Sendable {
     var executionContext: ScreenUSBExecutionContext? { get }
+    func setRemoteDeadline(_ deadline: Date) async throws
     func supportsBackgroundExecution(tool: String) async -> Bool
     func approvalContext(imageID: String) async throws -> String
     func acceptApproval(imageID: String) async throws
     func authorizeTaskInput(imageID: String) async throws
     func screenshot() async throws -> FrameImage
+    func validateRemoteObservation(_ frame: FrameImage) async throws
     func tap(x: Int, y: Int, imageID: String) async throws
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws
     func installedApplications() async throws -> Data
@@ -19,6 +21,8 @@ protocol DeviceBridge: Sendable {
 }
 
 extension DeviceBridge {
+    func validateRemoteObservation(_ frame: FrameImage) async throws { throw AppError.unavailable("此通道缺少实时几何校验") }
+    func setRemoteDeadline(_ deadline: Date) async throws { throw AppError.unavailable("此通道尚未验证远程截止时间围栏") }
     func bringApplicationToForeground(bundleID: String) async throws -> Bool { false }
     func systemActionContext() async throws -> String { throw AppError.unavailable("当前通道不支持独立系统操作") }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws { throw AppError.unavailable("当前通道不支持独立系统操作") }

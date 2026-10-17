@@ -22,6 +22,7 @@
 	<array>
 		<string>_remotepairing-pairable-host._tcp</string>
 		<string>_remotepairing._tcp</string>
+		<string>_actell-muse._tcp</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

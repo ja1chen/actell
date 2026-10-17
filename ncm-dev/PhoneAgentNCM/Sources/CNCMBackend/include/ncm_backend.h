@@ -88,6 +88,13 @@ int32_t ncm_backend_poll(uint64_t handle,ncm_event *,uint8_t *buffer,size_t capa
 /* Idempotent. Immediately revokes handle and requests worker cancellation. Does
  * not block UI waiting for join or assert remote media/touch release succeeded. */
 void ncm_backend_close(uint64_t handle);
+/* Additive thumbnail-v2 geometry fence. Zero is invalid. */
+uint64_t ncm_backend_video_geometry_generation(uint64_t handle);
+uint64_t ncm_backend_video_invalidate_geometry(uint64_t handle);
+uint64_t ncm_backend_video_sample_geometry(uint64_t handle,uint64_t serial,uint64_t epoch);
+uint64_t ncm_backend_video_publish_geometry(uint64_t handle,uint64_t expected);
+int32_t ncm_backend_input_guarded(uint64_t handle,uint64_t request_id,uint32_t action,uint16_t x,uint16_t y,uint16_t end_x,uint16_t end_y,uint16_t duration_ms,uint64_t expected_geometry);
+
 #ifdef NCM_OFFLINE_FIXTURES
 /* Exists only in the separately built test archive; always 127.0.0.1. Public
  * deterministic fixture identity, no persistent keys or real-device fallback. */

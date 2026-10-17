@@ -44,6 +44,9 @@ struct SettingsView: View {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {
                         Text("技能")
                     }.accessibilityIdentifier("manageSkills")
+                    NavigationLink { MuseConnectionView(model: model) } label: {
+                        Text("Muse Gadget")
+                    }.accessibilityIdentifier("openMuseConnection")
                 }
                 Section("本地记录") {
                     Button("清空本地会话与任务记录", role: .destructive) { clear = true }

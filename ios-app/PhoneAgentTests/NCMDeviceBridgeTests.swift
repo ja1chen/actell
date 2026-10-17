@@ -22,11 +22,29 @@ import ProviderCore
     var launchReleaseCounts: [Int] = []
     var systemActions: [String] = []
     var appQueries = 0
+    var inputDelay: Duration?
     var taps = 0
     var drags: [UInt16] = []
     var releases = 0
     var reservations = 0
     var captures = 0
+    var geometryToken: String?
+    var geometryChecks = 0
+    func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) {
+        (try await agentCapture(owner: owner, session: session), geometryToken)
+    }
+    func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws {
+        geometryChecks += 1
+        guard geometryToken == token else { throw AppError.invalid("Geometry changed") }
+    }
+    func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws {
+        try await agentValidateGeometry(owner: owner, session: session, token: geometry)
+        try validate(); taps += 1
+    }
+    func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws {
+        try await agentValidateGeometry(owner: owner, session: session, token: geometry)
+        try validate(); drags = [fromX, fromY, toX, toY, durationMS]
+    }
     var captureError: NCMControlError?
     var connectionStopID: UUID? = UUID()
     var allowsConnectionWait = false
@@ -62,7 +80,7 @@ import ProviderCore
     }
     func registerAgent(owner: UUID, session: UUID) { reservations += 1 }
     func agentCapture(owner: UUID, session: UUID) async throws -> Data { captures += 1; if let captureError { throw captureError }; return png }
-    func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws { try validate(); taps += 1 }
+    func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws { if let inputDelay { try await Task.sleep(for: inputDelay) }; try validate(); taps += 1 }
     func agentDrag(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, validate: () throws -> Void) async throws { try validate(); drags = [fromX, fromY, toX, toY, durationMS] }
     func releaseAgent(owner: UUID, session: UUID) { releases += 1 }
 }
@@ -79,6 +97,94 @@ import ProviderCore
 }
 
 @MainActor final class NCMDeviceBridgeTests: XCTestCase {
+    func testRemoteAdmissionReportsSpecificControlFailureWithoutReserving() throws {
+        let connection = NCMConnectionSpy()
+        for code in ["control_not_connected", "control_busy", "control_reserved"] {
+            connection.ready = code != "control_not_connected"
+            connection.running = code == "control_busy"
+            connection.agentReserved = code == "control_reserved"
+            XCTAssertThrowsError(try NCMDeviceBridge(flow: connection, remoteExclusive: true)) { error in
+                XCTAssertEqual((error as? NCMRemoteAdmissionError)?.code, code)
+            }
+            XCTAssertEqual(connection.reservations, 0)
+        }
+    }
+
+    func testMuseRemoteTaskPolicyExecutesConsecutiveInputsAndStillStops() async throws {
+        XCTAssertEqual(MuseCompanionAuthorization.inputMode, .task)
+        let connection = NCMConnectionSpy(), bridge = try NCMDeviceBridge(flow: connection)
+        var frameID: String?
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
+            onImage: { frame, _ in frameID = frame.id }, onReceipt: { _ in },
+            authorizationMode: MuseCompanionAuthorization.inputMode)
+        let deadline = Date().addingTimeInterval(20)
+        _ = try await coordinator.executeRemote(name: "screenshot", parameters: [:], callID: "frame", expectedImageID: nil, deadline: deadline)
+        for index in 0..<2 {
+            let result = try await coordinator.executeRemote(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "Muse action"],
+                callID: "tap\(index)", expectedImageID: frameID, deadline: deadline)
+            XCTAssertFalse(result.isError, result.result)
+        }
+        XCTAssertEqual(connection.taps, 2)
+        await coordinator.stop()
+        do {
+            _ = try await coordinator.executeRemote(name: "home", parameters: ["purpose": "stopped"],
+                callID: "stopped", expectedImageID: nil, deadline: deadline)
+            XCTFail("Stopped Muse execution must not dispatch")
+        } catch { XCTAssertEqual(error as? AppError, .stopped) }
+        XCTAssertTrue(connection.systemActions.isEmpty)
+    }
+    func testRemoteGeometryRecheckedAtDispatchAndExpiredFramesRejected() async throws {
+        let connection = NCMConnectionSpy(); connection.geometryToken = "epoch1:revision1:crop1"
+        let bridge = try NCMDeviceBridge(flow: connection)
+        let frame = try await bridge.screenshot()
+        try await bridge.validateRemoteObservation(frame)
+        try await bridge.acceptApproval(imageID: frame.id)
+        connection.geometryToken = "epoch2:revision2:crop2"
+        do { try await bridge.tap(x: 100, y: 100, imageID: frame.id); XCTFail("Changed geometry must not dispatch") }
+        catch { XCTAssertNotNil(error as? AppError) }
+        XCTAssertEqual(connection.taps, 0)
+        XCTAssertEqual(connection.geometryChecks, 2)
+        XCTAssertEqual(connection.captures, 1, "Validation must only read cached geometry")
+        let expired = FrameImage(id: frame.id, png: frame.png, width: frame.width, height: frame.height,
+            capturedAt: Date().addingTimeInterval(-61), isDemo: false, remoteGeometryToken: connection.geometryToken)
+        do { try await bridge.validateRemoteObservation(expired); XCTFail("Expired frame must fail") }
+        catch { XCTAssertNotNil(error as? AppError) }
+        XCTAssertEqual(connection.geometryChecks, 2, "TTL is checked before backend access")
+        await bridge.stop()
+    }
+
+    func testRemoteGeometryFailsClosedWithoutBackendMetadata() async throws {
+        let connection = NCMConnectionSpy()
+        let bridge = try NCMDeviceBridge(flow: connection)
+        let frame = try await bridge.screenshot()
+        do { try await bridge.validateRemoteObservation(frame); XCTFail("Missing metadata must fail closed") }
+        catch { XCTAssertNotNil(error as? AppError) }
+        XCTAssertEqual(connection.captures, 1, "Validation never requests a screenshot")
+        XCTAssertEqual(connection.taps, 0)
+        await bridge.stop()
+    }
+
+    func testRemoteDeadlineCheckedAfterInputPreparationSuspends() async throws {
+        let connection = NCMConnectionSpy()
+        let bridge = try NCMDeviceBridge(flow: connection)
+        let frame = try await bridge.screenshot()
+        try await bridge.acceptApproval(imageID: frame.id)
+        try await bridge.setRemoteDeadline(Date().addingTimeInterval(0.05))
+        connection.inputDelay = .milliseconds(100)
+        do { try await bridge.tap(x: 100, y: 100, imageID: frame.id); XCTFail("Expired input must not dispatch") }
+        catch { XCTAssertEqual(error as? AppError, .stopped) }
+        XCTAssertEqual(connection.taps, 0)
+        await bridge.stop()
+    }
+    func testRemotePastDeadlineRejectedBeforeDispatch() async throws {
+        let connection = NCMConnectionSpy()
+        let bridge = try NCMDeviceBridge(flow: connection)
+        do { try await bridge.setRemoteDeadline(Date().addingTimeInterval(-1)); XCTFail("Must reject expired deadline") }
+        catch { XCTAssertEqual(error as? AppError, .stopped) }
+        XCTAssertEqual(connection.taps, 0); XCTAssertEqual(connection.captures, 0)
+        await bridge.stop()
+    }
+
     func testCompletionActivationDoesNotCaptureReconnectOrCrossStopOrAnotherOwner() async throws {
         let connection = NCMConnectionSpy(), bridge = try NCMDeviceBridge(flow: connection)
         let activated = try await bridge.bringApplicationToForeground(bundleID: "com.ja1chen.PhoneAgent")

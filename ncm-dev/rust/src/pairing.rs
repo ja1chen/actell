@@ -208,6 +208,7 @@ pub extern "C" fn ncm_pairing_ack(handle: u64, state: u32) -> i32 {
             return INVALID;
         }
         match submit.1.try_send(Request {
+            expected_geometry: None,
             id: u64::from(state),
             action: 6,
             x: 0,

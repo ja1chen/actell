@@ -79,6 +79,7 @@ import Darwin
                     else if phase == .active { PairingFlow.shared.resume() }
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
+                    PhoneAgentRuntime.shared.museConnection.setScene(active: phase == .active, background: phase == .background)
                     if phase == .active { PhoneAgentRuntime.shared.commands.resumePendingExecutions() }
                     // Inactive is a transition, not a request to show PiP.
                     if phase == .active { statusPiP.setForeground(true) }
@@ -90,18 +91,24 @@ import Darwin
                     #endif
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+                    PhoneAgentRuntime.shared.remoteTools.stop()
                     PairingFlow.shared.applicationWillTerminate()
                     statusPiP.setBackgroundResident(false)
                     statusPiP.setTaskRunning(false)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
+                    PhoneAgentRuntime.shared.remoteTools.stop()
                     PairingFlow.shared.cancel()
                     statusPiP.setTaskRunning(false)
                     model.setProtectedDataAvailable(false)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
                     model.setProtectedDataAvailable(true)
+                    PhoneAgentRuntime.shared.museConnection.resumeIfEnabled()
                     PhoneAgentRuntime.shared.commands.resumePendingExecutions()
+                }
+                .onChange(of: model.hasBusySessions) { _, busy in
+                    if !busy { PhoneAgentRuntime.shared.museConnection.resumeIfEnabled() }
                 }
         }
     }

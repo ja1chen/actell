@@ -5,9 +5,14 @@ import Foundation
     static let shared = PhoneAgentRuntime()
     let model: AgentViewModel
     let commands: SessionCommandService
+    // Intentionally dormant: only explicit local provisioning may call start.
+    let remoteTools: RemoteToolsService
+    let museConnection: RemoteConnectionController
     private init() {
         model = Self.makeModel()
         commands = SessionCommandService(sessions: model.sessions, runner: model)
+        remoteTools = RemoteToolsService(model: model)
+        museConnection = RemoteConnectionController.make(service: remoteTools, model: model)
     }
     #if DEBUG
     private var invokedSiriFixture = false

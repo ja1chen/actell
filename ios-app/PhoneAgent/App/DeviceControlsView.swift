@@ -72,7 +72,7 @@ private struct USBDiagnosticsControls: View {
                 Button("查看日志") { refresh(); showingLog = true }.accessibilityIdentifier("showUSBDiagnostics")
             }.buttonStyle(.bordered)
             if copied { Text("诊断日志已复制").font(.caption).accessibilityIdentifier("usbDiagnosticsCopied") }
-            Text("保留本次 App 运行最近 600 条采集与 USB 诊断，含首帧状态及丢帧原因；失败后可直接复制。重启 App 会清空，不含截图、任务正文或密钥。")
+            Text("保留本次 App 运行最近 600 条采集与 USB 诊断，含首帧状态及丢帧原因；失败后可直接复制。采集与 USB 记录在重启后清空，Muse 请求诊断另保留最近 300 条并跨重启保存。不含截图、任务正文或密钥。")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $showingLog) {

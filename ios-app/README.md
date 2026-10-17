@@ -56,3 +56,15 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 新增供应商预设顺序为 OpenAI、OpenRouter、ChatGPT 订阅、自定义。订阅配置固定官方地址与无状态 Responses，不接收 API Key。Continue with ChatGPT 使用系统认证浏览器与 HTTP 回环授权，校验官方 JWKS 身份后保存账号隔离的本机 Keychain 凭据。仅获套餐授权的账号模型使用独立订阅流式 Responses；退出尝试官方 discovery 撤销端点并清理本地 token。全部开发验证只用本地 mock，真实账号授权、实体设备与订阅计费尚未验证。完整官方能力与验证边界见 [订阅整合说明](../docs/CHATGPT-SUBSCRIPTION.md)。
 
 每服务商／模型可保存思考强度；仅显示明确报告或官方文档确认的档位，未知模型使用默认、不猜档位。Responses 映射 reasoning.effort，Chat Completions 映射 reasoning_effort。GPT-6.1 Sol 的文档档位只用于官方地址的 Responses 配置，不推广到代理或未知模型。
+
+## Muse 伴侣连接
+
+设置 → 扩展能力 → Muse Gadget现采用 SLAN/1：显式开启服务，点“添加 Muse”开放 120 秒窗口，在 Muse 上选择“连接 Actell”，然后在手机允许或拒绝收到的申请。允许后自动交付独立凭据，收到正式 HMAC hello 才成为已配对设备；配对成功默认开启截图、应用列表和操控权限，之后可分别关闭，已开放的 Muse 操作无需逐次确认。关闭服务会撤销未完成配对，保留已完成设备；服务记住最后一次开关选择，重启后在解锁、前台且空闲时恢复；首次安装默认关闭。普通前后台切换和远程运行结束不主动停止监听，工具执行仍受已有后台租约约束；未完成配对在进入后台时关闭。系统挂起仍可能中断通信；手动关闭后不会恢复，不重开配对窗口或重放任务。
+
+仅在可信 Wi-Fi 首次配对：首次 TOFU 不防同 LAN 主动中间人，后续严格固定 TLS 证书 pin 和每客户端 HMAC。仅支持 Wi-Fi 上的 RFC1918 IPv4，不承诺后台常驻或离线冷启动。官方 Muse 账号与设备 Wi-Fi setup 保持独立。真机配对、TLS/Bonjour、模型截图可见性和实际触控仍待验收。见[共同协议](../docs/muse-remote/SLAN-1.md)和[本端实施与验证](../docs/muse-remote/SLAN-IMPLEMENTATION.md)。
+
+自动 TLS 身份测试需要签名的模拟器 App。普通无签名脚本保留原行为；可显式选择本地 ad-hoc 模式，使用随机测试命名空间，不配置开发者账号或真实凭据：
+
+```sh
+SIMULATOR_ADHOC_SIGN=1 NCM_CARGO_OFFLINE=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
+```

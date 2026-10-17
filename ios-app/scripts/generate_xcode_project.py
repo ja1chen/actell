@@ -49,6 +49,8 @@ def generate():
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
         add("MarkdownUI", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/gonzalezreal/swift-markdown-ui.git",
             requirement=dict(kind="exactVersion", version="2.4.1")),
+        add("SwiftCertificates", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/apple/swift-certificates.git",
+            requirement=dict(kind="exactVersion", version="1.10.0")),
     ]
     targets, groups, products = [], [], []
     for name, extension, product_type in [("PhoneAgent", "app", "application"), ("PhoneAgentTests", "xctest", "bundle.unit-test"), ("PhoneAgentUITests", "xctest", "bundle.ui-testing"), ("PhoneAgentLiveActivity", "appex", "app-extension")]:
@@ -97,6 +99,11 @@ def generate():
         products.append(product)
         package_products, frameworks = [], []
         linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("SwiftAgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
+        # Hosted tests resolve X509 through the app's BUNDLE_LOADER. Linking its
+        # product into both promotes transitive Crypto to an empty dynamic
+        # framework on Xcode 27, which fails before the app can compile.
+        if name == "PhoneAgent":
+            linked_products.append(("X509", packages[3]))
         for product_name, package in linked_products:
             dependency = add(name + product_name, "XCSwiftPackageProductDependency", package=package, productName=product_name)
             package_products.append(dependency)
@@ -117,7 +124,7 @@ def generate():
         if name == "PhoneAgent":
             settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)",
                             INFOPLIST_KEY_NSSupportsLiveActivities="YES",
-                            INFOPLIST_KEY_NSLocalNetworkUsageDescription="Connect to your explicitly paired development bridge while this app is open.",
+                            INFOPLIST_KEY_NSLocalNetworkUsageDescription="Allow explicitly authorized phone-control devices and Muse clients to connect with Actell on the local network.",
                             INFOPLIST_KEY_UIApplicationSceneManifest_Generation="YES",
                             INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents="YES",
                             INFOPLIST_KEY_UILaunchScreen_Generation="YES")

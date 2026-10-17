@@ -343,6 +343,7 @@ impl Media {
         end_x: u16,
         end_y: u16,
         duration: u16,
+        geometry: Option<(&crate::video::VideoMailbox, u64)>,
     ) -> Result<(), Error> {
         if !(100..=2000).contains(&duration) {
             return Err(error(Stage::Input, Cause::InvalidParameters));
@@ -350,6 +351,9 @@ impl Media {
         if !self.healthy.load(Ordering::SeqCst) {
             return Err(error(Stage::Input, Cause::MediaInactive));
         }
+        // Last local check before starting Down. This is not a physical screen
+        // lock; changes after Down begins retain uncertain-result semantics.
+        check_geometry(geometry)?;
         let uncertain = || error(Stage::Input, Cause::DeliveryUncertain);
         bounded(
             Stage::Input,
@@ -386,10 +390,11 @@ impl Media {
         .await
         .map_err(|_| uncertain())
     }
-    pub async fn tap(&mut self, x: u16, y: u16) -> Result<(), Error> {
+    pub async fn tap(&mut self, x: u16, y: u16, geometry: Option<(&crate::video::VideoMailbox, u64)>) -> Result<(), Error> {
         if !self.healthy.load(Ordering::SeqCst) {
             return Err(error(Stage::Input, Cause::MediaInactive));
         }
+        check_geometry(geometry)?;
         let point = TouchPoint::new(x, y);
         if bounded(
             Stage::Input,
@@ -410,6 +415,13 @@ impl Media {
         .await
         .map_err(|_| error(Stage::Input, Cause::DeliveryUncertain))
     }
+}
+
+fn check_geometry(geometry: Option<(&crate::video::VideoMailbox, u64)>) -> Result<(), Error> {
+    if geometry.is_some_and(|(video, expected)| !video.matches_geometry(expected)) {
+        return Err(error(Stage::Input, Cause::InvalidParameters));
+    }
+    Ok(())
 }
 
 fn stop_confirmed(reply: &plist::Value, identifier: u32) -> bool {
@@ -576,6 +588,15 @@ fn extract_answer(value: &plist::Value) -> Result<&[u8], Error> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn changed_geometry_is_rejected_at_last_pre_down_gate() {
+        let video = crate::video::VideoMailbox::default(); video.begin_stream();
+        let capture = video.geometry_generation();
+        assert!(super::check_geometry(Some((&video, capture))).is_ok());
+        video.invalidate_geometry();
+        assert!(super::check_geometry(Some((&video, capture))).is_err());
+        assert!(super::check_geometry(None).is_ok());
+    }
     #[test]
     fn stop_requires_peer_confirmation_and_does_not_confuse_other_streams() {
         fn response(ids: &[u32]) -> plist::Value {

@@ -18,3 +18,10 @@
 - 核心协议、单次授权、会话隔离、未知结果、不重放、checkpoint 迁移和停止释放测试始终保留在默认 target。不能为缩短验证删除这些覆盖。
 
 归档入口见 `archives/README.md`。非核心 PiP 状态展示和 Siri UI 测试可通过 `INCLUDE_ARCHIVED_TESTS=1 python3 ios-app/scripts/generate_xcode_project.py` 临时加入；结束后不带该变量重新生成默认工程。旧控制调试 UI 用例是历史证据，不代表当前导航验收。固件 Host 测试的原目录和脚本继续保留，按涉及范围显式运行。
+
+# 本机日志排查
+
+- 用户要求排查运行故障时，优先通过系统日志服务、Xcode 原生 MCP、CLI 和已有日志文件自行提取证据；Computer Use/AX 仅在原生路径不可用时兜底。不默认要求用户复制日志、截图或点击重连。Muse 日志入口与只读提取步骤见 `docs/muse-remote/DIAGNOSTICS.md`。
+- 读取 Xcode 已有输出与触发设备动作分开：不得因此点击 Run/Stop/Pause、重新连接、调用工具、重新配对或清除日志；真机操作仍受用户当前授权约束。
+- 优先过滤固定诊断阶段/错误码和哈希关联 ID，不读取或输出凭据、签名、请求正文或无关 console 内容。真实日志证据放在忽略的 `.build/validation/`，共享文档只写原因与结论。
+- 日志缺失时先核对现有 Console 是否隐藏、过滤或缺少相应进程/版本的历史。只有自行可访问的路径确实不可用时才说明具体缺口，不将用户操作作为默认排查步骤。
