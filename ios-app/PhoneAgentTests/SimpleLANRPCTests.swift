@@ -521,3 +521,172 @@ private actor SimpleLANImageBridge: DeviceBridge {
         XCTAssertFalse(relaunched.isEnabled); XCTAssertEqual(relaunched.status, .stopped)
     }
 }
+
+private actor PerformanceWaitBridge: DeviceBridge {
+    private let demo = DemoBridge()
+    private(set) var captures = 0
+    var delay: Duration = .milliseconds(180)
+    func setRemoteDeadline(_ deadline: Date) throws { guard deadline > Date() else { throw AppError.stopped } }
+    func screenshot() async throws -> FrameImage {
+        captures += 1
+        try await Task.sleep(for: delay)
+        return try await demo.screenshot()
+    }
+    func tap(x: Int, y: Int, imageID: String) throws { throw AppError.stopped }
+    func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) throws { throw AppError.stopped }
+    func stop() async { try? await Task.sleep(for: .milliseconds(150)); await demo.stop() }
+}
+
+@MainActor private final class PerformanceRPCFixture {
+    let bridge = PerformanceWaitBridge()
+    let service: RemoteToolsService
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let provider = RemoteGeneratedIdentityProvider(namespace: "actell.tests.performance." + UUID().uuidString)
+    let key = Data(repeating: 0x43, count: 32)
+    var allowed = true
+    let deadline = Int64(Date().addingTimeInterval(20).timeIntervalSince1970 * 1000)
+    let operation = String(repeating: "a", count: 64)
+    init() throws {
+        let bridge = bridge
+        let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: BackgroundExecutionCoordinator.testing(selection: []), makeRemoteBridge: { bridge })
+        model.setForeground(true); model.setProtectedDataAvailable(true)
+        service = RemoteToolsService(model: model)
+        let identity = try provider.provision(host: "actell-performance-test.local")
+        service.authorizeRequest = { [weak self] _, _, _ in self?.allowed == true }
+        let key = key
+        try service.start(configuration: .init(enabled: true, port: UInt16.random(in: 20000...40000), allowedSources: [RemoteSourceAddress(literal: "127.0.0.1")!]), identity: identity.identity, keyLookup: { _ in key }, directory: directory)
+    }
+    func close() { service.stop(); try? provider.remove(); try? FileManager.default.removeItem(at: directory) }
+    func call(_ op: String, _ params: [String: Any] = [:], operation: String? = nil) async throws -> [String: Any] {
+        let id = UUID().uuidString.lowercased(), nonce = UUID().uuidString.lowercased(), time = String(Int64(Date().timeIntervalSince1970))
+        let body = try JSONSerialization.data(withJSONObject: ["v": 1, "client_id": "client", "request_id": id, "op": op, "params": params])
+        let signature = HMAC<SHA256>.authenticationCode(for: RemoteRequestAuthenticator.signingMessage(clientID: "client", requestID: id, time: time, nonce: nonce, body: body), using: SymmetricKey(data: key)).map { String(format: "%02x", $0) }.joined()
+        let response = await service.handle(body: body, headers: ["x-actell-time": time, "x-actell-nonce": nonce, "x-actell-signature": signature, "x-actell-operation-id": operation ?? self.operation])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+    }
+    func open() async throws {
+        let response = try await call("runs.open", ["run_id": "run", "deadline_ms": deadline, "image_contract": RemoteImageGeometry.contract])
+        XCTAssertEqual(response["ok"] as? Bool, true)
+    }
+    func screenshot(wait: Any? = nil, deadline: Int64? = nil) -> [String: Any] {
+        var p: [String: Any] = ["run_id": "run", "call_id": "capture", "deadline_ms": deadline ?? self.deadline, "tool": "screenshot", "arguments": [:]]
+        p["wait_ms"] = wait
+        return p
+    }
+    func result(_ response: [String: Any]) throws -> [String: Any] { try XCTUnwrap(response["result"] as? [String: Any]) }
+    func error(_ response: [String: Any]) -> String? { (response["error"] as? [String: Any])?["code"] as? String }
+}
+
+extension SimpleLANRPCTests {
+    func testPerformanceCapabilitiesStrictWaitAndDiagnosticHeaderValidation() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        let capabilities = try f.result(await f.call("capabilities"))
+        let performance = try XCTUnwrap(capabilities["performance"] as? [String: Any])
+        XCTAssertEqual(performance["http_keep_alive"] as? Bool, true)
+        XCTAssertEqual(performance["tools_call_wait_ms_max"] as? Int, 1500)
+        XCTAssertEqual(performance["runs_cancel_wait_ms_max"] as? Int, 500)
+        for invalid in ["bad", String(repeating: "A", count: 64), String(repeating: "0", count: 65)] {
+            let response = try await f.call("capabilities", operation: invalid)
+            XCTAssertEqual(f.error(response), "bad_request")
+        }
+        try await f.open()
+        for invalid: Any in [-1, 1501, 1.5, true, "100", NSNull()] {
+            let response = try await f.call("tools.call", f.screenshot(wait: invalid))
+            XCTAssertEqual(f.error(response), "bad_request")
+        }
+        for invalid: Any in [-1, 501, 1.5, true, "100"] {
+            let response = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": invalid])
+            XCTAssertEqual(f.error(response), "bad_request")
+        }
+        let run = try f.result(await f.call("runs.get", ["run_id": "run"]))
+        XCTAssertEqual(run["state"] as? String, "open")
+        let captures = await f.bridge.captures
+        XCTAssertEqual(captures, 0, "Invalid waiting options must not enqueue work")
+        _ = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500])
+    }
+    func testBoundedWaitReturnsReceiptAndChangingWaitDoesNotResubmit() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        try await f.open()
+        let began = ContinuousClock.now
+        let pending = try f.result(await f.call("tools.call", f.screenshot(wait: 10)))
+        XCTAssertTrue(["queued", "running"].contains(pending["state"] as? String ?? ""))
+        XCTAssertLessThan(began.duration(to: .now), .milliseconds(500))
+        let completed = try f.result(await f.call("tools.call", f.screenshot(wait: 1500), operation: String(repeating: "b", count: 64)))
+        XCTAssertEqual(completed["state"] as? String, "succeeded")
+        let duplicate = try f.result(await f.call("tools.call", f.screenshot()))
+        XCTAssertEqual(duplicate["state"] as? String, "succeeded")
+        let captures = await f.bridge.captures
+        XCTAssertEqual(captures, 1)
+        let cancelled = try f.result(await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500]))
+        XCTAssertEqual(cancelled["execution_released"] as? Bool, true)
+        // Native timing callbacks persist asynchronously with the original call's
+        // correlation, even after a second request changes its unsigned hint.
+        for _ in 0..<50 where !MuseDiagnosticsLog(directory: f.directory).events.contains(where: { $0.stage == "performance.release" }) { try await Task.sleep(for: .milliseconds(5)) }
+        let events = MuseDiagnosticsLog(directory: f.directory).events
+        for stage in ["thumbnail_encoding", "cache_write", "result_ready", "release"] {
+            let event = try XCTUnwrap(events.first { $0.stage == "performance." + stage })
+            XCTAssertEqual(event.state["operation"], f.operation)
+            XCTAssertNotNil(event.diagnosticID)
+            XCTAssertNotNil(UInt64(event.state["elapsed_ns"] ?? ""))
+        }
+        XCTAssertFalse(String(describing: events).contains("x-actell-signature"))
+    }
+    func testLegacyCancelReturnsBeforeReleaseAndLaterGetReconciles() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        try await f.open()
+        let cancelled = try f.result(await f.call("runs.cancel", ["run_id": "run"]))
+        XCTAssertEqual(cancelled["execution_released"] as? Bool, false)
+        let timedOut = try f.result(await f.call("runs.cancel", ["run_id": "run", "wait_ms": 10]))
+        XCTAssertEqual(timedOut["execution_released"] as? Bool, false)
+        let released = try f.result(await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500]))
+        XCTAssertEqual(released["execution_released"] as? Bool, true)
+        let reconciled = try f.result(await f.call("runs.get", ["run_id": "run"]))
+        XCTAssertEqual(reconciled["execution_released"] as? Bool, true)
+    }
+    func testCancelledResponseWaitDoesNotCancelOrReplayAcceptedWork() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        try await f.open()
+        let waiter = Task { try await f.call("tools.call", f.screenshot(wait: 1500)) }
+        for _ in 0..<100 {
+            if await f.bridge.captures == 1 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        waiter.cancel()
+        _ = try await waiter.value
+        try await Task.sleep(for: .milliseconds(300))
+        let receipt = try f.result(await f.call("calls.get", ["run_id": "run", "call_id": "capture"]))
+        XCTAssertEqual(receipt["state"] as? String, "succeeded")
+        let captures = await f.bridge.captures; XCTAssertEqual(captures, 1)
+        _ = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500])
+    }
+    func testWaitRechecksPermissionBeforeReturningResult() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        try await f.open()
+        let waiter = Task { try await f.call("tools.call", f.screenshot(wait: 1500)) }
+        for _ in 0..<100 {
+            if await f.bridge.captures == 1 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        f.allowed = false
+        let response = try await waiter.value
+        XCTAssertEqual(f.error(response), "forbidden")
+        f.allowed = true
+        _ = try await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500])
+    }
+}
+
+extension SimpleLANRPCTests {
+    func testCallWaitCannotExtendRemainingExecutionDeadline() async throws {
+        let f = try PerformanceRPCFixture(); defer { f.close() }
+        try await f.open()
+        let deadline = Int64(Date().addingTimeInterval(0.1).timeIntervalSince1970 * 1000)
+        let began = ContinuousClock.now
+        let response = try await f.call("tools.call", f.screenshot(wait: 1500, deadline: deadline))
+        let receipt = try f.result(response)
+        XCTAssertLessThan(began.duration(to: .now), .milliseconds(700))
+        XCTAssertNotEqual(receipt["state"] as? String, "succeeded")
+        let cancelled = try f.result(await f.call("runs.cancel", ["run_id": "run", "wait_ms": 500]))
+        XCTAssertEqual(cancelled["execution_released"] as? Bool, true)
+        let captures = await f.bridge.captures; XCTAssertLessThanOrEqual(captures, 1)
+    }
+}

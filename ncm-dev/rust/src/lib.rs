@@ -152,6 +152,24 @@ pub struct Session {
     video: std::sync::Arc<video::VideoMailbox>,
     valid: bool,
 }
+/// Fixed recovery stages; durations are measured in the worker's monotonic
+/// clock. Bounded to the eight connection steps, with no protocol payloads.
+pub(crate) struct ConnectTiming {
+    pub stage: u32,
+    pub elapsed_ns: u64,
+    pub failed: bool,
+}
+// Expand around the existing await instead of nesting another Future: native
+// worker stacks must not grow just to measure the large protocol state machine.
+macro_rules! timed_connect {
+    ($timings:expr, $stage:expr, $work:expr) => {{
+        let began = std::time::Instant::now();
+        let result = $work.await;
+        $timings.push(ConnectTiming { stage: $stage, elapsed_ns: began.elapsed().as_nanos().min(u64::MAX as u128) as u64, failed: result.is_err() });
+        result
+    }};
+}
+
 impl Session {
     /// No fallback: a rejected verify never triggers Pair Setup, lockdown record
     /// lookup, native TCP, QUIC, VPN configuration or any Mac service.
@@ -159,43 +177,47 @@ impl Session {
         connector: &impl NcmConnector,
         identity: &mut ExistingIdentity,
     ) -> Result<Self, Error> {
+        Self::connect_timed(connector, identity, &mut Vec::new()).await
+    }
+    pub(crate) async fn connect_timed(
+        connector: &impl NcmConnector,
+        identity: &mut ExistingIdentity,
+        timings: &mut Vec<ConnectTiming>,
+    ) -> Result<Self, Error> {
         identity.validate()?;
         let owner = Owner::default();
-        let stream = bounded(Stage::NcmConnect, connector.connect(Purpose::PairVerify)).await?;
+        let stream = timed_connect!(timings, 1, bounded(Stage::NcmConnect, connector.connect(Purpose::PairVerify)))?;
         let mut control = RemotePairingClient::new(
             RpPairingSocket::new(Gated::new(stream, owner.0.clone())),
             &identity.controller.identifier,
         );
-        bounded(Stage::PairVerify, control.attempt_pair_verify()).await?;
-        bounded(
+        timed_connect!(timings, 2, bounded(Stage::PairVerify, control.attempt_pair_verify()))?;
+        timed_connect!(timings, 3, bounded(
             Stage::PairVerify,
             control.validate_pairing(&mut identity.controller, &identity.peer),
-        )
-        .await?;
-        let port = bounded(Stage::TunnelListener, control.create_tcp_listener()).await?;
+        ))?;
+        let port = timed_connect!(timings, 4, bounded(Stage::TunnelListener, control.create_tcp_listener()))?;
         if port == 0 {
             return Err(error(Stage::TunnelListener, Cause::InvalidParameters));
         }
-        let stream = bounded(
+        let stream = timed_connect!(timings, 5, bounded(
             Stage::NcmConnect,
             connector.connect(Purpose::NegotiatedTunnel { port }),
-        )
-        .await?;
-        let tunnel = bounded(
+        ))?;
+        let tunnel = timed_connect!(timings, 6, bounded(
             Stage::TlsTunnel,
             connect_tls_psk_tunnel_native(
                 Gated::new(stream, owner.0.clone()),
                 control.encryption_key(),
             ),
-        )
-        .await?;
+        ))?;
         let (client, server, rsd_port, mss) = tunnel_parameters(&tunnel.info)?;
         let mut raw = Adapter::new(Box::new(tunnel.into_inner()), client.into(), server.into());
         raw.set_mss(mss);
         let mut adapter = raw.to_async_handle();
-        let rsd_stream = bounded(Stage::Rsd, adapter.connect(rsd_port)).await?;
+        let rsd_stream = timed_connect!(timings, 7, bounded(Stage::Rsd, adapter.connect(rsd_port)))?;
         let (handshake, rsd_control) =
-            bounded(Stage::Rsd, RsdHandshake::new_retained(rsd_stream)).await?;
+            timed_connect!(timings, 8, bounded(Stage::Rsd, RsdHandshake::new_retained(rsd_stream)))?;
         verify_rsd_identity(&handshake, &identity.peer)?;
         Ok(Self {
             owner,
@@ -665,7 +687,11 @@ mod tests {
             peer.read_to_end(&mut rest).await.unwrap();
             assert!(rest.is_empty());
         });
-        let result = Session::connect(&connector, &mut fixture_identity()).await;
+        let mut timings = Vec::new();
+        let result = Session::connect_timed(&connector, &mut fixture_identity(), &mut timings).await;
+        assert_eq!(timings.iter().map(|t| t.stage).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert!(!timings[0].failed);
+        assert!(timings.last().unwrap().failed);
         assert!(matches!(
             result,
             Err(Error {

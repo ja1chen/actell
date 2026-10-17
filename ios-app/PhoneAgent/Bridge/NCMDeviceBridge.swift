@@ -226,10 +226,14 @@ private final class NCMRunFence: @unchecked Sendable {
     /// Connection preparation never sends/replays an input. Fresh observation
     /// and system actions may bind a new session; old coordinates/grants cannot.
     private func prepareConnection() async throws {
+        let span = NativePerformanceTrace.begin(.controlPreparation)
+        var prepared = false
+        defer { span.end(succeeded: prepared) }
         let waiting = !flow.ready
         if waiting { connectionDiagnostic?("control.connection_wait") }
         do {
             try await awaitConnection()
+            prepared = true
             if waiting { connectionDiagnostic?("control.connection_ready") }
         } catch {
             connectionDiagnostic?("control.connection_failed")

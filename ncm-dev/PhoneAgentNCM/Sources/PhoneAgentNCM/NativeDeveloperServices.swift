@@ -2,6 +2,51 @@
 import Foundation
 import CNCMBackend
 
+/// Fixed, payload-free timings. The observer is inherited by child Tasks; spans
+/// capture it explicitly before crossing decoder queues. No wall-clock subtraction.
+public enum NativePerformanceTrace {
+    public enum Stage: String, Sendable {
+        case controlPreparation = "control_preparation", discovery, developerReadiness = "developer_readiness"
+        case pairSocket = "pair_socket", pairVerify = "pair_verify", pairValidation = "pair_validation"
+        case tunnelListener = "tunnel_listener", tunnelSocket = "tunnel_socket", tunnelTLS = "tunnel_tls"
+        case serviceSocket = "service_socket", serviceDiscovery = "service_discovery"
+        case mediaStart = "media_start", freshFrameWait = "fresh_frame_wait", originalEncoding = "original_encoding"
+        case thumbnailEncoding = "thumbnail_encoding", cacheWrite = "cache_write", resultReady = "result_ready", release
+    }
+    public struct Sample: Sendable {
+        public let stage: Stage
+        public let elapsedNanoseconds: UInt64
+        public let uptimeNanoseconds: UInt64
+        public let succeeded: Bool
+        public let bytes: Int?
+    }
+    @TaskLocal public static var observer: (@Sendable (Sample) -> Void)?
+    public struct Span: Sendable {
+        let stage: Stage
+        let began = DispatchTime.now().uptimeNanoseconds
+        let observer: (@Sendable (Sample) -> Void)?
+        public func end(succeeded: Bool = true, bytes: Int? = nil) {
+            let now = DispatchTime.now().uptimeNanoseconds
+            observer?(Sample(stage: stage, elapsedNanoseconds: now - began,
+                             uptimeNanoseconds: now, succeeded: succeeded, bytes: bytes))
+        }
+    }
+    public static func begin(_ stage: Stage) -> Span { Span(stage: stage, observer: observer) }
+    public static func measure<T>(_ stage: Stage, _ work: () async throws -> T) async rethrows -> T {
+        let span = begin(stage)
+        do { let result = try await work(); span.end(); return result }
+        catch { span.end(succeeded: false); throw error }
+    }
+    static func recoverySample(stage: UInt32, failed: Bool, data: Data) throws {
+        let stages: [Stage] = [.pairSocket, .pairVerify, .pairValidation, .tunnelListener,
+                               .tunnelSocket, .tunnelTLS, .serviceSocket, .serviceDiscovery]
+        guard (1...8).contains(stage), data.count == 8 else { throw NativeBackendError.malformedEvent }
+        let duration = data.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << ($1.offset * 8) }
+        observer?(Sample(stage: stages[Int(stage) - 1], elapsedNanoseconds: duration,
+                         uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds, succeeded: !failed, bytes: nil))
+    }
+}
+
 /// Existing, authorized RemotePairing identity only. No filesystem/Keychain
 /// discovery, generation or conversion from a Lockdown record is performed.
 public struct AuthorizedRemoteIdentity {
@@ -251,6 +296,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         guard ready, handle != 0, let decoder = videoDecoder else { throw NativeBackendError.closed }
         videoSnapshotDiagnostics = nil
         let token = handle, began = ContinuousClock.now
+        let freshFrameWait = NativePerformanceTrace.begin(.freshFrameWait)
         var initial = ncm_video_status()
         let initialCode = ncm_backend_video_get_status(token, &initial)
         var initialSnapshot = ncm_video_snapshot()
@@ -274,7 +320,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             let published = publishedDecoderGeometry
             let geometryCredential = published?.credential ?? 0
             if videoPollSerial != polledAfter, geometryCredential != 0,
-               let jpeg = try await decoder.jpeg(notBefore: began, confirmedEpoch: snapshot.epoch, confirmedSerial: confirmed) {
+               let jpeg = try await decoder.jpeg(notBefore: began, confirmedEpoch: snapshot.epoch, confirmedSerial: confirmed, freshFrameWait: freshFrameWait) {
                 guard token == handle, ready else { throw NativeBackendError.closed }
                 var after = ncm_video_snapshot()
                 guard ncm_backend_video_get_snapshot(token, &after) == 0 else { throw NativeBackendError.closed }
@@ -289,6 +335,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             }
             try await Task.sleep(for: .milliseconds(25))
         }
+        freshFrameWait.end(succeeded: false)
         var status = ncm_video_status()
         let code = ncm_backend_video_get_status(token, &status)
         NSLog("NCM screenshot timeout status=%d datagrams=%llu rtp=%llu rejected=%llu frames=%llu discontinuities=%llu overflows=%llu refreshes=%llu sourcePort=%llu", code, status.datagrams, status.rtp, status.rejected, status.frames, status.discontinuities, status.overflows, status.refreshes, status.source_port)
@@ -434,6 +481,17 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                 guard copied == 0 else { throw NativeBackendError.transport(code: copied) }
             } else if status != 0 { throw NativeBackendError.transport(code: status) }
             guard event.request_id == requestID, event.reserved == 0 else { throw NativeBackendError.malformedEvent }
+            if event.kind == 16 {
+                guard requestID == 0, event.stage == 0, event.cause == 0,
+                      !data.isEmpty, data.count <= 128, data.count % 16 == 0 else { throw NativeBackendError.malformedEvent }
+                for offset in stride(from: 0, to: data.count, by: 16) {
+                    let stage = data[offset..<(offset + 4)].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << ($1.offset * 8) }
+                    let failed = data[(offset + 4)..<(offset + 8)].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << ($1.offset * 8) }
+                    guard stage == UInt32(offset / 16 + 1), failed <= 1 else { throw NativeBackendError.malformedEvent }
+                    try NativePerformanceTrace.recoverySample(stage: stage, failed: failed == 1, data: Data(data[(offset + 8)..<(offset + 16)]))
+                }
+                continue
+            }
             if event.kind == 10 { throw NativeBackendError.touchPreparationFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 12 { throw NativeBackendError.applicationQueryFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 3 { throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause) }
@@ -755,14 +813,23 @@ final class NCMVideoDecoder: @unchecked Sendable {
             queue.async { continuation.resume(returning: self.encodedGeometryToken) }
         }
     }
-    func jpeg(notBefore: ContinuousClock.Instant, confirmedEpoch: UInt64? = nil, confirmedSerial: UInt64 = 0) async throws -> Data? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
+    func jpeg(notBefore: ContinuousClock.Instant, confirmedEpoch: UInt64? = nil, confirmedSerial: UInt64 = 0,
+              freshFrameWait: NativePerformanceTrace.Span? = nil) async throws -> Data? {
+        let observer = NativePerformanceTrace.observer
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
             queue.async {
                 do {
                     guard let latest = self.latest, !self.requiresSync,
                           latest.received >= notBefore || (confirmedSerial > 0 && self.epoch == confirmedEpoch && latest.serial >= confirmedSerial)
                     else { continuation.resume(returning: nil); return }
-                    let data = try NCMVideoImage.jpeg(buffer: latest.buffer, rect: latest.rect, context: self.context)
+                    freshFrameWait?.end()
+                    let data = try NativePerformanceTrace.$observer.withValue(observer) {
+                        let span = NativePerformanceTrace.begin(.originalEncoding)
+                        do {
+                            let data = try NCMVideoImage.jpeg(buffer: latest.buffer, rect: latest.rect, context: self.context)
+                            span.end(bytes: data.count); return data
+                        } catch { span.end(succeeded: false); throw error }
+                    }
                     self.encodedGeometryToken = self.geometryTokenOnQueue()
                     continuation.resume(returning: data)
                 } catch { continuation.resume(throwing: error) }

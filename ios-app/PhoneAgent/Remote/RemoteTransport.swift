@@ -189,7 +189,7 @@ struct RemoteHTTPRequestParser {
                 guard parsed[forbidden] == nil else { throw RemoteHTTPFailure.badRequest }
             }
             if let connection = parsed["connection"] {
-                guard connection.lowercased() == "close" else { throw RemoteHTTPFailure.badRequest }
+                guard ["close", "keep-alive"].contains(connection.lowercased()) else { throw RemoteHTTPFailure.badRequest }
             }
             let mediaType = parsed["content-type"]?.lowercased()
             guard mediaType == "application/json" || mediaType == "application/json; charset=utf-8" else {
@@ -258,6 +258,7 @@ final class RemoteHTTPTransport {
     typealias PairingHandler = @MainActor @Sendable (String, Data, [String: String], RemoteSourceAddress) -> RemoteHTTPResponse
     typealias Handler = @MainActor @Sendable (Data, [String: String], RemoteSourceAddress) async throws -> RemoteHTTPResponse
 
+    static let maximumRequestsPerConnection = 32
     static let maximumConnections = 4
     static let maximumResponseBytes = 25 * 1_024 * 1_024
     nonisolated static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
@@ -401,6 +402,13 @@ final class RemoteHTTPTransport {
         private var responseProcessed = false
         private var operationInFlight = false
         private var notifiedClose = false
+        private var keepAlive = false
+        private var requestCount = 0
+        private var nextBytes = Data()
+        private var nextReadBegan: ContinuousClock.Instant?
+        // Idle reuse is bounded by the same 10s read budget. Partial headers
+        // never restart it. The current write keeps its own original deadline.
+
         private var phase = "read"
         private let traceID = MuseDiagnosticsLog.tag(UUID().uuidString)
         private let diagnostic: @MainActor @Sendable (String, [String: String]) -> Void
@@ -446,11 +454,19 @@ final class RemoteHTTPTransport {
                         self.report("http.peer.ended")
                     }
                     if self.sending {
-                        // A pending read must survive the transition to writing:
-                        // it observes peer completion, never a second RPC.
+                        // A sequential client may have consumed the complete body
+                        // before our send callback reaches MainActor. Buffer at most
+                        // one bounded request; dispatch only after that callback and
+                        // the preceding handler have both finished.
                         if let data, !data.isEmpty {
-                            self.report("http.pipeline.rejected")
-                            self.close()
+                            guard self.keepAlive,
+                                  self.nextBytes.count + data.count <= RemoteHTTPRequestParser.maximumHeaderBytes + 4 + RemoteHTTPRequestParser.maximumBodyBytes else {
+                                self.report("http.pipeline.rejected"); self.close(); return
+                            }
+                            if self.nextReadBegan == nil { self.nextReadBegan = .now }
+                            self.nextBytes.append(data)
+                            self.finishResponseIfReusable()
+                            self.receive()
                         } else if complete && self.responseProcessed {
                             self.close()
                         } else if !complete {
@@ -465,6 +481,7 @@ final class RemoteHTTPTransport {
                         if let data, !data.isEmpty {
                             self.report("http.pipeline.rejected")
                             self.operation?.cancel()
+                            self.keepAlive = false
                             self.send(RemoteHTTPFailure.badRequest.response)
                         } else if !complete {
                             self.receive()
@@ -472,12 +489,18 @@ final class RemoteHTTPTransport {
                         return
                     }
                     do {
-                        if let data, !data.isEmpty, let request = try self.parser.append(data) {
-                            self.dispatch(request)
-                            if !complete { self.receive() }
-                            return
+                        if let data, !data.isEmpty {
+                            self.phase = "read"
+                            if let request = try self.parser.append(data) {
+                                self.dispatch(request)
+                                if !complete { self.receive() }
+                                return
+                            }
                         }
-                        if complete { self.send(RemoteHTTPFailure.badRequest.response) }
+                        if complete {
+                            if self.phase == "idle" { self.close() }
+                            else { self.send(RemoteHTTPFailure.badRequest.response) }
+                        }
                         else { self.receive() }
                     } catch let failure as RemoteHTTPFailure {
                         self.send(self.parser.isPairingRequest ? Self.pairFailure(failure) : failure.response)
@@ -489,6 +512,9 @@ final class RemoteHTTPTransport {
         }
 
         private func dispatch(_ request: RemoteHTTPRequest) {
+            requestCount += 1
+            keepAlive = request.path == "/v1/rpc" && request.headers["connection"]?.lowercased() != "close"
+                && requestCount < RemoteHTTPTransport.maximumRequestsPerConnection
             phase = "handler"
             report("http.request.parsed", ["route": request.path == "/v1/rpc" ? "rpc" : "pairing"])
             receivedRequest = true
@@ -500,6 +526,7 @@ final class RemoteHTTPTransport {
                     self.operationInFlight = false
                     self.operation = nil
                     self.notifyCloseIfDrained()
+                    self.finishResponseIfReusable()
                 }
                 guard !self.closed else { return }
                 do {
@@ -548,15 +575,17 @@ final class RemoteHTTPTransport {
 
         private func send(_ response: RemoteHTTPResponse) {
             guard !closed, !sending else { return }
+            keepAlive = keepAlive && !peerEnded && response.status == 200
             sending = true; phase = "write"
             report("http.response.queued", ["status": String(response.status), "body_bytes": String(response.body.count)])
             armDeadline(timeouts.write)
             let wire: Data
-            do { wire = try RemoteHTTPTransport.encode(response) }
-            catch { wire = (try? RemoteHTTPTransport.encode(RemoteHTTPFailure.internalFailure.response)) ?? Data() }
-            connection.send(content: wire, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] error in
+            do { wire = try RemoteHTTPTransport.encode(response, keepAlive: keepAlive) }
+            catch { keepAlive = false; wire = (try? RemoteHTTPTransport.encode(RemoteHTTPFailure.internalFailure.response)) ?? Data() }
+            let responseNumber = requestCount
+            connection.send(content: wire, contentContext: keepAlive ? .defaultMessage : .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] error in
                 Task { @MainActor in
-                    guard let self, !self.closed else { return }
+                    guard let self, !self.closed, self.requestCount == responseNumber else { return }
                     if let error {
                         self.report("http.response.failed", RemoteHTTPTrace.errorFields(error))
                         self.close()
@@ -565,6 +594,7 @@ final class RemoteHTTPTransport {
                     self.report("http.response.processed")
                     self.responseProcessed = true
                     self.phase = "drain"
+                    self.finishResponseIfReusable()
                     // .finalMessage ends our write side in protocol order.
                     // contentProcessed is local stack progress, not delivery.
                     // Retain the session until the peer ends or the ORIGINAL
@@ -574,6 +604,25 @@ final class RemoteHTTPTransport {
                     self.receive()
                 }
             })
+            receive()
+        }
+
+        private func finishResponseIfReusable() {
+            guard !closed, sending, keepAlive, responseProcessed, !operationInFlight, !peerEnded else { return }
+            parser = RemoteHTTPRequestParser()
+            receivedRequest = false; sending = false; responseProcessed = false; keepAlive = false
+            phase = nextBytes.isEmpty ? "idle" : "read"
+            let bytes = nextBytes; nextBytes.removeAll(keepingCapacity: false)
+            let elapsed = nextReadBegan.map { $0.duration(to: .now) } ?? .zero
+            nextReadBegan = nil
+            let budget = Duration.nanoseconds(Int64(timeouts.request)) - elapsed
+            if budget <= .zero { close(); return }
+            let parts = budget.components
+            armDeadline(UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000))
+            report("http.connection.reusable", ["requests": String(requestCount)])
+            do {
+                if !bytes.isEmpty, let request = try parser.append(bytes) { dispatch(request) }
+            } catch { send(RemoteHTTPFailure.badRequest.response) }
             receive()
         }
 
@@ -597,7 +646,7 @@ final class RemoteHTTPTransport {
         }
     }
 
-    static func encode(_ response: RemoteHTTPResponse) throws -> Data {
+    static func encode(_ response: RemoteHTTPResponse, keepAlive: Bool = false) throws -> Data {
         guard (200...599).contains(response.status), response.body.count <= maximumResponseBytes,
               response.headers.count <= 32 else { throw RemoteHTTPFailure.internalFailure }
         var headers: [String: String] = [:]
@@ -613,7 +662,7 @@ final class RemoteHTTPTransport {
         }
         if headers["content-type"] == nil { headers["content-type"] = "application/json" }
         headers["content-length"] = String(response.body.count)
-        headers["connection"] = "close"
+        headers["connection"] = keepAlive ? "keep-alive" : "close"
         headers["cache-control"] = "no-store"
         headers["x-content-type-options"] = "nosniff"
         let reason: String

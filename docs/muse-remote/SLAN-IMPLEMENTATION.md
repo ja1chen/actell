@@ -446,7 +446,8 @@ idle or explicit resume. There is currently no same-foreground network-recovery
 trigger after waiting; this is a source-level path, not a proven physical failure
 cause. No network monitoring/recovery behavior or trust contract was changed here.
 
-HTTP uses one POST per TLS connection, Content-Length and Connection: close, with
+This historical baseline used one POST per TLS connection. The current optional
+connection reuse and bounded-wait contract is in [REMOTE-TOOLS.md](REMOTE-TOOLS.md#optional-latency-capabilities). The baseline used Content-Length and Connection: close, with
 10s request / 30s handler / 10s write deadlines. Normal RPC and authenticated
 business errors use HTTP200 with ok/result or ok/error; invalid HMAC uses401,
 pre-auth malformed envelopes400. Calls.get is read-only and not_found is not proof

@@ -8,6 +8,31 @@ spec.loader.exec_module(collector)
 
 
 class CollectorTests(unittest.TestCase):
+    def test_structured_app_log_normalizes_timing_without_private_fields(self):
+        sample = [{'stage': 'performance.original_encoding', 'diagnosticID': '1' * 16,
+                   'run': '2' * 16, 'time': 'private', 'state': {'call': '3' * 16,
+                   'operation': 'a' * 64, 'elapsed_ns': '1234500', 'succeeded': 'true',
+                   'bytes': '8192', 'pixels': 'private', 'signature': 'private'}}]
+        events = collector.extract(sample)
+        rows = list(collector.performance_rows(events))
+        self.assertEqual(rows, [{'source': 'actell', 'operation_id': 'a' * 64,
+            'phase': 'original_encode', 'elapsed_ms': 1.2345, 'ok': 1, 'bytes': 8192,
+            'diagnostic_id': '1' * 16, 'run': '2' * 16, 'call': '3' * 16}])
+        self.assertNotIn('private', str(events) + str(rows))
+        sample[0]['state']['operation'] = 'raw-private-id'
+        self.assertEqual(list(collector.performance_rows(collector.extract(sample))), [])
+        sample[0]['state']['operation'] = 'a' * 64
+        sample[0]['state']['elapsed_ns'] = '-1'
+        self.assertEqual(list(collector.performance_rows(collector.extract(sample))), [])
+
+
+    def test_performance_keeps_fixed_metrics_and_operation_hint_only(self):
+        operation = 'a' * 64
+        events = collector.extract(f'stage=performance.fresh_frame_wait diagnostic=1111111111111111 state=["operation": "{operation}", "elapsed_ns": "3500000", "bytes": "1024", "succeeded": "true", "sample_uptime_ns": "5000000", "pixels": "private", "arguments": "private"]')
+        self.assertEqual(events[0]['state']['operation'], operation)
+        self.assertEqual(events[0]['state']['elapsed_ns'], '3500000')
+        self.assertNotIn('private', str(events))
+
     def test_geometry_failure_keeps_categories_and_hashed_call_without_payload(self):
         events = collector.extract('stage=tool.execution.failed run=1111111111111111 code=geometry_unavailable state=["call": "2222222222222222", "geometry_reason": "metadata_query", "native_stage": "11", "native_cause": "2", "delivery": "failed", "purpose": "private", "geometry_token": "private"]')
         self.assertEqual(events[0]['state'], {'call': '2222222222222222', 'geometry_reason': 'metadata_query', 'native_stage': '11', 'native_cause': '2', 'delivery': 'failed'})

@@ -157,7 +157,7 @@ final class RemoteTransportSecurityTests: XCTestCase {
             "Content-Length: \(body.count)\r\n", "content-length: \(body.count)\r\n",
             "Transfer-Encoding: chunked\r\n", "Transfer-Encoding: identity\r\n",
             "Expect: 100-continue\r\n", "Upgrade: websocket\r\n", "Trailer: Digest\r\n",
-            "Content-Encoding: gzip\r\n", "Connection: keep-alive\r\n", " Bad: folded\r\n",
+            "Content-Encoding: gzip\r\n", "Connection: keep-alive, upgrade\r\n", " Bad: folded\r\n",
             "Bad : value\r\n", "X-Test: one\r\nx-test: two\r\n", "X-Test: a\nb\r\n"
         ] {
             var parser = RemoteHTTPRequestParser()

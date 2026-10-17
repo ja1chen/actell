@@ -17,7 +17,7 @@ STATE_FIELDS = {
     'control_reserved', 'control_pairing', 'control_has_record', 'control_background',
     'control_failure_present', 'background_enabled', 'background_selected',
     'background_desired', 'background_effective', 'background_continuity',
-    'release_elapsed_ms',
+    'release_elapsed_ms', 'elapsed_ns', 'sample_uptime_ns', 'succeeded', 'bytes', 'operation', 'requests',
     'call', 'delivery', 'geometry_reason', 'native_stage', 'native_cause',
 }
 
@@ -33,8 +33,64 @@ def strings(value):
             yield from strings(item)
 
 
+def structured_events(value):
+    """Accept the app's existing bounded JSON log without exporting raw fields."""
+    if isinstance(value, dict):
+        stage, state = value.get('stage'), value.get('state')
+        if isinstance(stage, str) and re.fullmatch(r'[a-z][a-z0-9_.]*', stage) and isinstance(state, dict):
+            event = {'stage': stage, 'state': {k: v for k, v in state.items()
+                     if k in STATE_FIELDS and isinstance(v, str) and re.fullmatch(r'[A-Za-z0-9_.:+/-]{0,120}', v)}}
+            for original, target in [('diagnosticID', 'diagnostic'), ('diagnostic', 'diagnostic'), ('client', 'client'), ('run', 'run')]:
+                item = value.get(original)
+                if isinstance(item, str) and re.fullmatch(r'[0-9a-f]{16}', item):
+                    event[target] = item
+            code = value.get('code')
+            if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]*', code):
+                event['code'] = code
+            yield event
+        else:
+            for item in value.values():
+                yield from structured_events(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from structured_events(item)
+
+
+PERFORMANCE_PHASES = {
+    'control_preparation': 'control_prepare', 'discovery': 'discovery',
+    'developer_readiness': 'developer_readiness', 'pair_socket': 'pair_socket',
+    'pair_verify': 'pair_verify', 'pair_validation': 'pair_validation',
+    'tunnel_listener': 'tunnel_listener', 'tunnel_socket': 'tunnel_socket',
+    'tunnel_tls': 'tunnel_tls', 'service_socket': 'service_socket',
+    'service_discovery': 'service_discovery', 'media_start': 'media_start',
+    'fresh_frame_wait': 'fresh_frame', 'original_encoding': 'original_encode',
+    'thumbnail_encoding': 'thumbnail_encode', 'cache_write': 'cache_write',
+    'result_ready': 'result_ready', 'release': 'release',
+}
+
+
+def performance_rows(events):
+    for event in events:
+        phase = PERFORMANCE_PHASES.get(event['stage'].removeprefix('performance.')) if event['stage'].startswith('performance.') else None
+        state = event['state']
+        operation, duration = state.get('operation', ''), state.get('elapsed_ns', '')
+        if not phase or not re.fullmatch(r'[0-9a-f]{64}', operation) or not re.fullmatch(r'[0-9]{1,20}', duration) or int(duration) > 2**64 - 1:
+            continue
+        row = {'source': 'actell', 'operation_id': operation, 'phase': phase, 'elapsed_ms': int(duration) / 1_000_000}
+        if state.get('succeeded') in ('true', 'false'):
+            row['ok'] = int(state['succeeded'] == 'true')
+        if re.fullmatch(r'[0-9]{1,12}', state.get('bytes', '')):
+            row['bytes'] = int(state['bytes'])
+        for original, target in [('diagnostic', 'diagnostic_id'), ('run', 'run')]:
+            if re.fullmatch(r'[0-9a-f]{16}', event.get(original, '')):
+                row[target] = event[original]
+        if re.fullmatch(r'[0-9a-f]{16}', state.get('call', '')):
+            row['call'] = state['call']
+        yield row
+
+
 def extract(value):
-    events = []
+    events = list(structured_events(value))
     for text in strings(value):
         for line in text.splitlines():
             match = re.search(r'(?:^|\s)stage=([a-z][a-z0-9_.]*)\s', line)
@@ -65,6 +121,7 @@ def main():
     source.add_argument('--unified', action='store_true', help='Mac log store only, not iPhone logs')
     parser.add_argument('--last', default='30m', help='Unified log lookback, such as 30m')
     parser.add_argument('--output', type=Path, required=True, help='Ignored/private output file')
+    parser.add_argument('--performance-jsonl', type=Path, help='Optional private normalized timing JSONL for the Muse analyzer')
     args = parser.parse_args()
     report = {'status': 'source_unavailable', 'source': '', 'device_contacted': False, 'events': []}
     try:
@@ -104,6 +161,13 @@ def main():
         os.fchmod(stream.fileno(), 0o600)
         json.dump(report, stream, ensure_ascii=False, indent=2)
         stream.write('\n')
+    if args.performance_jsonl:
+        args.performance_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(args.performance_jsonl, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            for row in performance_rows(report['events']):
+                stream.write(json.dumps(row) + '\n')
     print(json.dumps({'status': report['status'], 'events': len(report['events']), 'output': str(args.output)}))
     return 0 if report['status'] == 'ok' else 2
 

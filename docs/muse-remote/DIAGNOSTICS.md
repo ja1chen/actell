@@ -83,13 +83,15 @@ Save a minimal evidence summary under ignored `.build/validation/`, with the sou
 Correlate request.parsed → authentication/operation result → response.queued →
 response.processed → peer.ended → connection.closed using the connection tag.
 `http.response.processed` means local stack processing, not complete peer receipt.
-After that event the connection remains in `phase=drain` until peer EOF, error,
-explicit stop or the original write deadline. `http.peer.ended` during `read`,
-`handler` or `write` can be an early request-side half-close and does not establish
-response delivery. `http.pipeline.rejected` identifies unsupported extra request
-bytes; it never dispatches another RPC. `http.deadline` in `write` versus `drain`
-distinguishes pending send processing from waiting for peer completion. Correlate
-these with the client's received length and digest when diagnosing image delivery.
+For a closing response the connection remains in `phase=drain` until peer EOF,
+error, explicit stop or the original write deadline. Reusable responses instead
+emit `http.connection.reusable` and wait for the next independently authenticated
+request, with a bounded idle deadline. `http.peer.ended` during `read`, `handler`
+or `write` can be an early half-close and does not establish response delivery.
+`http.pipeline.rejected` identifies unsupported overlapping requests; a bounded
+next request buffered during writing is parsed only after the prior send and
+handler complete. `http.deadline` distinguishes read/idle/write/drain stalls.
+Correlate these with the client's received length and digest when diagnosing image delivery.
 A queued reply alone is not delivery proof. A claim.prepared event is not proof Muse received it.
 Authentication-rejected identities are unverified even though IDs are hashed.
 
@@ -152,3 +154,74 @@ existing authenticated hello before the phone marks active.
 If current evidence is genuinely unavailable, report the inaccessible window,
 missing process/history or actual tool error. Do not substitute old fixtures or
 require user clipboard work before trying the accessible Xcode console.
+
+## Screenshot performance correlation
+
+`performance.*` rows contain `elapsed_ns`, `sample_uptime_ns`, `succeeded` and
+optional `bytes`. The fixed stages are `control_preparation`, `discovery`,
+`pair_socket`, `pair_verify`, `pair_validation`, `tunnel_listener`, `tunnel_socket`,
+`tunnel_tls`, `service_socket`, `service_discovery`, `developer_readiness`,
+`media_start`, `fresh_frame_wait`, `original_encoding`, `thumbnail_encoding`,
+`cache_write`, `result_ready` and `release`. Result-ready includes execution and
+journal persistence; it is not an additional delay to add to its child stages.
+Recovery sample uptime is Swift's receipt time; elapsed duration is measured
+inside Rust. Do not subtract phone and Gadget uptimes.
+
+The validated 64-lowercase-hex `operation` field comes from optional
+`X-Actell-Operation-Id`; it is an unsigned hint for matching Gadget events, not
+proof of request ownership. `diagnostic` still hashes the individual request ID,
+with hashed run/call fields identifying the original work. Native decoder spans
+capture the same context across the decoder queue; accepted execution retains it
+even when the waiting HTTP request times out. Never log image pixels, arguments,
+HMAC headers or certificate material. See [the negotiated contract](REMOTE-TOOLS.md#optional-latency-capabilities).
+
+Use these stage durations to distinguish fresh-frame waiting from encoding,
+cache persistence, control recovery and release. Test-loopback success establishes
+framing and state-machine behavior; only a separately authorized physical run can
+establish the end-to-end screenshot-to-model latency improvement.
+
+### Exact fields and analyzer export
+
+The existing on-disk log is an array of event objects at
+`Library/Application Support/PhoneAgent/Remote/muse-admission-v1.json` inside the
+app container. Each object has `time`, `uptime`, `stage`, optional `diagnosticID`,
+`client`, `run`, `code`, and `state`. `diagnosticID`/`client`/`run` are 16 lowercase
+hex characters (first eight SHA-256 bytes of their original IDs). The raw request
+UUID is not stored. `state.call` uses the same hash. Optional keys are omitted.
+
+For `stage=performance.<stage>`, `state` contains these string-valued fields:
+
+| Field | Format and meaning |
+| --- | --- |
+| `operation` | Optional 64 lowercase hex; validated unsigned Gadget correlation hint |
+| `elapsed_ns` | Decimal unsigned integer; stage duration measured monotonically |
+| `sample_uptime_ns` | Decimal unsigned integer; monotonic sample time on this phone, recovery samples timestamped on receipt |
+| `succeeded` | `true` or `false`; stage outcome |
+| `bytes` | Optional decimal nonnegative byte count |
+| `call` | Optional 16 lowercase hex hash of original call ID |
+
+Unified Logging uses category `MuseAdmission`, with the existing format
+`stage=<stage> diagnostic=<hash-or-dash> run=<hash-or-dash> code=<code-or-dash> state=<Swift string dictionary>`.
+Dictionary ordering is not significant. Both the native console and the structured
+on-disk format are accepted by the same allowlisted collector:
+
+```sh
+python3 tools/muse-remote/collect_diagnostics.py \
+  --input .build/validation/existing-muse-admission.json \
+  --output .build/validation/actell-diagnostics.json \
+  --performance-jsonl .build/validation/actell-timings.jsonl
+```
+
+The optional JSONL uses `source="actell"`, `operation_id`, `phase`, numeric
+`elapsed_ms=elapsed_ns/1000000`, optional `ok` (0/1), `bytes`, `diagnostic_id`, `run`
+and `call`. Rows without a valid operation hint are retained in the diagnostic
+report but omitted from the cross-side JSONL. Output files are owner-only.
+
+Main-stage names map to the Muse analyzer as follows: `control_preparation` →
+`control_prepare`, `fresh_frame_wait` → `fresh_frame`, `original_encoding` →
+`original_encode`, `thumbnail_encoding` → `thumbnail_encode`; `media_start`,
+`cache_write`, `result_ready` and `release` keep their names. Recovery stage names
+also stay unchanged. An analyzer must allowlist those additional recovery names
+to include their distributions; they must not be inferred from the aggregate
+`control_prepare` duration. Raw request UUIDs can be hashed with the same SHA-256
+prefix rule to match `diagnostic_id` without logging them on Actell.

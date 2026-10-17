@@ -109,13 +109,39 @@ Malformed historical records are isolated so one damaged entry does not prevent 
 
 Binary responses retain JPEG identity/hash headers and include `X-Actell-Captured-At-Ms` and `X-Actell-Expires-At-Ms`. Historical availability does not extend action authorization, execution deadlines or legacy observation validity.
 
-### HTTP response completion
+### Optional latency capabilities
 
-Each TLS connection carries one HTTP request and one response with an exact `Content-Length` and `Connection: close`. The response uses Network.framework's [final send context](https://developer.apple.com/documentation/network/nwconnection/contentcontext/finalmessage) to end the write side in protocol order. The successful [`contentProcessed` callback](https://developer.apple.com/documentation/network/nwconnection/sendcompletion) reports local stack processing; it does not prove the peer received the complete image. Actell retains the session and its connection slot after that callback, continuing the existing receive to observe peer EOF or a connection error before cancelling it.
+The existing exact five-key envelope (`v`, `client_id`, `request_id`, `op`, `params`) is unchanged. New servers advertise:
 
-The existing ten-second write deadline covers both sending and waiting for peer completion. Neither the send callback nor subsequent reads restart it. A peer that closes its request side before the send callback has not acknowledged the response; that connection remains retained until an error, explicit service stop or the same deadline. Ordinary clients can finish immediately after receiving the response; this adds no fixed sleep or tool cooldown.
+```json
+"performance": {
+  "http_keep_alive": true,
+  "tools_call_wait_ms_max": 1500,
+  "runs_cancel_wait_ms_max": 500
+}
+```
 
-Pipelined requests never dispatch a second RPC. Extra bytes during a handler cancel that handler and produce one error response; extra bytes during response writing or draining close the invalid stream. A handler that ignores cancellation still occupies its slot until it exits, even after socket closure. The four-connection bound, authentication, image limits and original-operation recovery rules remain in force. A successful image download requires the receiving client to verify the full body length and digest; transport logs alone do not establish delivery.
+Clients negotiate these fields before using them. A missing field means the legacy immediate-receipt / close-after-response behavior; do not infer support from an app version. Muse scopes connection reuse to one outer invoke. Hostname verification, the saved certificate pin, HMAC, nonce, permission checks, deadlines and deduplication apply independently to every request on that connection.
+
+`tools.call.params.wait_ms` is an optional integer from 0 through 1500. Actell validates it, persists and enqueues the action once, then waits up to the smaller of that duration and the remaining call/run deadline. A terminal call returns the existing receipt; a timeout returns the same pending receipt for `calls.get` using the original run/call IDs. This option is a response preference and is excluded from the action digest, so changing or omitting it on an otherwise identical call cannot create a second execution. It remains covered by the exact-body HMAC. Cancelling the HTTP wait does not cancel an accepted action. Invalid types, fractions, negative or oversized values fail before enqueueing.
+
+`runs.cancel.params.wait_ms` is an optional integer from 0 through 500. The run is closed once before waiting for its execution and media ownership to be released. The wait is also bounded by the remaining run deadline. It never reports `execution_released:true` until cleanup has actually completed. Timeout returns `false`; reconcile with `runs.get`. Neither wait adds an automatic retry or extends an execution deadline. Missing/zero waits return immediately, as before. Permission and service state are checked again before a delayed receipt is returned.
+
+### HTTP response completion and reuse
+
+RPC uses exact `Content-Length` framing. HTTP/1.1 requests without a `Connection` header, or with `Connection: keep-alive`, can receive `Connection: keep-alive` responses. Explicit `Connection: close`, pairing routes, non-200 responses and the 32nd request on a connection end the write side in protocol order. Authentication failures cannot reuse the connection. Limits remain four connections, ten seconds to read a request or await the next request, thirty seconds for a handler, and ten seconds for a backpressured write. Partial reads never restart the read deadline. This is an idle/resource bound, not a fixed delay between requests.
+
+Reusable responses use a nonfinal Network.framework context. A following request cannot dispatch until both the preceding handler and its send callback have finished. Because a peer can consume a complete response before the send callback reaches MainActor, the transport can temporarily buffer one bounded next request during writing; it is still independently parsed and authenticated. Coalesced extra requests and pipelining during the handler are rejected. A handler ignoring cancellation keeps its slot until it exits, even after socket closure.
+
+For a closing response, the final send context ends the write side. `contentProcessed` indicates local stack progress, not peer receipt. Actell retains the session until peer EOF/error or the original write deadline. An earlier request-side EOF is not a response acknowledgment and cannot prematurely cancel a large response. A successful image download still requires the receiving client to validate its full length and digest; transport logs alone do not establish delivery.
+
+### Performance correlation and measurements
+
+The optional `X-Actell-Operation-Id` header must be exactly 64 lowercase hexadecimal characters. It carries an already irreversible operation identifier as an **unsigned diagnostic hint**; it has no authority, is not part of the signature input, and never changes authorization or deduplication. Invalid values are rejected. Request IDs remain independently correlated through their hashed diagnostic IDs. Image identity, parameters and credentials are not logged.
+
+`performance.*` events record fixed stage names, monotonic `elapsed_ns`, sample receipt uptime (`sample_uptime_ns`), success and optional byte count, with request/run/call correlation and the validated operation hint. Stages cover control preparation, discovery, PairVerify/validation, tunnel setup, service discovery/readiness, media start, fresh-frame confirmation, original JPEG encoding, thumbnail encoding, cache write, persisted result readiness and actual release. A fresh-frame sample ends when an eligible frame is selected, before encoding. Recovery durations originate in the Rust worker; its bounded binary metadata event is consumed before ready/failure and does not change connection authorization. Cross-device uptime values must not be subtracted; compare local durations and correlate IDs.
+
+The existing eight-second fresh-frame bound and sender-confirmation/geometry rules remain unchanged. A cache hit does not become a new screenshot. Encoding and direct-upload changes are deferred until measurements identify a bottleneck; no codec, quality, upload destination or disclosure policy changes are included here.
 
 ## Implementation and validation entry points
 

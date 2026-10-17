@@ -77,6 +77,7 @@ private final class TraceTestTrust: NSObject, URLSessionDelegate, @unchecked Sen
     var reader: (@Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void)?
     var sendCompletion: (@Sendable (NWError?) -> Void)?
     var sent: [Data] = []
+    var finals: [Bool] = []
     var cancelCount = 0
     var receiveCount = 0
     func start(queue: DispatchQueue) { stateUpdateHandler?(.ready) }
@@ -89,7 +90,7 @@ private final class TraceTestTrust: NSObject, URLSessionDelegate, @unchecked Sen
     }
     func send(content: Data?, contentContext: NWConnection.ContentContext, isComplete: Bool,
               completion: NWConnection.SendCompletion) {
-        XCTAssertTrue(contentContext.isFinal, "The stack must end the write side after the response")
+        finals.append(contentContext.isFinal)
         XCTAssertTrue(isComplete)
         sent.append(content ?? Data())
         guard case .contentProcessed(let callback) = completion else { return XCTFail("Missing send completion") }
@@ -108,7 +109,7 @@ private final class TraceTestTrust: NSObject, URLSessionDelegate, @unchecked Sen
     var events: [(String, [String: String])] = []
     var calls = 0
     var releases = 0
-    init(writeTimeout: UInt64 = 10_000_000_000, operationTimeout: UInt64 = 30_000_000_000,
+    init(requestTimeout: UInt64 = 10_000_000_000, writeTimeout: UInt64 = 10_000_000_000, operationTimeout: UInt64 = 30_000_000_000,
          handler: RemoteHTTPTransport.Handler? = nil) {
         session = RemoteHTTPTransport.Session(connection: connection,
             source: RemoteSourceAddress(literal: "127.0.0.1")!, handler: { [weak self] body, headers, source in
@@ -116,7 +117,7 @@ private final class TraceTestTrust: NSObject, URLSessionDelegate, @unchecked Sen
                 if let handler { return try await handler(body, headers, source) }
                 return RemoteHTTPResponse(body: Data(repeating: 0x5a, count: 256 * 1_024))
             }, pairingHandler: nil, diagnostic: { [weak self] stage, fields in self?.events.append((stage, fields)) },
-            timeouts: .init(operation: operationTimeout, write: writeTimeout),
+            timeouts: .init(request: requestTimeout, operation: operationTimeout, write: writeTimeout),
             onClose: { [weak self] in self?.releases += 1 })
     }
     func has(_ stage: String) -> Bool { events.contains { $0.0 == stage } }
@@ -464,5 +465,106 @@ extension RemoteTransportTraceTests {
         try await waitUntil { events.filter { $0.0 == "http.connection.closed" }.count == 5 }
         XCTAssertEqual(calls, 5)
         XCTAssertEqual(events.filter { $0.0 == "http.request.parsed" }.count, 5)
+    }
+}
+
+extension RemoteTransportTraceTests {
+    private var reusableRequest: Data {
+        Data(String(decoding: TraceSessionHarness.request, as: UTF8.self).replacingOccurrences(of: "Connection: close", with: "Connection: keep-alive").utf8)
+    }
+    func testSequentialRequestBeforeSendCallbackIsBufferedWithoutParallelDispatch() async throws {
+        let h = TraceSessionHarness()
+        defer { h.session.close() }
+        h.session.start(); try await waitUntil { h.connection.reader != nil }
+        try h.connection.feed(reusableRequest)
+        try await waitUntil { h.connection.sent.count == 1 }
+        XCTAssertEqual(h.connection.finals, [false])
+        try h.connection.feed(TraceSessionHarness.request)
+        await Task.yield()
+        XCTAssertEqual(h.calls, 1)
+        h.connection.sendCompletion?(nil)
+        try await waitUntil { h.connection.sent.count == 2 }
+        XCTAssertEqual(h.calls, 2)
+        XCTAssertEqual(h.connection.finals, [false, true])
+        h.connection.sendCompletion?(nil)
+        try await waitUntil { h.events.filter { $0.0 == "http.response.processed" }.count == 2 }
+        try h.connection.feed(complete: true)
+        try await waitUntil { h.releases == 1 }
+    }
+    func testReuseIdleAndRequestCountAreBounded() async throws {
+        let idle = TraceSessionHarness(requestTimeout: 150_000_000)
+        defer { idle.session.close() }
+        idle.session.start(); try await waitUntil { idle.connection.reader != nil }
+        try idle.connection.feed(reusableRequest)
+        try await waitUntil { idle.connection.sent.count == 1 }
+        idle.connection.sendCompletion?(nil)
+        try await waitUntil { idle.has("http.connection.reusable") }
+        try await waitUntil { idle.releases == 1 }
+        XCTAssertTrue(idle.events.contains { $0.0 == "http.deadline" && $0.1["phase"] == "idle" })
+        let h = TraceSessionHarness(handler: { _, _, _ in RemoteHTTPResponse(body: Data("{}".utf8)) })
+        defer { h.session.close() }
+        h.session.start(); try await waitUntil { h.connection.reader != nil }
+        for index in 1...RemoteHTTPTransport.maximumRequestsPerConnection {
+            try h.connection.feed(reusableRequest)
+            try await waitUntil { h.connection.sent.count == index }
+            h.connection.sendCompletion?(nil)
+            try await waitUntil { h.events.filter { $0.0 == "http.response.processed" }.count == index }
+        }
+        XCTAssertEqual(h.connection.finals.last, true)
+        XCTAssertTrue(h.connection.finals.dropLast().allSatisfy { !$0 })
+        try h.connection.feed(complete: true)
+        try await waitUntil { h.releases == 1 }
+    }
+    func testKeepAliveTruncatedSecondBodyNeverDispatches() async throws {
+        let h = TraceSessionHarness()
+        defer { h.session.close() }
+        h.session.start(); try await waitUntil { h.connection.reader != nil }
+        try h.connection.feed(reusableRequest)
+        try await waitUntil { h.connection.sent.count == 1 }
+        h.connection.sendCompletion?(nil)
+        try await waitUntil { h.has("http.connection.reusable") }
+        try h.connection.feed(Data(reusableRequest.dropLast()), complete: true)
+        try await waitUntil { h.connection.sent.count == 2 }
+        XCTAssertEqual(h.calls, 1)
+        XCTAssertTrue(String(decoding: h.connection.sent[1], as: UTF8.self).hasPrefix("HTTP/1.1 400"))
+        XCTAssertEqual(h.connection.finals.last, true)
+    }
+    func testTLSSequentialLargeBodiesVerifyEveryRequestAndRejectReplayedNonce() async throws {
+        let provider = RemoteGeneratedIdentityProvider(namespace: "actell.tests.reuse." + UUID().uuidString)
+        defer { try? provider.remove() }
+        let host = "actell-reuse-test.local", port = UInt16.random(in: 20000...40000)
+        let identity = try provider.provision(host: host)
+        let key = Data(repeating: 7, count: 32)
+        let verifier = RemoteRequestAuthenticator(keyLookup: { _ in key })
+        let bytes = Data(repeating: 0x67, count: 256 * 1024)
+        var calls = 0, connections = Set<String>()
+        let transport = RemoteHTTPTransport(configuration: .init(enabled: true, port: port,
+            allowedSources: [RemoteSourceAddress(literal: "127.0.0.1")!])) { body, headers, _ in
+            connections.insert(RemoteHTTPTrace.connectionID ?? "missing")
+            try verifier.verify(clientID: "client", requestID: "request", headers: headers, body: body)
+            calls += 1
+            return RemoteHTTPResponse(body: bytes)
+        }
+        let client = TraceTLSClient(port: port, der: identity.certificateDER, host: host)
+        defer { client.connection.cancel(); transport.stop() }
+        try transport.start(identity: identity.identity); try await waitUntil { transport.isListening }
+        client.start(); try await waitUntil { client.ready || client.failed }
+        func request(nonce: String) -> Data {
+            let time = String(Int64(Date().timeIntervalSince1970))
+            let signature = HMAC<SHA256>.authenticationCode(for: RemoteRequestAuthenticator.signingMessage(clientID: "client", requestID: "request", time: time, nonce: nonce, body: Data("{}".utf8)), using: SymmetricKey(data: key)).map { String(format: "%02x", $0) }.joined()
+            return Data("POST /v1/rpc HTTP/1.1\r\nHost: test.local\r\nContent-Type: application/json\r\nContent-Length: 2\r\nx-actell-time: \(time)\r\nx-actell-nonce: \(nonce)\r\nx-actell-signature: \(signature)\r\n\r\n{}".utf8)
+        }
+        let last = request(nonce: UUID().uuidString.lowercased())
+        for wire in [request(nonce: UUID().uuidString.lowercased()), last] {
+            try await client.send(wire)
+            let response = try await client.readResponseSlowly()
+            let separator = try XCTUnwrap(response.range(of: Data("\r\n\r\n".utf8)))
+            XCTAssertEqual(Data(response.suffix(from: separator.upperBound)), bytes)
+            XCTAssertTrue(String(decoding: response.prefix(separator.lowerBound), as: UTF8.self).contains("connection: keep-alive"))
+        }
+        try await client.send(last)
+        let rejected = try await client.readResponseSlowly()
+        XCTAssertTrue(String(decoding: rejected, as: UTF8.self).hasPrefix("HTTP/1.1 401"))
+        XCTAssertEqual(calls, 2); XCTAssertEqual(connections.count, 1)
     }
 }

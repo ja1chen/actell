@@ -26,6 +26,11 @@ typedef struct { uint64_t request_id; uint32_t kind,stage,cause,reserved; size_t
  * 3 stage/cause failure, 4 PNG (memory only). Input event 2 never proves visible effect.
  * 10 touch video preparation failure (stage/cause, no payload): no touch has
  * been sent; scoped preparation resources closed, existing session retained.
+ * 16 recovery timing (request/stage/cause 0): 1..8 records, each LE u32
+ * stage, LE u32 failed (0/1), LE u64 elapsed ns. Stages in increasing order:
+ * 1 pair socket, 2 PairVerify, 3 pair validation, 4 tunnel listener,
+ * 5 tunnel socket, 6 tunnel TLS, 7 service socket, 8 service discovery.
+ * One bounded event before ready/failure; contains no protocol data.
  * At most 2 process sessions, 1 queued request and 1 pending event per session.
  * Tokens are monotonically allocated handles, never C pointers. */
 /* Independent media poll: kind 13 = complete HEVC sample, 14 = decoder reset.

@@ -234,15 +234,18 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                 if route == .vpnLoopback {
                     message = String(localized: "Finding this phone's RemotePairing service. Keep the VPN loopback connection on.")
                     let configuration = vpnConfiguration
-                    let port = try await localDiscovery.discoverPort(configuration: configuration)
+                    let port = try await NativePerformanceTrace.measure(.discovery) { try await localDiscovery.discoverPort(configuration: configuration) }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     message = String(localized: "Verifying identity and opening the CoreDevice tunnel through VPN loopback")
                     try await backend.connectLocalVPN(identity: identity, authorization: authorization, pairingPort: port, configuration: configuration)
                 } else {
                     message = String(localized: "Finding the phone's RemotePairing service through ESP32")
-                    var discovery = try await client.request(.discoverIPv4)
-                    if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
-                        discovery = try await client.request(.discoverIPv6)
+                    let discovery = try await NativePerformanceTrace.measure(.discovery) {
+                        var discovery = try await client.request(.discoverIPv4)
+                        if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
+                            discovery = try await client.request(.discoverIPv6)
+                        }
+                        return discovery
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
@@ -251,7 +254,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     message = String(localized: "Verifying identity and opening the developer tunnel through ESP32")
                     try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint)
                 }
-                try await backend.checkDeveloperReadiness()
+                try await NativePerformanceTrace.measure(.developerReadiness) { try await backend.checkDeveloperReadiness() }
                 try Task.checkCancellation(); guard generation == epoch else { return }
                 ready = true; startHeartbeat(); message = String(localized: "\(route.connectionName) authentication, tunnel, and service checks succeeded. You can test screenshots and input.")
             } catch { guard generation == epoch else { return }; backend.close(); message = failure(error); lastFailure = message }
@@ -383,7 +386,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func prepareAgentInput(_ services: NativeDeveloperServices) async throws {
         if !mediaStarted {
-            try await services.startTouchMedia()
+            try await NativePerformanceTrace.measure(.mediaStart) { try await services.startTouchMedia() }
             try Task.checkCancellation()
             mediaStarted = true
             mediaLifetime.didOpen()

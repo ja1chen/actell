@@ -5,6 +5,12 @@ import CoreImage
 import CoreVideo
 import CNCMBackend
 @testable import PhoneAgentNCM
+private final class PerformanceSamples: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [NativePerformanceTrace.Sample] = []
+    func append(_ sample: NativePerformanceTrace.Sample) { lock.lock(); defer { lock.unlock() }; values.append(sample) }
+    var samples: [NativePerformanceTrace.Sample] { lock.lock(); defer { lock.unlock() }; return values }
+}
 final class NativeBackendTests: XCTestCase {
     @MainActor func testDisplayMetadataCropsDecodedFrameAndRejectsInvalidBounds() async throws {
         var bytes = Data(base64Encoded: "AQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAACQXwEAAQAAAEAAAABgAAAAGAAAACkAAAAHAAAAGgAAAEABDAH//wFgAAADAJAAAAMAAAMAHpWYCUIBAQFgAAADAJAAAAMAAAMAHqAggYWWVmkkyvAWgIAAAAMAgAAAAwCERAHBcrQiQAAAABYoAa8TgOUyUf/aKP+n1f6Aa0AIIx2H")!
@@ -13,7 +19,13 @@ final class NativeBackendTests: XCTestCase {
         XCTAssertEqual(try NCMVideoSample(bytes).visibleSize, CGSize(width:62,height:94))
         let decoder = NCMVideoDecoder()
         try await decoder.consume(bytes)
-        let output = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
+        let timings = PerformanceSamples()
+        let output = try await NativePerformanceTrace.$observer.withValue({ timings.append($0) }) {
+            try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)), freshFrameWait: NativePerformanceTrace.begin(.freshFrameWait))
+        }
+        XCTAssertEqual(timings.samples.map(\.stage), [.freshFrameWait, .originalEncoding])
+        XCTAssertEqual(timings.samples.last?.bytes, output?.count)
+        XCTAssertTrue(timings.samples.allSatisfy { $0.succeeded && $0.elapsedNanoseconds > 0 })
         let source = try XCTUnwrap(CGImageSourceCreateWithData(try XCTUnwrap(output) as CFData,nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
         XCTAssertEqual(image.width,62); XCTAssertEqual(image.height,94)
@@ -425,8 +437,15 @@ final class NativeBackendTests: XCTestCase {
     }
     @MainActor func testSwiftRustRealCRelayPropagatesPairVerifyFailure() async throws {
         let fixture = try Fixture(hold: false), client = NativeDeveloperServices()
-        do { try await client.connectLoopbackFixture(port: fixture.port); XCTFail("synthetic peer never authenticates") }
-        catch { XCTAssertEqual(error as? NativeBackendError, .protocolFailure(stage: 3, cause: 1)) }
+        let timings = PerformanceSamples()
+        do {
+            try await NativePerformanceTrace.$observer.withValue({ timings.append($0) }) {
+                try await client.connectLoopbackFixture(port: fixture.port)
+            }
+            XCTFail("synthetic peer never authenticates")
+        } catch { XCTAssertEqual(error as? NativeBackendError, .protocolFailure(stage: 3, cause: 1)) }
+        XCTAssertEqual(timings.samples.map(\.stage), [.pairSocket, .pairVerify, .pairValidation])
+        XCTAssertEqual(timings.samples.last?.succeeded, false)
         let evidence = fixture.finish()
         XCTAssertEqual(fixture.process.terminationStatus, 0)
         XCTAssertTrue(evidence.contains("GREETING")); XCTAssertTrue(evidence.contains("VERIFY_M1")); XCTAssertTrue(evidence.contains("CLOSED"))

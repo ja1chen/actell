@@ -246,8 +246,18 @@ fn launch(
             };
             runtime.block_on(async {
                 let work = async {
-                    let connection = Session::connect(&connector, &mut identity).await;
-                    drop(identity); // long-term signing seed no longer needed after PairVerify.
+                    let mut timings = Vec::with_capacity(8);
+                    let connection = Session::connect_timed(&connector, &mut identity, &mut timings).await;
+                    drop(identity); // signing seed is no longer needed after PairVerify.
+                    // One bounded metadata event avoids a poll round trip per
+                    // stage. The eight records contain only IDs, outcome, time.
+                    let mut timing_bytes = Vec::with_capacity(timings.len() * 16);
+                    for timing in timings {
+                        timing_bytes.extend_from_slice(&timing.stage.to_le_bytes());
+                        timing_bytes.extend_from_slice(&u32::from(timing.failed).to_le_bytes());
+                        timing_bytes.extend_from_slice(&timing.elapsed_ns.to_le_bytes());
+                    }
+                    if !timing_bytes.is_empty() && events.send(Event::ok(0, 16, timing_bytes)).await.is_err() { return; }
                     let mut session = match connection {
                         Ok(s) => s,
                         Err(e) => {
@@ -1580,6 +1590,16 @@ mod tests {
         let mut h = EventHeader::default();
         for _ in 0..100 {
             let r = unsafe { ncm_backend_poll(id, &mut h, std::ptr::null_mut(), 0) };
+            if r == SMALL {
+                assert_eq!(h.kind, 16);
+                assert_eq!(h.size, 32); // socket succeeded, PairVerify failed
+                let mut metrics = [0_u8; 32];
+                assert_eq!(unsafe { ncm_backend_poll(id, &mut h, metrics.as_mut_ptr(), metrics.len()) }, 0);
+                assert_eq!(u32::from_le_bytes(metrics[0..4].try_into().unwrap()), 1);
+                assert_eq!(u32::from_le_bytes(metrics[16..20].try_into().unwrap()), 2);
+                assert_eq!(u32::from_le_bytes(metrics[20..24].try_into().unwrap()), 1);
+                continue;
+            }
             if r == 0 {
                 break;
             }
