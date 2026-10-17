@@ -56,6 +56,40 @@ import XCTest
         XCTAssertFalse(String(describing: events).contains("Desk Muse"))
     }
 
+    func testActivePeerAcknowledgesWithEnrollmentClosedWithoutChangingAuthorization() throws {
+        let store = try settings(Vault()), pairing = try engine(store, Clock())
+        let client = try store.createLANPending(name: "Desk Muse", requestID: id)
+        try store.activateLANClient(client.id, name: "Desk Muse")
+        try store.setAuthorization(clientID: client.id, scopes: [.screenshot], identityConfirmed: true, name: "Living room")
+        let registration = store.settings.clients.first, key = store.key(for: client.id)
+        pairing.setAvailable(false)
+        XCTAssertFalse(pairing.available)
+        XCTAssertFalse(pairing.acceptingRequests)
+        XCTAssertThrowsError(try pairing.openWindow())
+        XCTAssertEqual(submit(pairing).status, 503)
+        try pairing.acknowledge(clientID: client.id, name: "Desk Muse")
+        XCTAssertEqual(store.settings.clients.first, registration)
+        XCTAssertEqual(store.key(for: client.id), key)
+        try store.setAuthorization(clientID: client.id, scopes: [], identityConfirmed: true)
+        try pairing.acknowledge(clientID: client.id, name: "Desk Muse")
+        XCTAssertEqual(store.settings.clients.first?.scopes, [])
+        XCTAssertFalse(store.permits(clientID: client.id, op: "capabilities", params: [:]))
+        try store.revokeClient(client.id, cancel: { _ in })
+        XCTAssertThrowsError(try pairing.acknowledge(clientID: client.id, name: "Desk Muse"))
+    }
+
+    func testClosingEnrollmentCannotActivatePendingPeer() throws {
+        let store = try settings(Vault()), pairing = try engine(store, Clock())
+        XCTAssertEqual(submit(pairing).status, 202)
+        try pairing.approve()
+        let client = try XCTUnwrap(store.settings.clients.first)
+        XCTAssertEqual(client.lanPairingState, .pendingAck)
+        pairing.setAvailable(false)
+        XCTAssertNil(store.key(for: client.id))
+        XCTAssertTrue(store.settings.clients.isEmpty)
+        XCTAssertThrowsError(try pairing.acknowledge(clientID: client.id, name: "Desk Muse"))
+    }
+
     func testLocalNameAndScopesPersistTogetherWithoutChangingPairingIdentity() throws {
         let vault = Vault(), store = try settings(vault)
         let client = try store.createLANPending(name: "Desk Muse", requestID: id)

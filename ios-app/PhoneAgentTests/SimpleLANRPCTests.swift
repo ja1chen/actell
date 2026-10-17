@@ -129,8 +129,19 @@ private actor SimpleLANImageBridge: DeviceBridge {
         model.setScene(.background); controller.setScene(active: false, background: true)
         XCTAssertTrue(service.isListening)
         XCTAssertTrue(controller.isPeerOnline(client.id))
+        XCTAssertFalse(controller.pairing.available)
+        uptime += MuseCompanionProtocol.peerFreshness
+        XCTAssertFalse(controller.isPeerOnline(client.id))
         let backgroundHello = try await call("companion.hello", key: key)
         XCTAssertEqual(backgroundHello.status, 200)
+        let backgroundEnvelope = try XCTUnwrap(JSONSerialization.jsonObject(with: backgroundHello.body) as? [String: Any])
+        XCTAssertEqual(backgroundEnvelope["ok"] as? Bool, true)
+        XCTAssertNil(backgroundEnvelope["error"])
+        let backgroundResult = try XCTUnwrap(backgroundEnvelope["result"] as? [String: Any])
+        XCTAssertEqual(backgroundResult["state"] as? String, "authorized")
+        XCTAssertEqual(backgroundResult["pairing_state"] as? String, "active")
+        XCTAssertTrue(controller.isPeerOnline(client.id))
+        XCTAssertFalse(controller.pairing.available)
         model.setScene(.active); controller.setScene(active: true, background: false)
         XCTAssertTrue(service.isListening)
         XCTAssertTrue(controller.isPeerOnline(client.id))
@@ -244,11 +255,12 @@ private actor SimpleLANImageBridge: DeviceBridge {
         XCTAssertEqual((damagedCall["result"] as? [String: Any])?["image_status"] as? String, "unavailable")
         let unavailable = try await call("images.get", key: key, parameters: ["run_id": imageRun, "image_id": try XCTUnwrap(receipt["image_id"]), "generation": try XCTUnwrap(receipt["generation"])])
         XCTAssertEqual(((try JSONSerialization.jsonObject(with: unavailable.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "image_unavailable")
+        let lastActivityUptime = uptime
         for gap in [0.0, 30, 42, 84, 89.999] {
-            uptime = 100 + gap
+            uptime = lastActivityUptime + gap
             XCTAssertTrue(controller.isPeerOnline(client.id), "Normal probe/retry gap \(gap) must not flap offline")
         }
-        uptime = 190
+        uptime = lastActivityUptime + MuseCompanionProtocol.peerFreshness
         XCTAssertFalse(controller.isPeerOnline(client.id)) // Real silence still expires.
         _ = try await call("companion.hello", key: Data(repeating: 0, count: 32))
         XCTAssertFalse(controller.isPeerOnline(client.id)) // Invalid traffic cannot renew presence.

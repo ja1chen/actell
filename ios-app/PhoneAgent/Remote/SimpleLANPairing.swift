@@ -106,13 +106,19 @@ import Observation
     /// Invoked only after ACTELL1 authentication by the existing RPC service.
     func acknowledge(clientID: String, name: String) throws {
         tick()
-        guard available, let client = store.settings.clients.first(where: { $0.id == clientID }) else {
-            diagnostic?("pairing.ack.rejected", context?.id, clientID, available ? "client_missing" : "unavailable")
+        guard let client = store.settings.clients.first(where: { $0.id == clientID }) else {
+            diagnostic?("pairing.ack.rejected", context?.id, clientID, "client_missing")
             throw RemoteRPCError("unauthorized", "Pairing is unavailable")
         }
         if client.lanPairingState == .active {
             diagnostic?("pairing.ack.active", nil, clientID, nil)
             return // Lost ACK responses use fresh nonce/request IDs.
+        }
+        // Closing foreground enrollment must not reject an authenticated peer
+        // whose pairing is already active. Pending enrollment still requires it.
+        guard available else {
+            diagnostic?("pairing.ack.rejected", context?.id, clientID, "unavailable")
+            throw RemoteRPCError("unauthorized", "Pairing is unavailable")
         }
         guard client.lanPairingState == .pendingAck, let c = context, c.clientID == clientID,
               let deadline = c.deadline, now() < deadline, c.name == name else {
