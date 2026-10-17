@@ -157,6 +157,20 @@ require user clipboard work before trying the accessible Xcode console.
 
 ## Screenshot performance correlation
 
+Each successful Muse thumbnail encoding records `stage=image.encoded` in the
+same local history and Unified Logging category. Its string-valued state fields
+are `image` (the first eight SHA-256 bytes of the image ID, as 16 lowercase hex
+characters), `width`, `height`, `bytes`, and `jpeg_quality` (the actual selected
+encoder quality: `0.8`, `0.65`, `0.5`, or `0.35`). The event also includes the
+hashed client/run and, when available, `state.call`. Match the screenshot receipt's
+image ID using the same hash rule. The collector preserves these fields in its
+diagnostic JSON output. No image pixels or raw IDs are logged.
+
+The dimensions and byte count describe the final encoded JPEG supplied to Muse;
+`jpeg_quality` is an encoder setting, not a percentage reduction in file size.
+This event confirms encoding, not cache persistence or successful upload. It is
+written once at capture; later image reads reuse those bytes without re-encoding.
+
 `performance.*` rows contain `elapsed_ns`, `sample_uptime_ns`, `succeeded` and
 optional `bytes`. The fixed stages are `control_preparation`, `discovery`,
 `pair_socket`, `pair_verify`, `pair_validation`, `tunnel_listener`, `tunnel_socket`,

@@ -19,6 +19,7 @@ STATE_FIELDS = {
     'background_desired', 'background_effective', 'background_continuity',
     'release_elapsed_ms', 'elapsed_ns', 'sample_uptime_ns', 'succeeded', 'bytes', 'operation', 'requests',
     'call', 'delivery', 'geometry_reason', 'native_stage', 'native_cause',
+    'image', 'width', 'height', 'jpeg_quality',
 }
 
 

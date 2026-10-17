@@ -49,6 +49,7 @@ struct RemoteImageGeometry: Equatable, Sendable, Codable {
 struct RemoteThumbnail {
     let data: Data
     let geometry: RemoteImageGeometry
+    let jpegQuality: Double
 
     static func make(frame: FrameImage) throws -> Self {
         guard frame.png.count <= 8 * 1024 * 1024,
@@ -77,7 +78,7 @@ struct RemoteThumbnail {
                 if CGImageDestinationFinalize(destination), buffer.length <= RemoteImageGeometry.maxBytes {
                     let geometry = try RemoteImageGeometry(revision: UUID().uuidString, originalWidth: frame.width,
                         originalHeight: frame.height, deliveredWidth: image.width, deliveredHeight: image.height)
-                    return Self(data: buffer as Data, geometry: geometry)
+                    return Self(data: buffer as Data, geometry: geometry, jpegQuality: quality)
                 }
             }
             edge = edge * 3 / 4

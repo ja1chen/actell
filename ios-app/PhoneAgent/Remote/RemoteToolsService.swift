@@ -632,6 +632,11 @@ struct RemoteRPCError: LocalizedError {
             let span = NativePerformanceTrace.begin(.thumbnailEncoding)
             guard let encoded = try? RemoteThumbnail.make(frame: frame) else { span.end(succeeded: false); return }
             span.end(bytes: encoded.data.count)
+            var state = ["image": MuseDiagnosticsLog.tag(frame.id),
+                         "width": String(encoded.geometry.deliveredWidth), "height": String(encoded.geometry.deliveredHeight),
+                         "bytes": String(encoded.data.count), "jpeg_quality": String(encoded.jpegQuality)]
+            if let activeCall, let call = journal.calls[activeCall] { state["call"] = MuseDiagnosticsLog.tag(call.callID) }
+            (diagnostics ?? model.museDiagnostics).record("image.encoded", client: client, run: runID, state: state)
             thumbnail = encoded
         } else { thumbnail = nil }
         generation += 1
