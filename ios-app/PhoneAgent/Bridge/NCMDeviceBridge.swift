@@ -56,6 +56,7 @@ enum DeviceControlRoute: String, Sendable {
     var connectionStopID: UUID? { get }
     func connectIfNeeded() throws
     func agentCapture(owner: UUID, session: UUID) async throws -> Data
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?)
     func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws
     func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws
@@ -73,6 +74,8 @@ enum DeviceControlRoute: String, Sendable {
 }
 
 extension NCMControlConnection {
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
+
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
     func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
 
@@ -94,6 +97,13 @@ extension NCMControlConnection {
 }
 
 extension PairingFlow: NCMControlConnection {
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+        try await agentOperation(owner: owner, session: session) { services in
+            try await self.prepareAgentInput(services)
+            return try await services.inputDisplayGeometry()
+        }
+    }
+
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws {
         try await agentOperation(owner: owner, session: session) { services in
             try await self.prepareAgentInput(services)
@@ -192,16 +202,21 @@ private final class NCMRunFence: @unchecked Sendable {
     private var approvedImageID: String?
     private var systemAuthorizationID: String?
     private let connectionTimeout: Duration
-    init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20), remoteExclusive: Bool = false) throws {
+    private let remoteExclusive: Bool
+    private let connectionDiagnostic: (@MainActor (String) -> Void)?
+    init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20), remoteExclusive: Bool = false,
+         connectionDiagnostic: (@MainActor (String) -> Void)? = nil) throws {
         self.flow = flow; self.connectionTimeout = connectionTimeout
+        self.remoteExclusive = remoteExclusive; self.connectionDiagnostic = connectionDiagnostic
         if remoteExclusive {
-            // Atomically reserve the existing connected route before admitting a
-            // remote run. Local diagnostic buttons use the same agentReserved fence.
-            guard !flow.running else { throw NCMRemoteAdmissionError.busy }
+            // Reserve a ready route atomically. An in-flight connection setup is
+            // awaited by the tool, after the run has configured background demand.
+            guard !flow.running || !flow.ready else { throw NCMRemoteAdmissionError.busy }
             guard !flow.agentReserved else { throw NCMRemoteAdmissionError.reserved }
-            guard flow.ready else { throw NCMRemoteAdmissionError.notConnected(flow.connectionFailure) }
-            session = flow.controlSessionID
-            flow.registerAgent(owner: owner, session: flow.controlSessionID)
+            if flow.ready {
+                session = flow.controlSessionID
+                flow.registerAgent(owner: owner, session: flow.controlSessionID)
+            }
         }
         flow.retainConnection(owner: owner)
     }
@@ -211,6 +226,17 @@ private final class NCMRunFence: @unchecked Sendable {
     /// Connection preparation never sends/replays an input. Fresh observation
     /// and system actions may bind a new session; old coordinates/grants cannot.
     private func prepareConnection() async throws {
+        let waiting = !flow.ready
+        if waiting { connectionDiagnostic?("control.connection_wait") }
+        do {
+            try await awaitConnection()
+            if waiting { connectionDiagnostic?("control.connection_ready") }
+        } catch {
+            connectionDiagnostic?("control.connection_failed")
+            throw error
+        }
+    }
+    private func awaitConnection() async throws {
         let deadline = ContinuousClock.now.advanced(by: connectionTimeout)
         let stopID = flow.connectionStopID
         var nextAttempt = ContinuousClock.now
@@ -219,11 +245,15 @@ private final class NCMRunFence: @unchecked Sendable {
             guard stopID == flow.connectionStopID else { throw AppError.unavailable(String(localized: "Stopped waiting for the phone control connection")) }
             if ContinuousClock.now >= nextAttempt {
                 do { try flow.connectIfNeeded() }
-                catch NCMControlError.unavailable(let message) { throw AppError.unavailable(message) }
+                catch NCMControlError.unavailable(let message) {
+                    connectionDiagnostic?("control.connection_unavailable")
+                    throw AppError.unavailable(message)
+                }
                 nextAttempt = ContinuousClock.now.advanced(by: .seconds(1))
             }
             if flow.ready { break }
             guard ContinuousClock.now < deadline else {
+                connectionDiagnostic?("control.connection_timeout")
                 throw AppError.unavailable(String(localized: "Timed out waiting for the phone control connection. \(flow.connectionFailure ?? String(localized: "Check your device connection"))"))
             }
             try await Task.sleep(for: .milliseconds(50))
@@ -231,6 +261,12 @@ private final class NCMRunFence: @unchecked Sendable {
         try Task.checkCancellation(); try fence.check()
         guard stopID == flow.connectionStopID else { throw AppError.unavailable(String(localized: "Stopped waiting for the phone control connection")) }
         if session != flow.controlSessionID {
+            // Setup may have overlapped a local diagnostic operation. Do not
+            // capture its session or dispatch until exclusive ownership is free.
+            if remoteExclusive, session == nil {
+                guard !flow.running else { throw NCMRemoteAdmissionError.busy }
+                guard !flow.agentReserved else { throw NCMRemoteAdmissionError.reserved }
+            }
             if let session { flow.releaseAgent(owner: owner, session: session) }
             imageID = nil; approvedImageID = nil; systemAuthorizationID = nil
             session = flow.controlSessionID
@@ -257,6 +293,35 @@ private final class NCMRunFence: @unchecked Sendable {
         try check()
         guard let session else { throw AppError.stopped }
         return session
+    }
+    private var independentGrant: String?
+    func inputDisplaySnapshot() async throws -> InputDisplaySnapshot {
+        try await prepareConnection()
+        let session = try requireSession()
+        let token: String
+        do { token = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
+        catch { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable", underlying: error) }
+        try check()
+        return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: token, sampledAt: Date())
+    }
+    func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws {
+        let current = try await inputDisplaySnapshot()
+        guard current.context == snapshot.context, current.token == snapshot.token else { throw RemoteRPCError("geometry_changed", "Input display changed before dispatch") }
+        independentGrant = authorizationID
+    }
+    func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) async throws {
+        try await prepareConnection()
+        let session = try requireSession()
+        guard independentGrant == authorizationID, snapshot.context == "ncm:\(session.uuidString):\(owner.uuidString)",
+              coordinates.allSatisfy({ (0...65535).contains($0) }),
+              (name == "tap" && coordinates.count == 2) || (name == "drag" && coordinates.count == 4 && (100...2000).contains(durationMS)) else { throw AppError.stopped }
+        independentGrant = nil
+        let validate = { try self.check() }
+        if name == "tap" {
+            try await perform { try await flow.agentTapWithGeometry(owner: owner, session: session, x: UInt16(coordinates[0]), y: UInt16(coordinates[1]), geometry: snapshot.token, validate: validate) }
+        } else {
+            try await perform { try await flow.agentDragWithGeometry(owner: owner, session: session, fromX: UInt16(coordinates[0]), fromY: UInt16(coordinates[1]), toX: UInt16(coordinates[2]), toY: UInt16(coordinates[3]), durationMS: UInt16(durationMS), geometry: snapshot.token, validate: validate) }
+        }
     }
     func approvalContext(imageID: String) async throws -> String {
         try await prepareConnection()

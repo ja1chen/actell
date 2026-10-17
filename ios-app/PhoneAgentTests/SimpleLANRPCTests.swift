@@ -3,6 +3,15 @@ import Network
 import XCTest
 @testable import PhoneAgent
 
+private actor SimpleLANImageBridge: DeviceBridge {
+    private let demo = DemoBridge()
+    func setRemoteDeadline(_ deadline: Date) throws { guard deadline > Date() else { throw AppError.stopped } }
+    func screenshot() async throws -> FrameImage { try await demo.screenshot() }
+    func tap(x: Int, y: Int, imageID: String) throws { throw AppError.stopped }
+    func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) throws { throw AppError.stopped }
+    func stop() async { await demo.stop() }
+}
+
 @MainActor final class SimpleLANRPCTests: XCTestCase {
     func testAuthenticationReasonsPersistLocallyWhile401StaysGeneric() async throws {
         let model = AgentViewModel(loadPersistentState: false)
@@ -59,7 +68,7 @@ import XCTest
     }
 
     func testFormalHMACAcknowledgesWithDefaultScopesAndPreservesRevocation() async throws {
-        let model = AgentViewModel(loadPersistentState: false, makeRemoteBridge: { DemoBridge() })
+        let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: BackgroundExecutionCoordinator.testing(selection: []), makeRemoteBridge: { SimpleLANImageBridge() })
         model.setForeground(true); model.setProtectedDataAvailable(true)
         let store = RemoteConnectionStore(vault: RemoteMemoryVault(), defaults: nil)
         try store.prepareCompanion()
@@ -148,8 +157,8 @@ import XCTest
         XCTAssertEqual(controller.settings.clients.first?.scopes, scopes)
         XCTAssertTrue(controller.isPeerOnline(client.id))
         // Capture the actual admission state rather than inspecting UI after the failure.
-        for code in ["not_foreground", "protected_data_unavailable", "local_task_busy"] {
-            model.setForeground(code != "not_foreground")
+        for code in ["protected_data_unavailable", "local_task_busy"] {
+            model.setForeground(true)
             model.setProtectedDataAvailable(code != "protected_data_unavailable")
             model.running = code == "local_task_busy"
             let runID = UUID().uuidString.lowercased()
@@ -168,7 +177,7 @@ import XCTest
             XCTAssertEqual(event.code, code)
             XCTAssertEqual(event.diagnosticID, MuseDiagnosticsLog.tag(requestID))
             XCTAssertEqual(event.run, MuseDiagnosticsLog.tag(runID))
-            XCTAssertEqual(event.state["foreground"], String(code != "not_foreground"))
+            XCTAssertEqual(event.state["foreground"], "true")
             XCTAssertEqual(event.state["protected_data"], String(code != "protected_data_unavailable"))
             XCTAssertEqual(event.state["remote_lease"], "false")
             model.running = false; model.setForeground(true); model.setProtectedDataAvailable(true)
@@ -178,6 +187,8 @@ import XCTest
         }
         // Closing a run in the background must release execution without closing
         // the listener. Use a synthetic bridge; no device actions are dispatched.
+        model.setForeground(false)
+        service.setBackground(true) // A first authenticated background run is admitted.
         let closingRun = UUID().uuidString.lowercased()
         let opened = try await call("runs.open", key: key, parameters: [
             "run_id": closingRun, "deadline_ms": Int64(Date().timeIntervalSince1970 * 1000) + 60_000
@@ -190,6 +201,49 @@ import XCTest
         XCTAssertTrue(service.isListening)
         XCTAssertTrue(controller.isPeerOnline(client.id))
         service.setBackground(false)
+        model.setForeground(true)
+        // New contract: screenshot results survive execution release, and a
+        // normalized coordinate cannot silently enter the legacy pixel path.
+        let imageRun = UUID().uuidString.lowercased(), imageCall = UUID().uuidString.lowercased()
+        let imageDeadline = Int64(Date().timeIntervalSince1970 * 1000) + 300_000
+        let imageOpened = try await call("runs.open", key: key, parameters: ["run_id": imageRun, "deadline_ms": imageDeadline,
+            "input_contract": InputDisplaySnapshot.contract, "image_contract": RemoteImageGeometry.contract])
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: imageOpened.body) as? [String: Any])?["ok"] as? Bool, true)
+        let mismatched = try await call("runs.open", key: key, parameters: ["run_id": imageRun, "deadline_ms": imageDeadline,
+            "input_contract": "image-pixels-v1", "image_contract": RemoteImageGeometry.contract])
+        XCTAssertEqual(((try JSONSerialization.jsonObject(with: mismatched.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "idempotency_conflict")
+        let outOfBounds = try await call("tools.call", key: key, parameters: ["run_id": imageRun, "call_id": "bounds", "deadline_ms": imageDeadline,
+            "tool": "tap", "arguments": ["x": 1001, "y": 0, "purpose": "Synthetic input"]])
+        XCTAssertEqual(((try JSONSerialization.jsonObject(with: outOfBounds.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "coordinate_out_of_bounds")
+        _ = try await call("tools.call", key: key, parameters: ["run_id": imageRun, "call_id": imageCall, "deadline_ms": imageDeadline,
+            "tool": "screenshot", "arguments": [:]])
+        var imageReceipt: [String: Any]?
+        for _ in 0..<100 {
+            let status = try await call("calls.get", key: key, parameters: ["run_id": imageRun, "call_id": imageCall])
+            let result = (try JSONSerialization.jsonObject(with: status.body) as? [String: Any])?["result"] as? [String: Any]
+            if result?["state"] as? String == "succeeded" { imageReceipt = result?["result"] as? [String: Any]; break }
+            if result?["state"] as? String == "failed" { XCTFail("Synthetic screenshot failed: \(result?["error"] ?? "missing error")"); break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let receipt = try XCTUnwrap(imageReceipt)
+        XCTAssertEqual(receipt["coordinate_space"] as? String, InputDisplaySnapshot.contract)
+        XCTAssertEqual(receipt["image_status"] as? String, "available")
+        XCTAssertEqual(try XCTUnwrap(receipt["expires_at_ms"] as? Int64) - XCTUnwrap(receipt["captured_at_ms"] as? Int64), 1_800_000)
+        _ = try await call("runs.cancel", key: key, parameters: ["run_id": imageRun])
+        for _ in 0..<100 where model.hasBusySessions { try await Task.sleep(for: .milliseconds(20)) }
+        let original = try await call("images.get", key: key, parameters: ["run_id": imageRun, "image_id": try XCTUnwrap(receipt["image_id"]), "generation": try XCTUnwrap(receipt["generation"])])
+        XCTAssertTrue(original.body.starts(with: [0xff, 0xd8, 0xff]))
+        // Losing retained pixels must not hide a terminal call receipt or leave
+        // the caller unable to finish releasing its original run.
+        let imageDirectory = directory.appendingPathComponent("ImageResults", isDirectory: true)
+        let cacheFile = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: imageDirectory, includingPropertiesForKeys: nil).first)
+        try Data("damaged historical image".utf8).write(to: cacheFile)
+        let damagedStatus = try await call("calls.get", key: key, parameters: ["run_id": imageRun, "call_id": imageCall])
+        let damagedCall = try XCTUnwrap((try JSONSerialization.jsonObject(with: damagedStatus.body) as? [String: Any])?["result"] as? [String: Any])
+        XCTAssertEqual(damagedCall["state"] as? String, "succeeded")
+        XCTAssertEqual((damagedCall["result"] as? [String: Any])?["image_status"] as? String, "unavailable")
+        let unavailable = try await call("images.get", key: key, parameters: ["run_id": imageRun, "image_id": try XCTUnwrap(receipt["image_id"]), "generation": try XCTUnwrap(receipt["generation"])])
+        XCTAssertEqual(((try JSONSerialization.jsonObject(with: unavailable.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "image_unavailable")
         for gap in [0.0, 30, 42, 84, 89.999] {
             uptime = 100 + gap
             XCTAssertTrue(controller.isPeerOnline(client.id), "Normal probe/retry gap \(gap) must not flap offline")

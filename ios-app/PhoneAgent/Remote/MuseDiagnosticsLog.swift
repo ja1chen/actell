@@ -44,7 +44,7 @@ import OSLog
         events.append(event)
         events = Array(events.suffix(capacity))
         // OSLog is a second channel if protected storage or disk writes fail.
-        logger.notice("stage=\(stage, privacy: .public) diagnostic=\(event.diagnosticID ?? "-", privacy: .public) code=\(code ?? "-", privacy: .public) state=\(String(describing: state), privacy: .public)")
+        logger.notice("stage=\(stage, privacy: .public) diagnostic=\(event.diagnosticID ?? "-", privacy: .public) run=\(event.run ?? "-", privacy: .public) code=\(code ?? "-", privacy: .public) state=\(String(describing: state), privacy: .public)")
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             var directory = url.deletingLastPathComponent()

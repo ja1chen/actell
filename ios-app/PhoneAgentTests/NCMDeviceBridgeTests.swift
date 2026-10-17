@@ -30,6 +30,10 @@ import ProviderCore
     var captures = 0
     var geometryToken: String?
     var geometryChecks = 0
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+        guard let geometryToken else { throw RemoteRPCError("geometry_unavailable", "No synthetic geometry") }
+        return geometryToken
+    }
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) {
         (try await agentCapture(owner: owner, session: session), geometryToken)
     }
@@ -50,9 +54,11 @@ import ProviderCore
     var allowsConnectionWait = false
     var connectionDelay: Duration?
     var connectionAttempts = 0
+    var onConnect: (() -> Void)?
     private var connectionTask: Task<Void, Never>?
     func connectIfNeeded() throws {
         connectionAttempts += 1
+        onConnect?()
         guard allowsConnectionWait else {
             if !ready { throw NCMControlError.unavailable(connectionFailure ?? "ESP32 未连接") }
             return
@@ -97,10 +103,43 @@ import ProviderCore
 }
 
 @MainActor final class NCMDeviceBridgeTests: XCTestCase {
+    func testIndependentInputUsesGeometryWithoutCaptureAndConsumesGrant() async throws {
+        let flow = NCMConnectionSpy(); flow.geometryToken = "first"
+        let bridge = try NCMDeviceBridge(flow: flow)
+        let snapshot = try await bridge.inputDisplaySnapshot()
+        try await bridge.authorizeIndependentInput(snapshot, authorizationID: "one")
+        try await bridge.independentInput(name: "tap", coordinates: [32768, 65535], durationMS: 0, snapshot: snapshot, authorizationID: "one")
+        XCTAssertEqual(flow.taps, 1)
+        XCTAssertEqual(flow.captures, 0)
+        do {
+            try await bridge.independentInput(name: "tap", coordinates: [32768, 65535], durationMS: 0, snapshot: snapshot, authorizationID: "one")
+            XCTFail("A consumed grant must not execute twice")
+        } catch {}
+        XCTAssertEqual(flow.taps, 1)
+        await bridge.stop()
+    }
+    func testIndependentGeometryChangesRejectBeforeInput() async throws {
+        let flow = NCMConnectionSpy(); flow.geometryToken = "first"
+        let bridge = try NCMDeviceBridge(flow: flow)
+        let snapshot = try await bridge.inputDisplaySnapshot()
+        flow.geometryToken = "second"
+        do { try await bridge.authorizeIndependentInput(snapshot, authorizationID: "changed"); XCTFail("Geometry changed") }
+        catch { XCTAssertEqual((error as? RemoteRPCError)?.code, "geometry_changed") }
+        let current = try await bridge.inputDisplaySnapshot()
+        try await bridge.authorizeIndependentInput(current, authorizationID: "final")
+        flow.geometryToken = "third" // Changes after authorization, at final native fence.
+        do {
+            try await bridge.independentInput(name: "tap", coordinates: [0, 0], durationMS: 0, snapshot: current, authorizationID: "final")
+            XCTFail("Final geometry fence must reject")
+        } catch {}
+        XCTAssertEqual(flow.taps, 0)
+        XCTAssertEqual(flow.captures, 0)
+        await bridge.stop()
+    }
     func testRemoteAdmissionReportsSpecificControlFailureWithoutReserving() throws {
         let connection = NCMConnectionSpy()
-        for code in ["control_not_connected", "control_busy", "control_reserved"] {
-            connection.ready = code != "control_not_connected"
+        for code in ["control_busy", "control_reserved"] {
+            connection.ready = true
             connection.running = code == "control_busy"
             connection.agentReserved = code == "control_reserved"
             XCTAssertThrowsError(try NCMDeviceBridge(flow: connection, remoteExclusive: true)) { error in
@@ -108,6 +147,49 @@ import ProviderCore
             }
             XCTAssertEqual(connection.reservations, 0)
         }
+    }
+
+    func testMuseStartsBackgroundDemandBeforeRecoveringControlConnection() async throws {
+        let background = BackgroundExecutionCoordinator.testing(selection: [.audio])
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.allowsConnectionWait = true
+        connection.connectionDelay = .milliseconds(70)
+        var stages: [String] = []
+        connection.onConnect = { XCTAssertEqual(background.desired, [.audio]) }
+        let model = AgentViewModel(loadPersistentState: false, backgroundCoordinator: background, makeRemoteBridge: {
+            try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1), remoteExclusive: true,
+                                connectionDiagnostic: { stages.append($0) })
+        })
+        model.setForeground(false)
+        let runtime = try model.acquireRemoteRun("recover", onImage: { _ in XCTFail("App listing must not capture") }, onStop: {})
+        XCTAssertEqual(connection.connectionAttempts, 0)
+        XCTAssertEqual(background.desired, [.audio])
+        let receipt = BackgroundSourceToken(mechanism: .audio, owner: UUID())
+        background.registry.publish(receipt)
+        let result = try await runtime.executeRemoteTool(name: "list_apps", arguments: [:], callID: "apps", imageID: nil, deadline: Date().addingTimeInterval(5))
+        XCTAssertFalse(result.isError, result.result)
+        XCTAssertEqual(connection.appQueries, 1)
+        XCTAssertEqual(connection.reservations, 1)
+        XCTAssertEqual(stages, ["control.connection_wait", "control.connection_ready"])
+        runtime.stop(message: "Synthetic completion")
+        await runtime.waitForRemoteRelease(); model.releaseRemoteRun("recover")
+        XCTAssertEqual(background.desired, [.audio], "Between-invocation demand keeps the selected source alive")
+        model.endRemoteContinuity(); background.registry.revoke(receipt)
+        XCTAssertTrue(background.desired.isEmpty)
+    }
+
+    func testRemoteWaitsForInFlightSetupButDoesNotCaptureAnotherController() async throws {
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.running = true; connection.allowsConnectionWait = true
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1), remoteExclusive: true)
+        let waiting = Task { try await bridge.installedApplications() }
+        while connection.connectionAttempts == 0 { await Task.yield() }
+        connection.running = false; connection.agentReserved = true; connection.ready = true
+        do { _ = try await waiting.value; XCTFail("Another controller owns the ready session") }
+        catch { XCTAssertEqual((error as? NCMRemoteAdmissionError)?.code, "control_reserved") }
+        XCTAssertEqual(connection.reservations, 0)
+        XCTAssertEqual(connection.appQueries, 0)
+        await bridge.stop()
     }
 
     func testMuseRemoteTaskPolicyExecutesConsecutiveInputsAndStillStops() async throws {
@@ -584,7 +666,7 @@ import ProviderCore
         await bridge.stop()
         let absent = NCMConnectionSpy()
         absent.ready = false; absent.allowsConnectionWait = true
-        let waiting = try NCMDeviceBridge(flow: absent, connectionTimeout: .milliseconds(120))
+        let waiting = try NCMDeviceBridge(flow: absent, connectionTimeout: .milliseconds(120), remoteExclusive: true)
         do { _ = try await waiting.screenshot(); XCTFail("Expected bounded timeout") }
         catch { XCTAssertTrue(error.localizedDescription.contains("连接超时")) }
         XCTAssertEqual(absent.captures, 0)
@@ -593,7 +675,7 @@ import ProviderCore
     func testExplicitStopInterruptsConnectionWaitWithoutDispatch() async throws {
         let connection = NCMConnectionSpy()
         connection.ready = false; connection.allowsConnectionWait = true
-        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(2))
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(2), remoteExclusive: true)
         let waiting = Task { try await bridge.installedApplications() }
         while connection.connectionAttempts == 0 { await Task.yield() }
         await bridge.stop()
@@ -604,7 +686,7 @@ import ProviderCore
     func testServiceStopInterruptsWaitWithoutStartingAnotherConnection() async throws {
         let connection = NCMConnectionSpy()
         connection.ready = false; connection.allowsConnectionWait = true
-        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(2))
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(2), remoteExclusive: true)
         let waiting = Task { try await bridge.installedApplications() }
         while connection.connectionAttempts == 0 { await Task.yield() }
         connection.connectionStopID = UUID()

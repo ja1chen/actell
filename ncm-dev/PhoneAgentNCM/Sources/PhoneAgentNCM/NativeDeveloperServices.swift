@@ -181,6 +181,28 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
               ncm_backend_video_geometry_generation(token) == credential,
               decodedGeometry.hasPrefix("\(after.epoch):") else { throw NativeBackendError.malformedEvent }
     }
+    /// Read authenticated display metadata and existing decoder geometry only.
+    /// No JPEG encoding, screenshot request or image publication occurs here.
+    public func inputDisplayGeometry() async throws -> String {
+        let data = try await operation(12, expectedKind: 15)
+        guard let size = try JSONSerialization.jsonObject(with: data) as? [String: Int],
+              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeBackendError.malformedEvent }
+        let until = ContinuousClock.now.advanced(by: .seconds(3))
+        while ContinuousClock.now < until {
+            guard ready, let decoder = videoDecoder, videoDecodeFailure == nil else { throw NativeBackendError.closed }
+            if let published = publishedDecoderGeometry,
+               published.credential == ncm_backend_video_geometry_generation(handle),
+               let token = await decoder.currentGeometryToken(), token == published.token {
+                let parts = token.split(separator: ":")
+                guard parts.count == 8, Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeBackendError.malformedEvent }
+                let result = "\(token)|\(published.credential)"
+                try await validateVideoGeometry(result)
+                return result
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NativeBackendError.malformedEvent
+    }
     public func captureVideoJPEG() async throws -> Data {
         capturedVideoGeometryToken = nil
         guard ready, handle != 0, let decoder = videoDecoder else { throw NativeBackendError.closed }

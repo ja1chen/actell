@@ -41,6 +41,7 @@ struct RemoteRPCError: LocalizedError {
         var deadline: Int64
         var state: String
         var imageContract: String? = nil
+        var inputContract: String? = nil
         var wire: [String: Any] { ["run_id": runID, "deadline_ms": deadline, "state": state] }
     }
     private struct Call: Codable {
@@ -53,10 +54,13 @@ struct RemoteRPCError: LocalizedError {
         var error: String?
         var tool: String? = nil
         var executionDigest: String? = nil
+        var effect: String? = nil
+        var errorCode: String? = nil
         var wire: [String: Any] {
             var value: [String: Any] = ["run_id": runID, "call_id": callID, "state": state]
+            if let effect { value["effect"] = effect }
             if let result, let object = try? JSONSerialization.jsonObject(with: result, options: [.fragmentsAllowed]) { value["result"] = object }
-            if let error { value["error"] = ["code": state, "message": error, "retryable": false] }
+            if let error { value["error"] = ["code": errorCode ?? state, "message": error, "retryable": false] }
             return value
         }
     }
@@ -83,12 +87,15 @@ struct RemoteRPCError: LocalizedError {
     private var diagnostics: MuseDiagnosticsLog?
     private var diagnosticsDirectory: URL?
     private var worker: RemoteToolRuntime?
+    private var continuityClient: String?
     private var activeRun: String?
     private var activeCall: String?
     private var execution: Task<Void, Never>?
     private var expiry: Task<Void, Never>?
     private var callExpiry: Task<Void, Never>?
     private var images: [String: Image] = [:]
+    private var imageCache: RemoteImageResultCache?
+    private var imageCacheFailure: String?
     private var generation = 0
     private var draining = false
 
@@ -159,6 +166,7 @@ struct RemoteRPCError: LocalizedError {
         diagnostics?.record(value ? "scene.background" : "scene.foreground", state: model.remoteAdmissionSnapshot)
     }
     func stop() {
+        model.endRemoteContinuity(); continuityClient = nil
         diagnostics?.record("service.stop", state: diagnosticSnapshot)
         activated = false
         // Fence the journal and coordinator first; only then close the listener.
@@ -173,6 +181,8 @@ struct RemoteRPCError: LocalizedError {
     /// Explicit revocation also fences an already authenticated in-flight call.
     /// The UI must revoke/remove the key in its store before invoking this hook.
     func revoke(clientID: String) {
+        if continuityClient == clientID { model.endRemoteContinuity(); continuityClient = nil }
+        do { try imageCache?.revoke(client: clientID) } catch { healthy = false }
         if let id = activeRun, journal.runs[id]?.clientID == clientID { closeRun(id, state: "cancelled") }
     }
     private func loadJournal(directory: URL?) throws {
@@ -184,10 +194,12 @@ struct RemoteRPCError: LocalizedError {
         let exists = FileManager.default.fileExists(atPath: url.path)
         let loaded = exists ? try JSONDecoder().decode(Journal.self, from: Data(contentsOf: url)) : Journal()
         guard loaded.version == 1, loaded.runs.count <= 10_000, loaded.calls.count <= 10_000 else { throw RemoteRPCError("journal_invalid", "Journal requires local reconciliation") }
+        imageCache = try RemoteImageResultCache(directory: base.appendingPathComponent("ImageResults", isDirectory: true))
         journal = loaded; journalURL = url
         for id in Array(journal.runs.keys) where journal.runs[id]?.state == "open" { journal.runs[id]?.state = "cancelled" }
         for id in Array(journal.calls.keys) where ["queued", "running", "pending_approval"].contains(journal.calls[id]?.state ?? "") {
             journal.calls[id]?.state = "unknown"
+            journal.calls[id]?.effect = "may_have_occurred"
             journal.calls[id]?.error = "App restarted before a confirmed terminal result; never replay this action"
         }
         healthy = true
@@ -334,22 +346,24 @@ struct RemoteRPCError: LocalizedError {
             guard p.isEmpty else { throw RemoteRPCError("bad_request", "Unexpected capability parameters") }
             // DeviceTool schemas do not depend on its coordinator. Avoid constructing
             // a dummy bridge/coordinator by exposing the exact shared schema below.
-            return ["tools": RemoteToolSchema.capabilities, "transport": "https", "approval": "paired-device-scopes", "image_encoding": "binary", "routes": ["ncmDeveloper", "localDevVPN"], "background": "existing-delivered-lease-required", "input_approval": "not-required", "max_image_bytes": 8 * 1024 * 1024, "image_contracts": ["original-v1", RemoteImageGeometry.contract], "thumbnail_max_dimension": RemoteImageGeometry.maxDimension, "thumbnail_max_bytes": RemoteImageGeometry.maxBytes]
+            return ["tools": RemoteToolSchema.capabilities, "input_contracts": ["image-pixels-v1", InputDisplaySnapshot.contract], "independent_input": true, "input_tools": [InputDisplaySnapshot.contract: RemoteToolSchema.tools(inputContract: InputDisplaySnapshot.contract)], "image_retention_seconds": 1800, "transport": "https", "approval": "paired-device-scopes", "image_encoding": "binary", "routes": ["ncmDeveloper", "localDevVPN"], "background": "existing-delivered-lease-required", "input_approval": "not-required", "max_image_bytes": 8 * 1024 * 1024, "image_contracts": ["original-v1", RemoteImageGeometry.contract], "thumbnail_max_dimension": RemoteImageGeometry.maxDimension, "thumbnail_max_bytes": RemoteImageGeometry.maxBytes]
         case "runs.open":
-            guard Set(p.keys).isSubset(of: Set(["run_id", "deadline_ms", "image_contract"])) else { throw RemoteRPCError("bad_request", "Invalid run parameters") }
+            guard Set(p.keys).isSubset(of: Set(["run_id", "deadline_ms", "image_contract", "input_contract"])) else { throw RemoteRPCError("bad_request", "Invalid run parameters") }
             let id = try identifier(p["run_id"]), deadline = try integer(p["deadline_ms"])
             let contract = p["image_contract"] as? String ?? "original-v1"
             guard ["original-v1", RemoteImageGeometry.contract].contains(contract),
                   p["image_contract"] == nil || p["image_contract"] is String else { throw RemoteRPCError("bad_request", "Unsupported image contract") }
+            let inputContract = p["input_contract"] as? String ?? "image-pixels-v1"
+            guard ["image-pixels-v1", InputDisplaySnapshot.contract].contains(inputContract), p["input_contract"] == nil || p["input_contract"] is String else { throw RemoteRPCError("incompatible_capability", "Unsupported input contract") }
             if let existing = journal.runs[id] {
                 guard existing.clientID == client else { throw RemoteRPCError("forbidden", "Run belongs to another client") }
-                guard existing.deadline == deadline, (existing.imageContract ?? "original-v1") == contract else { throw RemoteRPCError("idempotency_conflict", "Run ID has a different deadline") }
+                guard existing.deadline == deadline, (existing.imageContract ?? "original-v1") == contract, (existing.inputContract ?? "image-pixels-v1") == inputContract else { throw RemoteRPCError("idempotency_conflict", "Run ID has a different deadline") }
                 return try ownedRun(p, client: client).wire
             }
             guard deadline > nowMS(), deadline <= nowMS() + 3_600_000 else { throw RemoteRPCError("deadline_exceeded", "Run deadline must be future and within one hour") }
             guard activeRun == nil, !draining else { throw RemoteRPCError("device_busy", "Another run is active or draining") }
             guard journal.runs.count < 10_000 else { throw RemoteRPCError("journal_full", "Accepted IDs are retained; local archive procedure required") }
-            journal.runs[id] = Run(clientID: client, runID: id, deadline: deadline, state: "open", imageContract: contract)
+            journal.runs[id] = Run(clientID: client, runID: id, deadline: deadline, state: "open", imageContract: contract, inputContract: inputContract)
             try persist()
             activeRun = id; generation = 0; images.removeAll()
             do {
@@ -359,6 +373,7 @@ struct RemoteRPCError: LocalizedError {
                 if let failure = error as? RemoteRPCError { throw failure }
                 throw RemoteRPCError("device_unavailable", error.localizedDescription)
             }
+            continuityClient = client
             publishConnectionState(.running)
             expiry = Task { [weak self] in
                 let delay = max(1, deadline - (self?.nowMS() ?? deadline))
@@ -366,17 +381,26 @@ struct RemoteRPCError: LocalizedError {
                 self?.closeRun(id, state: "expired")
             }
             return journal.runs[id]!.wire
-        case "runs.get": return try ownedRun(p, client: client).wire
+        case "runs.get":
+            let run = try ownedRun(p, client: client)
+            return run.wire.merging(["execution_released": activeRun != run.runID], uniquingKeysWith: { _, new in new })
         case "runs.cancel":
             let run = try ownedRun(p, client: client)
             if run.state == "open" { closeRun(run.runID, state: "cancelled") }
-            return journal.runs[run.runID]!.wire
+            return journal.runs[run.runID]!.wire.merging(["execution_released": activeRun != run.runID], uniquingKeysWith: { _, new in new })
         case "calls.get":
             let run = try ownedRun(p, client: client), id = try identifier(p["call_id"])
             guard let call = journal.calls[callKey(client: client, run: run.runID, call: id)] else { throw RemoteRPCError("not_found", "Call not found; absence is not proof of nonexecution") }
             guard call.clientID == client, call.runID == run.runID else { throw RemoteRPCError("forbidden", "Call ownership mismatch") }
             guard authorizeRequest?(client, "tools.call", ["tool": call.tool ?? "unknown"]) ?? true else { throw RemoteRPCError("forbidden", "Client scope no longer permits this result") }
-            return call.wire
+            var wire = call.wire
+            if call.tool == "screenshot", run.imageContract == RemoteImageGeometry.contract, let data = call.result,
+               var receipt = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let image = receipt["image_id"] as? String, let generation = receipt["generation"] as? Int {
+                receipt["image_status"] = retainedImage(client: client, run: run.runID, image: image, generation: generation) == nil ? "unavailable" : "available"
+                wire["result"] = receipt
+            }
+            return wire
         case "tools.call": return try acceptCall(p, client: client)
         default: throw RemoteRPCError("bad_request", "Unknown operation")
         }
@@ -403,7 +427,14 @@ struct RemoteRPCError: LocalizedError {
         guard deadline > nowMS(), deadline <= run.deadline else { throw RemoteRPCError("deadline_exceeded", "Call deadline is invalid") }
         var imageID: String?
         var executionArguments = args
-        if name == "tap" || name == "drag" {
+        if run.inputContract == InputDisplaySnapshot.contract {
+            guard p["observation"] == nil else { throw RemoteRPCError("bad_request", "Independent input does not accept an observation") }
+            executionArguments["_input_contract"] = InputDisplaySnapshot.contract
+            let keys = name == "tap" ? ["x", "y"] : name == "drag" ? ["from_x", "from_y", "to_x", "to_y"] : []
+            for field in keys {
+                guard (0...1000).contains(try integer(args[field])) else { throw RemoteRPCError("coordinate_out_of_bounds", "Coordinates must be integers from 0 to 1000") }
+            }
+        } else if name == "tap" || name == "drag" {
             guard let observation = p["observation"] as? [String: Any], Set(observation.keys) == Set(run.imageContract == RemoteImageGeometry.contract ? ["image_id", "generation", "geometry_revision"] : ["image_id", "generation"]) else { throw RemoteRPCError("stale_observation", "Coordinate tool requires an observation") }
             imageID = try identifier(observation["image_id"])
             let imageGeneration = try integer(observation["generation"])
@@ -425,6 +456,7 @@ struct RemoteRPCError: LocalizedError {
                 executionArguments["_remote_image_id"] = image.frame.id
             }
         }
+        if name == "screenshot", run.imageContract == RemoteImageGeometry.contract { try imageCache?.requireCapacity() }
         guard journal.calls.count < 10_000 else { throw RemoteRPCError("journal_full", "Accepted IDs cannot be discarded automatically") }
         journal.calls[key] = Call(clientID: client, runID: run.runID, callID: id, digest: digest, state: "queued", tool: name, executionDigest: SHA256.hash(data: try json(executionArguments)).map { String(format: "%02x", $0) }.joined())
         try persist() // Accepted identity and payload hash are durable BEFORE enqueue.
@@ -458,10 +490,14 @@ struct RemoteRPCError: LocalizedError {
             }
             let result = try await worker.executeRemoteTool(name: name, arguments: arguments, callID: callID,
                 imageID: imageID, deadline: Date(timeIntervalSince1970: Double(deadline) / 1000))
+            let failureCode = await worker.remoteFailureCode()
             let delivery = worker.remoteDelivery(callID)
             // Closing a run already froze a conservative terminal result. Never
             // upgrade unknown/cancelled from late callbacks or resurrect a run.
             if journal.calls[id]?.state == "running" {
+                journal.calls[id]?.effect = ["tap", "drag", "home", "launch_app", "type_text"].contains(name)
+                ? ([RunCheckpoint.Delivery.acknowledged, .observedResult].contains(delivery ?? .prepared) ? "acknowledged" : [.dispatching, .outcomeUnknown].contains(delivery ?? .prepared) ? "may_have_occurred" : "not_sent")
+                : "not_applicable"
                 if delivery == .outcomeUnknown || delivery == .dispatching { journal.calls[id]?.state = "unknown" }
                 else { journal.calls[id]?.state = result.isError ? "failed" : "succeeded" }
                 if name == "screenshot", !result.isError {
@@ -473,22 +509,32 @@ struct RemoteRPCError: LocalizedError {
                             receipt["width"] = thumbnail.geometry.deliveredWidth; receipt["height"] = thumbnail.geometry.deliveredHeight
                             receipt["geometry"] = thumbnail.geometry.wire
                             receipt["image_contract"] = RemoteImageGeometry.contract
-                            receipt["expires_at_ms"] = Int64(image.frame.capturedAt.addingTimeInterval(RemoteImageGeometry.maxAge).timeIntervalSince1970 * 1000)
+                            receipt["expires_at_ms"] = Int64(image.frame.capturedAt.addingTimeInterval(RemoteImageResultCache.retention).timeIntervalSince1970 * 1000)
                             receipt["mime_type"] = "image/jpeg"; receipt["byte_count"] = thumbnail.data.count
                         }
+                        receipt["captured_at_ms"] = Int64(image.frame.capturedAt.timeIntervalSince1970 * 1000)
+                        receipt["image_status"] = imageCacheFailure == nil ? "available" : "unavailable"
+                        if journal.runs[run]?.inputContract == InputDisplaySnapshot.contract { receipt["coordinate_space"] = InputDisplaySnapshot.contract }
                         journal.calls[id]?.result = try json(receipt)
+                        if imageCacheFailure != nil { receipt["image_error"] = "image_unavailable"; journal.calls[id]?.result = try json(receipt) }
                     } else {
-                        journal.calls[id]?.state = "failed"
-                        journal.calls[id]?.error = "The captured image was unavailable; obtain a new screenshot"
+                        var receipt = metadata ?? [:]
+                        receipt["image_status"] = "unavailable"
+                        receipt["image_error"] = "image_unavailable"
+                        journal.calls[id]?.result = try json(receipt)
                     }
                 } else { journal.calls[id]?.result = try json(["text": result.result]) }
-                if result.isError { journal.calls[id]?.error = result.result }
+                if result.isError { journal.calls[id]?.error = result.result; journal.calls[id]?.errorCode = failureCode }
             }
         } catch {
             stopped = true
             if journal.calls[id]?.state == "running" {
                 let delivery = worker.remoteDelivery(callID)
-                journal.calls[id]?.state = (delivery == .dispatching || delivery == .outcomeUnknown) ? "unknown" : (nowMS() >= deadline ? "expired" : "cancelled")
+                let uncertain = delivery.map { [RunCheckpoint.Delivery.dispatching, .outcomeUnknown, .acknowledged, .observedResult].contains($0) } ?? false
+                journal.calls[id]?.state = uncertain ? "unknown" : (nowMS() >= deadline ? "expired" : "cancelled")
+                journal.calls[id]?.effect = ["tap", "drag", "home", "launch_app", "type_text"].contains(name)
+                    ? (uncertain ? "may_have_occurred" : "not_sent") : "not_applicable"
+                journal.calls[id]?.errorCode = (error as? RemoteRPCError)?.code
                 journal.calls[id]?.error = "Call stopped; inspect lifecycle before planning any further action"
             }
         }
@@ -503,6 +549,7 @@ struct RemoteRPCError: LocalizedError {
         images.removeAll() // Never associate a new capture with an older image.
         guard let runID = activeRun, journal.runs[runID]?.state == "open", let client = journal.runs[runID]?.clientID,
               frame.png.count <= 8 * 1024 * 1024, ["image/png", "image/jpeg"].contains(frame.mimeType) else { return }
+        imageCacheFailure = nil
         let thumbnail: RemoteThumbnail?
         if journal.runs[runID]?.imageContract == RemoteImageGeometry.contract {
             guard let encoded = try? RemoteThumbnail.make(frame: frame) else { return }
@@ -510,11 +557,36 @@ struct RemoteRPCError: LocalizedError {
         } else { thumbnail = nil }
         generation += 1
         images.removeAll() // Single retained in-memory image bounds memory and disclosure.
+        if let thumbnail {
+            do {
+                guard let imageCache else { throw RemoteRPCError("image_cache_unavailable", "Image result cache is unavailable") }
+                try imageCache.store(.init(client: client, run: runID, image: frame.id, generation: generation, capturedAt: frame.capturedAt,
+                    width: thumbnail.geometry.deliveredWidth, height: thumbnail.geometry.deliveredHeight, geometry: thumbnail.geometry, data: thumbnail.data))
+            } catch { imageCacheFailure = "Captured image could not be retained; it was not recaptured" }
+        }
         images[frame.id] = Image(clientID: client, runID: runID, generation: generation, frame: frame, thumbnail: thumbnail)
+    }
+    private func retainedImage(client: String, run: String, image: String, generation: Int) -> RemoteImageResultCache.Record? {
+        do { return try imageCache?.lookup(client: client, run: run, image: image, generation: generation) }
+        catch {
+            (diagnostics ?? model.museDiagnostics).record("image.result_unavailable", client: client, run: run,
+                code: (error as? RemoteRPCError)?.code ?? "image_cache_unavailable", state: diagnosticSnapshot)
+            return nil
+        }
     }
     private func imageResponse(_ p: [String: Any], client: String, requestID: String) throws -> RemoteHTTPResponse {
         let run = try ownedRun(p, client: client), id = try identifier(p["image_id"])
         let gen = try integer(p["generation"])
+        if run.imageContract == RemoteImageGeometry.contract {
+            guard let record = retainedImage(client: client, run: run.runID, image: id, generation: Int(gen)) else { throw RemoteRPCError("image_unavailable", "Original image has expired or is unavailable; it was not recaptured") }
+            return RemoteHTTPResponse(headers: ["Content-Type": "image/jpeg", "X-Actell-Image-Id": record.image,
+                "X-Actell-Generation": String(record.generation), "X-Actell-Width": String(record.width), "X-Actell-Height": String(record.height),
+                "X-Actell-Request-Id": requestID, "X-Actell-Image-Contract": RemoteImageGeometry.contract,
+                "X-Actell-Geometry-Revision": record.geometry.revision,
+                "X-Actell-Captured-At-Ms": String(Int64(record.capturedAt.timeIntervalSince1970 * 1000)),
+                "X-Actell-Expires-At-Ms": String(Int64(record.expiresAt.timeIntervalSince1970 * 1000)),
+                "X-Actell-SHA256": SHA256.hash(data: record.data).map { String(format: "%02x", $0) }.joined()], body: record.data)
+        }
         guard run.state == "open", let image = images[id], image.generation == generation, image.clientID == client, image.runID == run.runID, Int64(image.generation) == gen else { throw RemoteRPCError("not_found", "Image unavailable or expired") }
         let frame = image.frame
         guard image.thumbnail == nil || Date().timeIntervalSince(frame.capturedAt) < RemoteImageGeometry.maxAge else { throw RemoteRPCError("stale_observation", "Screenshot expired; capture another image") }
@@ -530,14 +602,19 @@ struct RemoteRPCError: LocalizedError {
     }
     private func externallyStopped() {
         guard let id = activeRun, !draining else { return }
+        model.endRemoteContinuity(); continuityClient = nil
         closeRun(id, state: "cancelled", stopWorker: false)
     }
     private func closeRun(_ id: String, state: String, stopWorker: Bool = true) {
         guard activeRun == id, !draining else { return }
         draining = true; journal.runs[id]?.state = state
+        let releaseStarted = ProcessInfo.processInfo.systemUptime
+        (diagnostics ?? model.museDiagnostics).record("run.release_started", run: id, state: diagnosticSnapshot)
         if let callID = activeCall, ["queued", "running", "pending_approval"].contains(journal.calls[callID]?.state ?? "") {
             let delivery = journal.calls[callID].flatMap { worker?.remoteDelivery($0.callID) }
             journal.calls[callID]?.state = (delivery.map { [RunCheckpoint.Delivery.dispatching, .outcomeUnknown, .acknowledged, .observedResult].contains($0) } ?? false) ? "unknown" : (state == "expired" ? "expired" : "cancelled")
+            let effect = journal.calls[callID]?.state == "unknown" ? "may_have_occurred" : "not_sent"
+            journal.calls[callID]?.effect = effect
             journal.calls[callID]?.error = "Run closed; dispatched actions cannot be rolled back"
         }
         if healthy { try? persist() }
@@ -553,6 +630,9 @@ struct RemoteRPCError: LocalizedError {
             self.model.releaseRemoteRun(id)
             self.worker = nil; self.activeRun = nil; self.activeCall = nil; self.execution = nil; self.draining = false
             self.publishConnectionState(self.activated ? .listening : .stopped)
+            var snapshot = self.diagnosticSnapshot
+            snapshot["release_elapsed_ms"] = String(Int64((ProcessInfo.processInfo.systemUptime - releaseStarted) * 1000))
+            (self.diagnostics ?? self.model.museDiagnostics).record("run.release_complete", run: id, state: snapshot)
         }
     }
 }

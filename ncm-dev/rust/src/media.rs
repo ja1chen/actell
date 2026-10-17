@@ -55,6 +55,10 @@ async fn read_display_geometry(info: &mut DisplayInfoClient, id: i64) -> Option<
     .ok()?;
     display_geometry(&value, id)
 }
+pub(crate) async fn query_display_geometry(adapter: &mut AdapterHandle, handshake: &mut RsdHandshake) -> Result<(u32, u32), Error> {
+    let mut info = bounded(Stage::Media, DisplayInfoClient::connect_rsd(adapter, handshake)).await?;
+    read_display_geometry(&mut info, 1).await.ok_or(error(Stage::Input, Cause::InvalidParameters))
+}
 fn display_geometry(value: &plist::Value, id: i64) -> Option<(u32, u32)> {
     let root = value.as_dictionary()?;
     if !root.get("current")?.as_boolean()? {

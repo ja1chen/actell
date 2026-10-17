@@ -4,6 +4,82 @@ import ImageIO
 @testable import PhoneAgent
 
 final class RemoteImageGeometryTests: XCTestCase {
+    func testCacheAcceptsEquivalentFileURLRepresentationsAcrossRestart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let relative = try XCTUnwrap(URL(string: "ImageResults/", relativeTo: root))
+        let cache = try RemoteImageResultCache(directory: relative)
+        let geometry = try RemoteImageGeometry(revision: "r", originalWidth: 10, originalHeight: 20, deliveredWidth: 10, deliveredHeight: 20)
+        try cache.store(.init(client: "owner", run: "run", image: "image", generation: 1,
+            capturedAt: Date(), width: 10, height: 20, geometry: geometry, data: Data([1, 2, 3])))
+        XCTAssertNoThrow(try cache.requireCapacity()) // Enumerated URLs differ from URLs with a base.
+        let restarted = try RemoteImageResultCache(directory: URL(fileURLWithPath: relative.path, isDirectory: true))
+        XCTAssertEqual(try restarted.lookup(client: "owner", run: "run", image: "image", generation: 1)?.data, Data([1, 2, 3]))
+        XCTAssertNil(try restarted.lookup(client: "other", run: "run", image: "image", generation: 1))
+    }
+
+    func testDamagedHistoricalImageDoesNotBlockOtherImagesButStillConsumesCapacity() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = try RemoteImageResultCache(directory: directory)
+        let geometry = try RemoteImageGeometry(revision: "r", originalWidth: 10, originalHeight: 20, deliveredWidth: 10, deliveredHeight: 20)
+        try cache.store(.init(client: "owner", run: "run", image: "old", generation: 1,
+            capturedAt: Date(), width: 10, height: 20, geometry: geometry, data: Data([1])))
+        let file = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+        var damaged = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        damaged["sha256"] = "wrong"
+        let damagedData = try JSONSerialization.data(withJSONObject: damaged)
+        try damagedData.write(to: file)
+        let restarted = try RemoteImageResultCache(directory: directory)
+        XCTAssertThrowsError(try restarted.lookup(client: "owner", run: "run", image: "old", generation: 1))
+        try restarted.store(.init(client: "owner", run: "run", image: "new", generation: 2,
+            capturedAt: Date(), width: 10, height: 20, geometry: geometry, data: Data([2])))
+        XCTAssertEqual(try restarted.lookup(client: "owner", run: "run", image: "new", generation: 2)?.data, Data([2]))
+        for index in 0..<62 { try Data("broken".utf8).write(to: directory.appendingPathComponent("broken-\(index).json")) }
+        XCTAssertThrowsError(try restarted.requireCapacity())
+        XCTAssertEqual(try Data(contentsOf: file), damagedData)
+    }
+
+    func testIndependentCoordinatesAndHistoricalImageRetention() throws {
+        let snapshot = InputDisplaySnapshot(context: "session", token: "geometry", sampledAt: Date())
+        XCTAssertEqual(try snapshot.normalized(0), 0)
+        XCTAssertEqual(try snapshot.normalized(500), 32768)
+        XCTAssertEqual(try snapshot.normalized(1000), 65535)
+        XCTAssertThrowsError(try snapshot.normalized(-1))
+        XCTAssertThrowsError(try snapshot.normalized(1001))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let capture = Date(timeIntervalSince1970: 1000)
+        var now = capture
+        let geometry = try RemoteImageGeometry(revision: "r", originalWidth: 10, originalHeight: 20, deliveredWidth: 10, deliveredHeight: 20)
+        let cache = try RemoteImageResultCache(directory: directory, now: { now })
+        for id in ["first", "second"] {
+            try cache.store(.init(client: "owner", run: "closed-run", image: id, generation: 1, capturedAt: capture, width: 10, height: 20, geometry: geometry, data: Data([1, 2, 3])))
+        }
+        now = capture.addingTimeInterval(61)
+        let restarted = try RemoteImageResultCache(directory: directory, now: { now })
+        XCTAssertNotNil(try restarted.lookup(client: "owner", run: "closed-run", image: "first", generation: 1))
+        XCTAssertNil(try restarted.lookup(client: "other", run: "closed-run", image: "first", generation: 1))
+        XCTAssertNil(try restarted.lookup(client: "owner", run: "closed-run", image: "first", generation: 2))
+        now = capture.addingTimeInterval(1799)
+        XCTAssertNotNil(try restarted.lookup(client: "owner", run: "closed-run", image: "first", generation: 1))
+        now = capture.addingTimeInterval(1800)
+        XCTAssertNil(try restarted.lookup(client: "owner", run: "closed-run", image: "first", generation: 1))
+    }
+    func testImageCapacityDoesNotEvictUnexpiredResultsAndRevocationCleans() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = try RemoteImageResultCache(directory: directory)
+        let geometry = try RemoteImageGeometry(revision: "r", originalWidth: 10, originalHeight: 20, deliveredWidth: 10, deliveredHeight: 20)
+        for index in 0..<64 {
+            try cache.store(.init(client: "owner", run: "run", image: String(index), generation: index, capturedAt: Date(), width: 10, height: 20, geometry: geometry, data: Data([1])))
+        }
+        XCTAssertThrowsError(try cache.requireCapacity())
+        XCTAssertNotNil(try cache.lookup(client: "owner", run: "run", image: "0", generation: 0))
+        try cache.revoke(client: "owner")
+        XCTAssertNil(try cache.lookup(client: "owner", run: "run", image: "0", generation: 0))
+        XCTAssertNoThrow(try cache.requireCapacity())
+    }
     func testPortraitLandscapeAndFractionalScaleVectors() throws {
         for (ow, oh, dw, dh) in [(1179, 2556, 590, 1280), (2556, 1179, 1280, 590), (1001, 777, 701, 544)] {
             let g = try RemoteImageGeometry(revision: "r", originalWidth: ow, originalHeight: oh, deliveredWidth: dw, deliveredHeight: dh)

@@ -14,7 +14,6 @@ import SwiftAgentKit
     private let identity = RunIdentity(conversationID: UUID(), runID: UUID())
     private let generation = UUID()
     private var action: ActionCoordinator?
-    private var foreground = true
     private var protectedDataAvailable = true
     private(set) var running = false
     private(set) var stopping = false
@@ -24,6 +23,7 @@ import SwiftAgentKit
 
     init(bridge: any DeviceBridge, persistent: Bool, directory: URL? = nil,
          backgroundCoordinator: BackgroundExecutionCoordinator = .shared,
+         backgroundProcessing: Bool? = nil, initiallyForeground: Bool = true,
          approvalRecords: ApprovalRecordStore, diagnostics: USBDiagnosticsLog,
          onImage: @escaping @MainActor (FrameImage) -> Void,
          onStop: @escaping @MainActor () -> Void) throws {
@@ -31,9 +31,11 @@ import SwiftAgentKit
         scheduler = RunExecutionScheduler(coordinator: backgroundCoordinator)
         let root = directory ?? URL.applicationSupportDirectory.appending(path: "PhoneAgent/Remote/Execution")
         lifecycle = RunLifecycleFactory.make(persistent: persistent, scheduler: scheduler, directory: root)
-        scheduler.configure(context: bridge.executionContext, allowSystemProcessing: persistent,
+        scheduler.setForeground(initiallyForeground)
+        lifecycle.setForeground(initiallyForeground)
+        scheduler.configure(context: bridge.executionContext, allowSystemProcessing: backgroundProcessing ?? persistent,
                             selection: backgroundCoordinator.selection, runID: identity.runID, userInitiated: false)
-        do { try lifecycle.begin(identity: identity, generation: generation) }
+        do { try lifecycle.begin(identity: identity, generation: generation, allowBackgroundStart: !initiallyForeground) }
         catch {
             bridge.executionContext?.revoke(); bridge.cancelTransport()
             scheduler.configure(context: nil, allowSystemProcessing: false)
@@ -56,7 +58,9 @@ import SwiftAgentKit
         }
     }
     private func authorize(_ request: Approval) -> Bool {
-        guard running, !stopping, protectedDataAvailable, foreground || lifecycle.hasLease else { return false }
+        // The shared action lifecycle checks execution readiness and dispatch;
+        // this remote approval path adds no separate foreground/lease gate.
+        guard running, !stopping, protectedDataAvailable else { return false }
         do {
             try bridge.executionContext?.requireHealthy()
             try approvalRecords.register(request, run: identity, authorizationMode: .task)
@@ -80,11 +84,11 @@ import SwiftAgentKit
         if running, !stopping { try approvalRecords.finish(callID: callID, run: identity) }
         return result
     }
+    func remoteFailureCode() async -> String? { await action?.remoteFailureCode }
     func remoteDelivery(_ callID: String) -> RunCheckpoint.Delivery? {
         lifecycle.checkpoint?.tools.first(where: { $0.callID == callID })?.delivery
     }
     func setScene(_ scene: ScreenUSBExecutionContext.Scene) {
-        foreground = scene == .active
         bridge.executionContext?.setScene(scene)
         lifecycle.setForeground(scene != .background)
     }

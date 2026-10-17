@@ -81,7 +81,8 @@ enum RemoteStrictJSON {
 }
 
 @MainActor enum RemoteToolSchema {
-    static var capabilities: [[String: Any]] {
+    static var capabilities: [[String: Any]] { tools(inputContract: "image-pixels-v1") }
+    static func tools(inputContract: String) -> [[String: Any]] {
         RemoteToolsService.toolNames.map { name in
             let schema = DeviceTool.parameters(for: name)
             var properties: [String: Any] = [:]
@@ -89,11 +90,18 @@ enum RemoteStrictJSON {
                 var value: [String: Any] = ["type": field.type, "description": field.description]
                 if let itemsType = field.itemsType { value["items"] = ["type": itemsType] }
                 if let choices = field.enum { value["enum"] = choices }
+                if inputContract == InputDisplaySnapshot.contract, ["x", "y", "from_x", "from_y", "to_x", "to_y"].contains(key) {
+                    value["description"] = "Integer normalized full-display coordinate from 0 to 1000; no screenshot is required."
+                    value["minimum"] = 0; value["maximum"] = 1000
+                }
                 properties[key] = value
             }
             let parameters: [String: Any] = ["type": "object", "properties": properties,
                                             "required": schema.required, "additionalProperties": false]
-            return ["name": name, "description": DeviceTool.description(for: name), "parameters": parameters]
+            let description = inputContract == InputDisplaySnapshot.contract && ["tap", "drag"].contains(name)
+                ? "Send an authorized \(name) using normalized-display-v1 coordinates, independent of screenshots. Never automatically replay an uncertain action."
+                : DeviceTool.description(for: name)
+            return ["name": name, "description": description, "parameters": parameters]
         }
     }
 }

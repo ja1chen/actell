@@ -298,6 +298,14 @@ impl Session {
             height: dimensions.height,
         })
     }
+    pub async fn input_display_geometry(&mut self) -> Result<Vec<u8>, Error> {
+        self.check()?;
+        let size = media::query_display_geometry(&mut self.adapter, &mut self.handshake).await;
+        self.video.set_visible_size(size.as_ref().ok().copied());
+        let (width, height) = size?;
+        serde_json::to_vec(&serde_json::json!({"width": width, "height": height}))
+            .map_err(|_| error(Stage::Input, Cause::Protocol))
+    }
     /// Starts real DisplayService video negotiation and drains packets in
     /// the owned tunnel. No HEVC decode. Explicit media consent is a caller duty.
     /// Preparation sends no touch reports. Its scoped streams/drains are dropped

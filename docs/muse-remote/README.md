@@ -1,5 +1,7 @@
 # Muse → Actell remote tools adapter
 
+The [remote tools technical document](REMOTE-TOOLS.md) defines the direct Gadget interface, screenshot-independent normalized input, protected image retention, execution/background lifecycle, error recovery and remaining integration boundaries.
+
 Current enrollment uses [SLAN/1](COMPANION-PAIRING.md). See [the current implementation record](SLAN-IMPLEMENTATION.md) for build/test evidence. The V1 patch history below retains the original provenance and RPC execution boundaries.
 
 The settings/provisioning UI and its subsequent verification are recorded in [UI-VALIDATION-2026-10-13.md](UI-VALIDATION-2026-10-13.md). Earlier local Mac validation is recorded separately in [LOCAL-VALIDATION-2026-10-12.md](LOCAL-VALIDATION-2026-10-12.md). The cloud limitations below describe the original delivery; they are not current local build results.

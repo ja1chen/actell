@@ -127,6 +127,18 @@ struct AgentRunServices {
     private var coordinator: ActionCoordinator?
     @Published private var remoteLeaseID: String?
     private var remoteRuntime: RemoteToolRuntime?
+    private var remoteContinuityDemand: UUID?
+    func endRemoteContinuity() {
+        if let remoteContinuityDemand { executionBackground.releaseDemand(remoteContinuityDemand) }
+        remoteContinuityDemand = nil
+    }
+    private func retainRemoteContinuity() {
+        guard allowSystemProcessing else { return }
+        endRemoteContinuity()
+        let allowed = executionBackground.selection.intersection(BackgroundMechanism.continuous)
+        guard !allowed.isEmpty else { return }
+        remoteContinuityDemand = executionBackground.acquireDemand(runID: UUID(), allowed: allowed, userInitiated: false)
+    }
     private let makeRemoteBridge: (@MainActor () throws -> any DeviceBridge)?
     private var bridge: (any DeviceBridge)?
     private var liveBridge: TLSBridge?
@@ -381,6 +393,7 @@ struct AgentRunServices {
         }
         protectedDataAvailable = available
         if !available {
+            endRemoteContinuity()
             cancelPreview()
             screenExecutionContext?.revoke()
             if running || usbClient != nil { stop(message: String(localized: "The device is locked or protected data is unavailable. Input has stopped."), interrupted: true) }
@@ -798,6 +811,7 @@ struct AgentRunServices {
         end(phase, result: result, publishNotice: publishNotice)
     }
     func stop(message: String = String(localized: "Stopped. An action already sent may have run. Check the device."), interrupted: Bool = false) {
+        endRemoteContinuity()
         if let remoteRuntime {
             remoteRuntime.stop(message: message, interrupted: interrupted)
             return
@@ -1180,7 +1194,12 @@ extension AgentViewModel {
             "control_ready": String(flow.ready), "control_running": String(flow.running),
             "control_reserved": String(flow.agentReserved), "control_pairing": String(flow.pairingActive),
             "control_has_record": String(flow.hasRecord), "control_background": String(flow.isBackground),
-            "control_failure_present": String(flow.connectionFailure != nil)
+            "control_failure_present": String(flow.connectionFailure != nil),
+            "background_enabled": String(allowSystemProcessing),
+            "background_selected": executionBackground.selection.map(\.rawValue).sorted().joined(separator: "+"),
+            "background_desired": executionBackground.desired.map(\.rawValue).sorted().joined(separator: "+"),
+            "background_effective": executionBackground.registry.effectiveSources(allowed: executionBackground.selection).map(\.rawValue).sorted().joined(separator: "+"),
+            "background_continuity": String(remoteContinuityDemand != nil)
         ]
     }
 
@@ -1193,7 +1212,6 @@ extension AgentViewModel {
                           onStop: @escaping @MainActor () -> Void) throws -> RemoteToolRuntime {
         let owner = appOwner
         guard owner === self else { throw remoteAdmissionError("invalid_owner", String(localized: "Muse control could not start. Reopen Actell and try again.")) }
-        guard foreground else { throw remoteAdmissionError("not_foreground", String(localized: "Return to Actell and dismiss any system dialogs, then try again.")) }
         guard protectedDataAvailable else { throw remoteAdmissionError("protected_data_unavailable", String(localized: "Device data is unavailable. Unlock the phone and try again.")) }
         guard remoteLeaseID == nil else { throw remoteAdmissionError("device_busy", String(localized: "Another Muse task is using this device. Stop it first.")) }
         guard !hasBusySessions else { throw remoteAdmissionError("local_task_busy", String(localized: "A local task is still running or stopping. Wait for it to finish and try again.")) }
@@ -1209,19 +1227,26 @@ extension AgentViewModel {
             else {
                 switch DeviceControlRoute.current {
                 case .ncmDeveloper, .vpnLoopback:
-                    do { selectedBridge = try NCMDeviceBridge(remoteExclusive: true) }
+                    do { selectedBridge = try NCMDeviceBridge(remoteExclusive: true, connectionDiagnostic: { [weak self] stage in
+                        guard let self else { return }
+                        self.museDiagnostics.record(stage, run: remoteID, state: self.remoteAdmissionSnapshot)
+                    }) }
                     catch let error as NCMRemoteAdmissionError { throw RemoteRPCError(error.code, error.localizedDescription) }
                 case .localCaptureUSB:
                     throw RemoteRPCError("unsupported_route", String(localized: "Muse control requires VPN loopback or ESP32 NCM."))
                 }
             }
             let runtime = try RemoteToolRuntime(bridge: selectedBridge, persistent: persistentRuntime,
-                backgroundCoordinator: executionBackground,
+                backgroundCoordinator: executionBackground, backgroundProcessing: allowSystemProcessing,
+                initiallyForeground: foreground,
                 approvalRecords: approvalRecords, diagnostics: usbDiagnostics, onImage: onImage, onStop: onStop)
             remoteRuntime = runtime
             runtime.setScene(currentScene)
+            retainRemoteContinuity()
+            museDiagnostics.record("run.background_configured", run: remoteID, state: remoteAdmissionSnapshot)
             return runtime
         } catch {
+            endRemoteContinuity()
             remoteLeaseID = nil
             if let failure = error as? RemoteRPCError {
                 _ = remoteAdmissionError(failure.code, failure.message)

@@ -17,6 +17,19 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn('private', str(events))
         self.assertNotIn('192.168', str(events))
 
+    def test_control_recovery_keeps_background_evidence_without_private_failure_text(self):
+        events = collector.extract('stage=control.connection_wait diagnostic=- run=1111111111111111 code=- state=["control_ready": "false", "control_route": "localDevVPN", "background_enabled": "true", "background_selected": "audio+location", "background_desired": "audio", "background_effective": "audio", "background_continuity": "true", "control_failure": "Private network address"]')
+        self.assertEqual(events[0]['run'], '1111111111111111')
+        self.assertEqual(events[0]['state']['background_effective'], 'audio')
+        self.assertEqual(events[0]['state']['background_selected'], 'audio+location')
+        self.assertEqual(events[0]['state']['control_ready'], 'false')
+        self.assertNotIn('Private', str(events))
+        self.assertNotIn('control_failure', events[0]['state'])
+        empty = collector.extract('stage=control.connection_wait code=- state=["background_effective": ""]')
+        self.assertEqual(empty[0]['state']['background_effective'], '')
+        released = collector.extract('stage=run.release_complete run=1111111111111111 code=- state=["release_elapsed_ms": "135", "draining": "false"]')
+        self.assertEqual(released[0]['state']['release_elapsed_ms'], '135')
+
     def test_empty_native_console_is_not_evidence_of_success(self):
         self.assertEqual(collector.extract({'items': [], 'title': 'Console'}), [])
         self.assertEqual(collector.extract({'message': 'other log private credential'}), [])

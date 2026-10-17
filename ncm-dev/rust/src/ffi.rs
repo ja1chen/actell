@@ -458,7 +458,7 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
         1 | 11 => 0,
         2 => SCREEN,
         3 => MEDIA,
-        4 | 6 | 7 | 9 | 10 => INPUT,
+        4 | 6 | 7 | 9 | 10 | 12 => INPUT,
         8 => VERIFY,
         _ => u32::MAX,
     };
@@ -483,6 +483,7 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             .check_developer_readiness()
             .await
             .map(|_| Event::ok(r.id, 2, Vec::new())),
+        12 => session.input_display_geometry().await.map(|data| Event::ok(r.id, 15, data)),
         11 => session
             .stop_touch_media()
             .await
@@ -780,7 +781,7 @@ pub unsafe extern "C" fn ncm_local_vpn_start_configured(
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn ncm_backend_submit(handle: u64, id: u64, action: u32, x: u16, y: u16) -> i32 {
-    if !(1..=5).contains(&action) && action != 7 && action != 8 && action != 11 {
+    if !(1..=5).contains(&action) && action != 7 && action != 8 && action != 11 && action != 12 {
         return INVALID;
     }
     submit_request(

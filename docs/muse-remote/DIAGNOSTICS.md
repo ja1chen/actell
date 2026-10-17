@@ -85,6 +85,30 @@ response.processed → connection.closed using the connection tag. A queued repl
 alone is not delivery proof. A claim.prepared event is not proof Muse received it.
 Authentication-rejected identities are unverified even though IDs are hashed.
 
+For phone-control recovery, correlate `run.background_configured` with
+`control.connection_wait`, `control.connection_ready` or `control.connection_failed`
+using the hashed run ID. `control.connection_unavailable` identifies a setup
+prerequisite failure; `control.connection_timeout` identifies the bounded connection
+wait expiring. These stages contain no tool arguments, addresses or failure text.
+`background_enabled` records the execution setting; `background_selected`,
+`background_desired` and `background_effective` distinguish configured options,
+continuous-driver demand and actual continuous-source receipts. An empty effective
+value means no continuous source receipt, not an omitted field. Per-run system-task
+leases are separate and are not included in that continuous-source field.
+`background_continuity` identifies demand retained between invokes, without phone
+ownership. Compare these with `control_route`, `control_ready`, `control_running`,
+`control_reserved`, `control_has_record`, `control_background` and
+`control_failure_present`; service/Wi-Fi connectivity alone is not phone-control
+readiness. Request outcome events include the same state snapshot. Never infer
+successful background execution from demand alone.
+
+`run.release_started` and `run.release_complete` bracket actual owner cleanup.
+The latter includes monotonic `release_elapsed_ms`; a missing completion event
+distinguishes unfinished cleanup from repeated new-run busy rejections. These
+events add no cooldown. `image.result_unavailable` retains the underlying fixed
+cache error code locally while the original terminal call receipt stays readable
+with unavailable pixels; do not replay the screenshot to repair its history.
+
 Local pre-authentication 401 reasons are malformed, clock_skew, key_unavailable,
 signature_mismatch, replayed, cache_full and monotonic_clock_unavailable. The
 network response remains generic. clock_skew means the parsed request timestamp

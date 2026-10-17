@@ -13,6 +13,11 @@ STATE_FIELDS = {
     'service_background', 'journal_healthy', 'active_run', 'active_call',
     'draining', 'busy_sessions', 'saved_enabled', 'app_version', 'app_build',
     'underlying_domain', 'underlying_code', 'handler_in_flight',
+    'selected_route', 'control_route', 'control_ready', 'control_running',
+    'control_reserved', 'control_pairing', 'control_has_record', 'control_background',
+    'control_failure_present', 'background_enabled', 'background_selected',
+    'background_desired', 'background_effective', 'background_continuity',
+    'release_elapsed_ms',
 }
 
 
@@ -44,7 +49,7 @@ def extract(value):
                 event['code'] = code.group(1)
             state = {}
             for key, item in re.findall(r'"([^"\n]+)"\s*:\s*"([^"\n]*)"', line):
-                if key in STATE_FIELDS and re.fullmatch(r'[A-Za-z0-9_.:+/-]{1,120}', item):
+                if key in STATE_FIELDS and re.fullmatch(r'[A-Za-z0-9_.:+/-]{0,120}', item):
                     state[key] = item
             event['state'] = state
             events.append(event)
