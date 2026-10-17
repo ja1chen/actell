@@ -81,8 +81,16 @@ Save a minimal evidence summary under ignored `.build/validation/`, with the sou
 - local key_state and pairing approval/claim/ACK/expiry/stop stages.
 
 Correlate request.parsed → authentication/operation result → response.queued →
-response.processed → connection.closed using the connection tag. A queued reply
-alone is not delivery proof. A claim.prepared event is not proof Muse received it.
+response.processed → peer.ended → connection.closed using the connection tag.
+`http.response.processed` means local stack processing, not complete peer receipt.
+After that event the connection remains in `phase=drain` until peer EOF, error,
+explicit stop or the original write deadline. `http.peer.ended` during `read`,
+`handler` or `write` can be an early request-side half-close and does not establish
+response delivery. `http.pipeline.rejected` identifies unsupported extra request
+bytes; it never dispatches another RPC. `http.deadline` in `write` versus `drain`
+distinguishes pending send processing from waiting for peer completion. Correlate
+these with the client's received length and digest when diagnosing image delivery.
+A queued reply alone is not delivery proof. A claim.prepared event is not proof Muse received it.
 Authentication-rejected identities are unverified even though IDs are hashed.
 
 For phone-control recovery, correlate `run.background_configured` with

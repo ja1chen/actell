@@ -109,6 +109,14 @@ Malformed historical records are isolated so one damaged entry does not prevent 
 
 Binary responses retain JPEG identity/hash headers and include `X-Actell-Captured-At-Ms` and `X-Actell-Expires-At-Ms`. Historical availability does not extend action authorization, execution deadlines or legacy observation validity.
 
+### HTTP response completion
+
+Each TLS connection carries one HTTP request and one response with an exact `Content-Length` and `Connection: close`. The response uses Network.framework's [final send context](https://developer.apple.com/documentation/network/nwconnection/contentcontext/finalmessage) to end the write side in protocol order. The successful [`contentProcessed` callback](https://developer.apple.com/documentation/network/nwconnection/sendcompletion) reports local stack processing; it does not prove the peer received the complete image. Actell retains the session and its connection slot after that callback, continuing the existing receive to observe peer EOF or a connection error before cancelling it.
+
+The existing ten-second write deadline covers both sending and waiting for peer completion. Neither the send callback nor subsequent reads restart it. A peer that closes its request side before the send callback has not acknowledged the response; that connection remains retained until an error, explicit service stop or the same deadline. Ordinary clients can finish immediately after receiving the response; this adds no fixed sleep or tool cooldown.
+
+Pipelined requests never dispatch a second RPC. Extra bytes during a handler cancel that handler and produce one error response; extra bytes during response writing or draining close the invalid stream. A handler that ignores cancellation still occupies its slot until it exits, even after socket closure. The four-connection bound, authentication, image limits and original-operation recovery rules remain in force. A successful image download requires the receiving client to verify the full body length and digest; transport logs alone do not establish delivery.
+
 ## Implementation and validation entry points
 
 - [RemoteToolsService.swift](../../ios-app/PhoneAgent/Remote/RemoteToolsService.swift): authenticated RPC, durable call state, ownership and cached-image access.
@@ -117,6 +125,7 @@ Binary responses retain JPEG identity/hash headers and include `X-Actell-Capture
 - [RemoteImageGeometry.swift](../../ios-app/PhoneAgent/Remote/RemoteImageGeometry.swift): coordinate mapping, thumbnails and protected cache.
 - [RunExecutionScheduler.swift](../../ios-app/PhoneAgent/Background/RunExecutionScheduler.swift): shared background execution demands.
 - [RemoteImageGeometryTests.swift](../../ios-app/PhoneAgentTests/RemoteImageGeometryTests.swift), [RemoteToolRuntimeTests.swift](../../ios-app/PhoneAgentTests/RemoteToolRuntimeTests.swift), [SimpleLANRPCTests.swift](../../ios-app/PhoneAgentTests/SimpleLANRPCTests.swift) and [NCMDeviceBridgeTests.swift](../../ios-app/PhoneAgentTests/NCMDeviceBridgeTests.swift): cache, RPC, background, connection recovery and one-use input regressions.
+- [RemoteTransportTraceTests.swift](../../ios-app/PhoneAgentTests/RemoteTransportTraceTests.swift): controlled send/EOF ordering, deadlines, cancellation, pipelining, retained handler slots and synthetic TLS image transfers with slow reads and connection-capacity checks.
 - [iOS validation instructions](../../ios-app/README.md) and [diagnostics](DIAGNOSTICS.md): build/test and structured error/release correlation workflows.
 
 Regression coverage must preserve contract conflicts, schema validation, zero-capture input, one-use grants, geometry changes, ownership exclusion, background demand before connection recovery, cancellation/draining, unknown-result nonreplay, restart, cache corruption isolation, capacity accounting and original image retrieval after run closure. Gadget coverage must include persistent deduplication, write faults, ownership-aware cleanup, lost receipts and image-result serialization bounds.

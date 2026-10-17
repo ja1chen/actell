@@ -217,9 +217,24 @@ struct RemoteHTTPRequestParser {
     }
 }
 
-/// Opt-in TLS listener. Constructing it does nothing; there is no default
-/// identity, certificate import, plaintext fallback, Bonjour advertisement,
-/// automatic launch, or listener retry. The owner must stop it on backgrounding.
+/// The connection boundary also lets lifecycle tests control callback ordering
+/// and backpressure without depending on loopback socket buffer sizes.
+@MainActor
+protocol RemoteHTTPConnection: AnyObject {
+    var stateUpdateHandler: (@Sendable (NWConnection.State) -> Void)? { get set }
+    func start(queue: DispatchQueue)
+    func receive(minimumIncompleteLength: Int, maximumLength: Int,
+                 completion: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void)
+    func send(content: Data?, contentContext: NWConnection.ContentContext, isComplete: Bool,
+              completion: NWConnection.SendCompletion)
+    func cancel()
+}
+
+extension NWConnection: RemoteHTTPConnection {}
+
+/// Opt-in TLS listener. Constructing it does nothing; the owner supplies its
+/// identity, source policy and optional Bonjour advertisement, and controls its
+/// lifetime independently of foreground-only enrollment.
 @MainActor
 final class RemoteHTTPTransport {
     struct Configuration {
@@ -245,9 +260,9 @@ final class RemoteHTTPTransport {
 
     static let maximumConnections = 4
     static let maximumResponseBytes = 25 * 1_024 * 1_024
-    static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
-    static let operationTimeoutNanoseconds: UInt64 = 30_000_000_000
-    static let writeTimeoutNanoseconds: UInt64 = 10_000_000_000
+    nonisolated static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
+    nonisolated static let operationTimeoutNanoseconds: UInt64 = 30_000_000_000
+    nonisolated static let writeTimeoutNanoseconds: UInt64 = 10_000_000_000
 
     private let configuration: Configuration
     private let handler: Handler
@@ -363,8 +378,14 @@ final class RemoteHTTPTransport {
     }
 
     @MainActor
-    private final class Session {
-        private let connection: NWConnection
+    final class Session {
+        struct Timeouts {
+            var request = RemoteHTTPTransport.requestTimeoutNanoseconds
+            var operation = RemoteHTTPTransport.operationTimeoutNanoseconds
+            var write = RemoteHTTPTransport.writeTimeoutNanoseconds
+        }
+        private let connection: any RemoteHTTPConnection
+        private let timeouts: Timeouts
         private let source: RemoteSourceAddress
         private let handler: Handler
         private let pairingHandler: PairingHandler?
@@ -375,6 +396,9 @@ final class RemoteHTTPTransport {
         private var closed = false
         private var receivedRequest = false
         private var sending = false
+        private var receiveInFlight = false
+        private var peerEnded = false
+        private var responseProcessed = false
         private var operationInFlight = false
         private var notifiedClose = false
         private var phase = "read"
@@ -384,15 +408,17 @@ final class RemoteHTTPTransport {
             diagnostic(stage, fields.merging(["connection": traceID, "phase": phase], uniquingKeysWith: { _, new in new }))
         }
 
-        init(connection: NWConnection, source: RemoteSourceAddress, handler: @escaping Handler, pairingHandler: PairingHandler?, diagnostic: @escaping @MainActor @Sendable (String, [String: String]) -> Void,
+        init(connection: any RemoteHTTPConnection, source: RemoteSourceAddress, handler: @escaping Handler, pairingHandler: PairingHandler?, diagnostic: @escaping @MainActor @Sendable (String, [String: String]) -> Void,
+             timeouts: Timeouts = Timeouts(),
              onClose: @escaping @MainActor () -> Void) {
             self.diagnostic = diagnostic
+            self.timeouts = timeouts
             self.connection = connection; self.source = source; self.handler = handler; self.pairingHandler = pairingHandler; self.onClose = onClose
         }
 
         func start() {
             report("http.connection.accepted")
-            armDeadline(RemoteHTTPTransport.requestTimeoutNanoseconds)
+            armDeadline(timeouts.request)
             connection.stateUpdateHandler = { [weak self] state in
                 Task { @MainActor in
                     guard let self, !self.closed else { return }
@@ -408,16 +434,36 @@ final class RemoteHTTPTransport {
         }
 
         private func receive() {
-            guard !closed, !sending else { return }
+            guard !closed, !peerEnded, !receiveInFlight else { return }
+            receiveInFlight = true
             connection.receive(minimumIncompleteLength: 1, maximumLength: 8_192) { [weak self] data, _, complete, error in
                 Task { @MainActor in
-                    guard let self, !self.closed, !self.sending else { return }
+                    guard let self, !self.closed else { return }
+                    self.receiveInFlight = false
                     if let error { self.report("http.read.failed", RemoteHTTPTrace.errorFields(error)); self.close(); return }
+                    if complete {
+                        self.peerEnded = true
+                        self.report("http.peer.ended")
+                    }
+                    if self.sending {
+                        // A pending read must survive the transition to writing:
+                        // it observes peer completion, never a second RPC.
+                        if let data, !data.isEmpty {
+                            self.report("http.pipeline.rejected")
+                            self.close()
+                        } else if complete && self.responseProcessed {
+                            self.close()
+                        } else if !complete {
+                            self.receive()
+                        }
+                        return
+                    }
                     if self.receivedRequest {
                         // Never dispatch another request. If a later segment is
                         // pipelined while the first RPC runs, cancel its task and
                         // reject the stream; already-issued actions cannot be undone.
                         if let data, !data.isEmpty {
+                            self.report("http.pipeline.rejected")
                             self.operation?.cancel()
                             self.send(RemoteHTTPFailure.badRequest.response)
                         } else if !complete {
@@ -447,7 +493,7 @@ final class RemoteHTTPTransport {
             report("http.request.parsed", ["route": request.path == "/v1/rpc" ? "rpc" : "pairing"])
             receivedRequest = true
             operationInFlight = true
-            armDeadline(RemoteHTTPTransport.operationTimeoutNanoseconds)
+            armDeadline(timeouts.operation)
             operation = Task { @MainActor [weak self] in
                 guard let self else { return }
                 defer {
@@ -470,7 +516,9 @@ final class RemoteHTTPTransport {
                     try Task.checkCancellation()
                     self.send(response)
                 } catch is CancellationError {
-                    self.close()
+                    // A rejected pipeline may already be sending its one error
+                    // response. Cancellation of that RPC must not truncate it.
+                    if !self.sending { self.close() }
                 } catch is RemoteRequestAuthenticator.Failure {
                     self.send(RemoteHTTPFailure.unauthorized.response)
                 } catch let failure as RemoteHTTPFailure {
@@ -490,6 +538,7 @@ final class RemoteHTTPTransport {
             deadline?.cancel()
             deadline = Task { @MainActor [weak self] in
                 do { try await Task.sleep(nanoseconds: nanoseconds) } catch { return }
+                guard !Task.isCancelled else { return }
                 // A timed-out operation may already have executed. Closing the
                 // connection reports no success and never retries the request.
                 self?.report("http.deadline")
@@ -501,17 +550,31 @@ final class RemoteHTTPTransport {
             guard !closed, !sending else { return }
             sending = true; phase = "write"
             report("http.response.queued", ["status": String(response.status), "body_bytes": String(response.body.count)])
-            armDeadline(RemoteHTTPTransport.writeTimeoutNanoseconds)
+            armDeadline(timeouts.write)
             let wire: Data
             do { wire = try RemoteHTTPTransport.encode(response) }
             catch { wire = (try? RemoteHTTPTransport.encode(RemoteHTTPFailure.internalFailure.response)) ?? Data() }
             connection.send(content: wire, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] error in
                 Task { @MainActor in
-                    if let error { self?.report("http.response.failed", RemoteHTTPTrace.errorFields(error)) }
-                    else { self?.report("http.response.processed") }
-                    self?.close()
+                    guard let self, !self.closed else { return }
+                    if let error {
+                        self.report("http.response.failed", RemoteHTTPTrace.errorFields(error))
+                        self.close()
+                        return
+                    }
+                    self.report("http.response.processed")
+                    self.responseProcessed = true
+                    self.phase = "drain"
+                    // .finalMessage ends our write side in protocol order.
+                    // contentProcessed is local stack progress, not delivery.
+                    // Retain the session until the peer ends or the ORIGINAL
+                    // write deadline expires; neither progress nor reads extend it.
+                    // An earlier request-side EOF is not a response receipt, so
+                    // that half-closed case keeps the same bounded deadline.
+                    self.receive()
                 }
             })
+            receive()
         }
 
         func close() {
