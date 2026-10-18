@@ -118,6 +118,49 @@ import ActivityKit
         .init(attributes: .init(sessionID: UUID(), runID: run, isDemo: true),
               state: .init(phase: phase, completedTools: 3, updatedAt: Date()), staleDate: Date().addingTimeInterval(30))
     }
+    func testEveryTerminalPhaseImmediatelyReleasesItsActivityInBothScenes() async {
+        for foreground in [true, false] {
+            for phase in [AgentActivityAttributes.Phase.completed, .interrupted, .blocked, .stopped] {
+                let handle = RecordingActivityHandle()
+                let controller = AgentLiveActivityController(createActivity: { _ in handle })
+                controller.setForeground(foreground)
+                let run = UUID()
+                controller.submit(snapshot(.working, run: run))
+                await controller.waitForPendingUpdates()
+                let terminal = snapshot(phase, run: run)
+                controller.submit(terminal); controller.submit(terminal)
+                await controller.waitForPendingUpdates()
+                XCTAssertEqual(handle.ended, [phase])
+                XCTAssertEqual(handle.immediateEnds, [true])
+                XCTAssertEqual(controller.activeCountForProbe, 0)
+                XCTAssertFalse(handle.isActive)
+            }
+        }
+    }
+
+    func testLaunchImmediatelyRemovesOrphansBeforeCreatingNewActivity() async {
+        let old = RecordingActivityHandle(), completed = RecordingActivityHandle()
+        var oldState = snapshot(.awaitingApproval, run: UUID()).state
+        oldState.approvalID = UUID(); oldState.operation = .tool("tap")
+        let controller = AgentLiveActivityController(createActivity: { _ in
+            XCTAssertFalse(old.isActive)
+            XCTAssertFalse(completed.isActive)
+            return RecordingActivityHandle()
+        }, existingActivities: [
+            .init(handle: old, state: oldState),
+            .init(handle: completed, state: snapshot(.completed, run: UUID()).state)
+        ])
+        controller.submit(snapshot(.working, run: UUID()))
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(old.ended, [.interrupted])
+        XCTAssertNil(old.endStates.last?.approvalID)
+        XCTAssertNil(old.endStates.last?.operation)
+        XCTAssertEqual(completed.ended, [.completed])
+        XCTAssertEqual(old.immediateEnds, [true])
+        XCTAssertEqual(completed.immediateEnds, [true])
+        XCTAssertEqual(controller.activeCountForProbe, 1)
+    }
+
     func testResidentCreatesStandbyInForegroundAndReusesItForBackgroundTasks() async throws {
         let handle = RecordingActivityHandle()
         var created: [AgentActivitySnapshot] = []
@@ -249,9 +292,15 @@ import ActivityKit
             let completed = snapshot(.completed, run: run)
             controller.submit(completed); controller.submit(completed)
             await controller.waitForPendingUpdates()
-            XCTAssertEqual(handle.states.last?.phase, .completed, "silent tasks must still update their status")
+            XCTAssertTrue(handle.updates.contains(.completed), "silent tasks must still update their status")
             XCTAssertEqual(handle.alerts, 0, "foreground-origin execution and completion remain silent for both handle types")
-            XCTAssertTrue(handle.ended.isEmpty)
+            if resident {
+                XCTAssertTrue(handle.ended.isEmpty)
+                XCTAssertEqual(handle.states.last?.phase, .standby)
+                XCTAssertNil(handle.states.last?.runID)
+            } else {
+                XCTAssertEqual(handle.ended, [.completed])
+            }
         }
     }
     func testBackgroundRunKeepsItsOriginAcrossQueuedForegroundWrites() async {
@@ -374,7 +423,7 @@ import ActivityKit
         XCTAssertEqual(standby.title, "等待任务")
         XCTAssertEqual(standby.compactTitle, "待命")
     }
-    func testBackgroundCompletionAlertsOnceAndRemainsUntilForeground() async throws {
+    func testBackgroundCompletionAlertsOnceAndEndsWithoutWaitingForForeground() async throws {
         let handle = RecordingActivityHandle()
         var created = 0
         let controller = AgentLiveActivityController(createActivity: { _ in created += 1; return handle })
@@ -387,16 +436,18 @@ import ActivityKit
         let completed = snapshot(.completed, run: run)
         controller.submit(completed); controller.submit(completed)
         await controller.waitForPendingUpdates()
-        XCTAssertEqual(handle.updates.count, 3)
+        XCTAssertEqual(handle.updates.count, 2)
         XCTAssertEqual(handle.alerts, 2)
         XCTAssertEqual(handle.updates.last, .completed)
-        XCTAssertTrue(handle.ended.isEmpty, "Ending immediately would hide the completion island")
+        XCTAssertEqual(handle.ended, [.completed])
+        XCTAssertEqual(handle.immediateEnds, [true])
+        XCTAssertFalse(handle.isActive)
         controller.setForeground(true)
         try await waitUntil { handle.ended.count == 1 }
         XCTAssertEqual(handle.ended, [.completed])
         XCTAssertEqual(handle.alerts, 2)
     }
-    func testNextRunDismissesCompletedIslandWithoutEndingAnotherActiveRun() async throws {
+    func testBackgroundCompletionEndsOnlyItsOwnActivity() async throws {
         var handles: [UUID: RecordingActivityHandle] = [:]
         let controller = AgentLiveActivityController(createActivity: { snapshot in
             let handle = RecordingActivityHandle(); handles[snapshot.attributes.runID] = handle; return handle
@@ -412,7 +463,7 @@ import ActivityKit
         XCTAssertEqual(handles[a]?.alerts, 0)
         controller.submit(snapshot(.thinking, run: b))
         try await waitUntil { handles[b]?.updates.last == .thinking }
-        XCTAssertTrue(handles[a]?.ended.isEmpty == true)
+        XCTAssertEqual(handles[a]?.ended, [.completed])
         controller.submit(snapshot(.working, run: c))
         try await waitUntil { handles[c] != nil }
         await controller.waitForPendingUpdates()
@@ -442,7 +493,7 @@ import ActivityKit
         // A foreground-origin completion stays silent, but its ActivityKit
         // update still has to finish before releasing the execution lease.
         XCTAssertEqual(handle.alerts, 0)
-        XCTAssertTrue(handle.ended.isEmpty)
+        XCTAssertEqual(handle.ended, [.completed])
     }
     func testSiriSubmissionWaitsForActivityCreationBehindAnOlderWrite() async throws {
         let oldHandle = RecordingActivityHandle()
@@ -667,6 +718,8 @@ import ActivityKit
     var states: [AgentActivityAttributes.ContentState] = []
     var staleDates: [Date?] = []
     var ended: [AgentActivityAttributes.Phase] = []
+    var endStates: [AgentActivityAttributes.ContentState] = []
+    var immediateEnds: [Bool] = []
     var alerts = 0
     var holdCompletion = false
     private var completion: CheckedContinuation<Void, Never>?
@@ -682,8 +735,9 @@ import ActivityKit
             await withCheckedContinuation { completion = $0 }
         }
     }
-    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date) async {
-        ended.append(content.state.phase); isActive = false
+    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date?) async {
+        ended.append(content.state.phase); endStates.append(content.state)
+        immediateEnds.append(dismissAt == nil); isActive = false
     }
 }
 

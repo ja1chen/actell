@@ -27,7 +27,7 @@ struct AgentActivitySnapshot: Equatable {
 @MainActor protocol AgentActivityHandle: AnyObject {
     var isActive: Bool { get }
     func update(_ content: ActivityContent<AgentActivityAttributes.ContentState>, alert: AlertConfiguration?) async
-    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date) async
+    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date?) async
 }
 
 @MainActor private final class SystemAgentActivity: AgentActivityHandle {
@@ -60,11 +60,11 @@ struct AgentActivitySnapshot: Equatable {
         await activity.update(content, alertConfiguration: alert)
         AgentActivityTrace.record("activity.systemUpdateReturned id=\(activity.id) run=\(activity.attributes.runID) serial=\(write) requested=\(content.state.phase) observed=\(activity.content.state.phase) state=\(activity.activityState)")
     }
-    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date) async {
+    func end(_ content: ActivityContent<AgentActivityAttributes.ContentState>, dismissAt: Date?) async {
         serial += 1
         let write = serial
         AgentActivityTrace.record("activity.writeBegin id=\(activity.id) run=\(activity.attributes.runID) serial=\(write) method=end phase=\(content.state.phase) contentTime=\(content.state.updatedAt.timeIntervalSince1970)")
-        await activity.end(content, dismissalPolicy: .after(dismissAt))
+        await activity.end(content, dismissalPolicy: dismissAt.map(ActivityUIDismissalPolicy.after) ?? .immediate)
         AgentActivityTrace.record("activity.systemEndReturned id=\(activity.id) run=\(activity.attributes.runID) serial=\(write) requested=\(content.state.phase) observed=\(activity.content.state.phase) state=\(activity.activityState)")
     }
 }
@@ -89,19 +89,28 @@ struct AgentActivitySnapshot: Equatable {
     private var residentRunID: UUID?
     private let residentAttributes = AgentActivityAttributes(sessionID: UUID(), runID: UUID(), isDemo: false)
 
-    init(enabled: Bool = true, createActivity: ((AgentActivitySnapshot) throws -> any AgentActivityHandle)? = nil) {
+    struct ExistingActivity {
+        let handle: any AgentActivityHandle
+        let state: AgentActivityAttributes.ContentState
+    }
+
+    init(enabled: Bool = true, createActivity: ((AgentActivitySnapshot) throws -> any AgentActivityHandle)? = nil,
+         existingActivities: [ExistingActivity]? = nil) {
         self.enabled = enabled
         self.createActivity = createActivity
         BackgroundExecutionTrace.record("activity.init enabled=\(enabled)")
-        guard enabled, createActivity == nil else { return }
+        guard enabled else { return }
         // A new process has no resumable continuation. Never adopt an old run.
-        let orphans = Activity<AgentActivityAttributes>.activities
+        let orphans = existingActivities ?? (createActivity == nil
+            ? Activity<AgentActivityAttributes>.activities.map {
+                ExistingActivity(handle: SystemAgentActivity($0), state: $0.content.state)
+            } : [])
         tail = Task {
             for orphan in orphans {
-                var state = orphan.content.state
+                var state = orphan.state
                 if !state.phase.isTerminal { state.phase = .interrupted }
                 state.approvalID = nil; state.operation = nil; state.updatedAt = Date()
-                await orphan.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .after(Date().addingTimeInterval(300)))
+                await orphan.handle.end(ActivityContent(state: state, staleDate: nil), dismissAt: nil)
                 BackgroundExecutionTrace.record("activity.recovered phase=\(state.phase)")
             }
         }
@@ -227,14 +236,9 @@ struct AgentActivitySnapshot: Equatable {
         } else if !backgroundResident {
             let state = residentRunID.flatMap { latest[$0] }.map(projectedState)
                 ?? .init(phase: .stopped, completedTools: 0, updatedAt: Date())
-            await activity.end(ActivityContent(state: state, staleDate: nil), dismissAt: Date())
+            await activity.end(ActivityContent(state: state, staleDate: nil), dismissAt: nil)
             writtenContent.removeValue(forKey: ObjectIdentifier(activity))
             residentActivity = nil; residentRunID = nil
-        } else if !foreground, let run = residentRunID, let snapshot = latest[run],
-                  snapshot.state.phase.isTerminal, snapshot.state.phase != .stopped {
-            // Preserve the existing background completion presentation; reuse
-            // this same handle for the next task or standby on foreground.
-            return
         } else {
             residentRunID = nil
             let state = AgentActivityAttributes.ContentState(phase: .standby, completedTools: 0, updatedAt: Date())
@@ -314,19 +318,20 @@ struct AgentActivitySnapshot: Equatable {
             AgentActivityTrace.record("activity.terminalRequested run=\(run) phase=\(snapshot.state.phase) foreground=\(foreground) active=\(activities[run]?.isActive == true)")
             if let current = activities[run] {
                 if !foreground, snapshot.state.phase != .stopped {
-                    // end(.after) only retains the Lock Screen card. Keep the
-                    // terminal island until foreground or the next run instead.
                     let alert = completionAlert(snapshot)
                     await update(current, content: ActivityContent(state: snapshot.state, staleDate: nil, relevanceScore: 100), alert: alert)
                     terminalPresented.insert(run)
                     BackgroundExecutionTrace.record("activity.terminalUpdateReturned phase=\(snapshot.state.phase) alertRequested=\(alert != nil)")
-                } else {
-                    await current.end(ActivityContent(state: snapshot.state, staleDate: nil), dismissAt: Date().addingTimeInterval(300))
-                    BackgroundExecutionTrace.record("activity.ended phase=\(snapshot.state.phase) foreground=\(foreground)")
-                    writtenContent.removeValue(forKey: ObjectIdentifier(current))
-                    activities.removeValue(forKey: run)
-                    forgetRun(run)
                 }
+                // A terminal update alone leaves ActivityKit active, including
+                // mirrored presentations. End before releasing the run's lease.
+                let final = latest[run].flatMap { $0.state.phase.isTerminal ? $0 : nil } ?? snapshot
+                await current.end(ActivityContent(state: final.state, staleDate: nil), dismissAt: nil)
+                BackgroundExecutionTrace.record("activity.ended phase=\(snapshot.state.phase) foreground=\(foreground)")
+                writtenContent.removeValue(forKey: ObjectIdentifier(current))
+                activities.removeValue(forKey: run)
+                // Preserve a newer snapshot submitted while end was suspended.
+                if latest[run] == final { forgetRun(run) }
             } else {
                 BackgroundExecutionTrace.record("activity.terminalSkipped phase=\(snapshot.state.phase) reason=noActivity")
                 forgetRun(run)
@@ -339,7 +344,7 @@ struct AgentActivitySnapshot: Equatable {
             for previous in Array(latest.values) where previous.attributes.runID != run && previous.state.phase.isTerminal {
                 let previousRun = previous.attributes.runID
                 if let activity = activities.removeValue(forKey: previousRun) {
-                    await activity.end(ActivityContent(state: previous.state, staleDate: nil), dismissAt: Date().addingTimeInterval(300))
+                    await activity.end(ActivityContent(state: previous.state, staleDate: nil), dismissAt: nil)
                     writtenContent.removeValue(forKey: ObjectIdentifier(activity))
                 }
                 forgetRun(previousRun)
