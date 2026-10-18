@@ -41,13 +41,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect to your paired phone control service on the local network."
+            "value": "Allow paired phone-control devices and Muse Gadget to connect with Actell on the local network."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接本地网络中已配对的手机操控服务。"
+            "value": "允许已配对的手机操控设备和 Muse Gadget 通过本地网络连接执言。"
           }
         }
       }

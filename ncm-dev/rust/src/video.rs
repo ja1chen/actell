@@ -18,6 +18,7 @@ struct Sample {
     serial: u64,
     epoch: u64,
     visible: Option<(u32, u32)>,
+    geometry_generation: u64,
 }
 #[derive(Default)]
 struct Queue {
@@ -31,6 +32,8 @@ struct Queue {
     visible: Option<(u32, u32)>,
     report: u64,
     confirmed_serial: u64,
+    geometry_generation: u64,
+    delivered_geometry: Option<(u64, u64, u64)>,
 }
 #[derive(Default)]
 pub(crate) struct VideoMailbox(Mutex<Queue>, AtomicBool, [AtomicU64; 8]);
@@ -55,6 +58,32 @@ pub struct VideoSnapshot {
     pub serial: u64,
 }
 impl VideoMailbox {
+    pub fn geometry_generation(&self) -> u64 {
+        self.0.lock().map(|q| q.geometry_generation).unwrap_or(0)
+    }
+    pub fn invalidate_geometry(&self) -> u64 {
+        self.0.lock().map(|mut q| {
+            q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
+            q.geometry_generation
+        }).unwrap_or(0)
+    }
+    pub fn sample_geometry(&self, serial: u64, epoch: u64) -> u64 {
+        self.0.lock().map(|q| match q.delivered_geometry {
+            Some((s, e, g)) if s == serial && e == epoch && g == q.geometry_generation => g,
+            _ => 0,
+        }).unwrap_or(0)
+    }
+    pub fn publish_decoded_geometry(&self, expected: u64) -> u64 {
+        self.0.lock().map(|mut q| {
+            if expected == 0 || expected != q.geometry_generation { return 0; }
+            q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
+            q.geometry_generation
+        }).unwrap_or(0)
+    }
+    pub fn matches_geometry(&self, expected: u64) -> bool {
+        expected != 0 && self.geometry_generation() == expected
+    }
+
     pub fn snapshot(&self) -> VideoSnapshot {
         self.0.lock().map(|q| VideoSnapshot { report: q.report, epoch: q.epoch, serial: q.confirmed_serial }).unwrap_or_default()
     }
@@ -78,7 +107,10 @@ impl VideoMailbox {
     }
     pub fn set_visible_size(&self, size: Option<(u32, u32)>) {
         if let Ok(mut q) = self.0.lock() {
-            q.visible = size;
+            if q.visible != size {
+                q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
+                q.visible = size;
+            }
         }
     }
     pub fn count(&self, index: usize) {
@@ -114,6 +146,7 @@ impl VideoMailbox {
             q.have_sync = false;
             q.revision = None;
             q.epoch += 1;
+            q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
             q.reset = true;
             q.confirmed_serial = 0;
         }
@@ -131,6 +164,7 @@ impl VideoMailbox {
             q.bytes = 0;
             q.have_sync = false;
             q.epoch += 1;
+            q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
             q.reset = true;
             q.confirmed_serial = 0;
         }
@@ -165,12 +199,13 @@ impl VideoMailbox {
             q.bytes = 0;
             q.have_sync = false;
             q.epoch += 1;
+            q.geometry_generation = q.geometry_generation.wrapping_add(1).max(1);
             q.reset = true;
             q.confirmed_serial = 0;
             return false;
         }
         q.serial += 1;
-        let (serial, epoch) = (q.serial, q.epoch);
+        let (serial, epoch, geometry_generation) = (q.serial, q.epoch, q.geometry_generation);
         q.bytes += size;
         q.samples.push_back(Sample {
             unit,
@@ -179,6 +214,7 @@ impl VideoMailbox {
             serial,
             epoch,
             visible,
+            geometry_generation,
         });
         true
     }
@@ -205,6 +241,7 @@ impl VideoMailbox {
             return (13, size, None);
         }
         let s = q.samples.pop_front().unwrap();
+        q.delivered_geometry = Some((s.serial, s.epoch, s.geometry_generation));
         q.bytes -= size;
         let mut out = Vec::with_capacity(size);
         for n in [
@@ -265,6 +302,49 @@ mod tests {
                 picture_parameter_set: vec![3],
             },
         )
+    }
+    #[test]
+    fn stale_queued_sample_cannot_receive_a_new_geometry_credential() {
+        let q = VideoMailbox::default(); q.begin_stream(); q.poll(0);
+        let (u, p) = sample(true); q.push(u, p);
+        let old = q.geometry_generation();
+        q.set_visible_size(Some((9, 18)));
+        let current = q.geometry_generation(); assert_ne!(old, current);
+        let (_, _, bytes) = q.poll(1024); let bytes = bytes.unwrap();
+        let serial = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let epoch = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        assert_eq!(q.sample_geometry(serial, epoch), 0, "Old decoded raster cannot borrow a newly observed source credential");
+        assert_eq!(q.publish_decoded_geometry(old), 0, "A delayed Swift crop publication cannot resurrect invalidated input");
+        let (u, p) = sample(true); q.push(u, p);
+        let (_, _, bytes) = q.poll(1024); let bytes = bytes.unwrap();
+        let serial = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let epoch = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        assert_eq!(q.sample_geometry(serial, epoch), current);
+        let published = q.publish_decoded_geometry(current);
+        assert_ne!(published, 0); assert_ne!(published, current);
+        assert!(q.matches_geometry(published));
+    }
+    #[test]
+    fn geometry_credentials_track_known_changes_not_animation() {
+        let q = VideoMailbox::default();
+        assert!(!q.matches_geometry(0));
+        q.begin_stream(); q.poll(0);
+        q.set_visible_size(Some((9, 18)));
+        let (u, p) = sample(true); q.push(u, p);
+        let capture = q.geometry_generation();
+        q.set_visible_size(Some((9, 18)));
+        let (u, p) = sample(false); q.push(u, p);
+        assert!(q.matches_geometry(capture), "Repeated dimensions and P-frame pixels do not revoke coordinates");
+        q.set_visible_size(Some((18, 9)));
+        assert!(!q.matches_geometry(capture));
+        let capture = q.geometry_generation();
+        let (u, mut p) = sample(true); p.revision = 2; q.push(u, p);
+        assert!(!q.matches_geometry(capture), "SPS revision invalidates queued input");
+        let capture = q.geometry_generation();
+        q.invalidate_geometry();
+        assert!(!q.matches_geometry(capture), "Swift decoded crop changes publish invalidation without a system query");
+        let capture = q.geometry_generation(); q.reset();
+        assert!(!q.matches_geometry(capture));
     }
     #[test]
     fn snapshot_requires_sender_progress_and_valid_complete_epoch() {

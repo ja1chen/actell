@@ -356,19 +356,19 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--background-fixture-reset"]
         app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
-        let names = ["audio", "pictureInPicture", "systemTask", "location"]
+        let names = ["audio", "pictureInPicture", "location"]
         func toggle(_ name: String) -> XCUIElement { backgroundToggle(name, in: app) }
         XCTAssertEqual(toggle("audio").value as? String, "1")
         XCTAssertEqual(toggle("pictureInPicture").value as? String, "0")
-        XCTAssertEqual(toggle("systemTask").value as? String, "0")
+        XCTAssertFalse(app.switches["backgroundMechanism.systemTask"].exists)
         XCTAssertEqual(toggle("location").value as? String, "0")
+        XCTAssertEqual(toggle("resident").value as? String, "1")
         XCTAssertFalse(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["enableBackgroundLocation"].exists)
         XCTAssertFalse(app.buttons["重试已选持续方式"].exists)
         capture("background-settings-default-no-permission")
         toggle("location").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         toggle("pictureInPicture").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        toggle("systemTask").coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         for name in names { XCTAssertEqual(toggle(name).value as? String, "1") }
         for name in names { toggle(name).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         capture("background-explicit-empty")
@@ -385,7 +385,7 @@ import XCTest
         pip.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         XCTAssertEqual(pip.value as? String, "1")
         let resident = backgroundToggle("resident", in: app)
-        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        if resident.value as? String == "0" { resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
@@ -409,6 +409,9 @@ import XCTest
         XCTAssertFalse(app.switches["backgroundMechanism.location"].exists)
         app.buttons["openBackgroundSettings"].tap()
         XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
+        let resident = backgroundToggle("resident", in: app)
+        XCTAssertEqual(resident.value as? String, "1")
+        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let location = backgroundToggle("location", in: app)
         XCTAssertEqual(location.value as? String, "0")
         XCTAssertFalse(app.alerts.firstMatch.exists)
@@ -442,7 +445,7 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["backgroundLocationSettings"].exists, app.debugDescription)
         let resident = app.switches["backgroundResidentEnabled"]
         for _ in 0..<5 where !resident.isHittable { app.swipeUp() }
-        resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        if resident.value as? String == "0" { resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         XCTAssertEqual(backgroundToggle("audio", in: app).value as? String, "1")
         _ = backgroundToggle("location", in: app)
         XCTAssertFalse(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch.exists)
@@ -456,7 +459,7 @@ import XCTest
         app.launchArguments = ["--ui-testing", "--background-fixture-reset", "--background-fixture-legacy-system"]
         app.launch(); app.buttons["设置"].tap(); app.buttons["openBackgroundSettings"].tap()
         XCTAssertEqual(app.switches["backgroundMechanism.audio"].value as? String, "0")
-        XCTAssertEqual(app.switches["backgroundMechanism.systemTask"].value as? String, "1")
+        XCTAssertFalse(app.switches["backgroundMechanism.systemTask"].exists)
         XCTAssertEqual(backgroundToggle("location", in: app).value as? String, "0")
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["backgroundNoIdleSource"].exists)

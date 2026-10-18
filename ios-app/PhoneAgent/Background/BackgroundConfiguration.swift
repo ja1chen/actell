@@ -3,6 +3,7 @@ import Combine
 
 enum BackgroundMechanism: String, CaseIterable, Codable, Sendable, Identifiable {
     case audio, pictureInPicture, systemTask, location
+    static let selectableCases: [Self] = [.audio, .pictureInPicture, .location]
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -19,6 +20,7 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
     var version = 2
     var selectedRawValues: Set<String>
     var knownSelection: Set<BackgroundMechanism> { Set(selectedRawValues.compactMap(BackgroundMechanism.init(rawValue:))) }
+    var effectiveSelection: Set<BackgroundMechanism> { knownSelection.intersection(BackgroundMechanism.selectableCases) }
     enum CodingKeys: String, CodingKey { case version, selected }
     init(selected: Set<BackgroundMechanism>) { selectedRawValues = Set(selected.map(\.rawValue)) }
     init(from decoder: Decoder) throws {
@@ -57,13 +59,13 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
         return BackgroundSettingsStore(existingInstallation: installed)
     }()
     @Published private(set) var configuration = BackgroundConfiguration(selected: [])
-    @Published private(set) var residentEnabled = false
-    @Published private(set) var standbyActivityEnabled = true
+    @Published private(set) var residentEnabled = true
+    @Published private(set) var standbyActivityEnabled = false
     var reservesStandbyActivity: Bool { residentEnabled && standbyActivityEnabled }
     @Published private(set) var warning: String?
     private(set) var futureSchema = false
-    var selection: Set<BackgroundMechanism> { configuration.knownSelection }
-    var hasUnknownOptions: Bool { configuration.selectedRawValues.count != selection.count }
+    var selection: Set<BackgroundMechanism> { configuration.effectiveSelection }
+    var hasUnknownOptions: Bool { configuration.selectedRawValues.count != configuration.knownSelection.count }
     private let defaults: UserDefaults
     private let domain: String
     private let writer: ((Data) -> Bool)?
@@ -71,8 +73,8 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
          existingInstallation: Bool = false, writer: ((Data) -> Bool)? = nil) {
         self.defaults = defaults; self.domain = domain; self.writer = writer
         let saved = defaults.persistentDomain(forName: domain) ?? [:]
-        residentEnabled = saved[Self.residentKey] as? Bool ?? false
-        standbyActivityEnabled = saved[Self.standbyActivityKey] as? Bool ?? true
+        residentEnabled = saved[Self.residentKey] as? Bool ?? true
+        standbyActivityEnabled = saved[Self.standbyActivityKey] as? Bool ?? false
         if let raw = saved[Self.key] {
             if let data = raw as? Data {
                 if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

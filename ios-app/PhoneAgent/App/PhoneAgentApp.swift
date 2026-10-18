@@ -80,6 +80,7 @@ import Darwin
                     if phase == .background { PairingFlow.shared.background() }
                     else if phase == .active { PairingFlow.shared.resume() }
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
+                    PhoneAgentRuntime.shared.museConnection.setScene(active: phase == .active, background: phase == .background)
                     if phase == .active { PhoneAgentRuntime.shared.commands.resumePendingExecutions() }
                     // Inactive is a transition, not a request to show PiP.
 
@@ -90,10 +91,12 @@ import Darwin
                     #endif
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+                    PhoneAgentRuntime.shared.remoteTools.stop()
                     PairingFlow.shared.applicationWillTerminate()
                     background.shutdown()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
+                    PhoneAgentRuntime.shared.remoteTools.stop()
                     PairingFlow.shared.cancel()
                     background.setProtectedData(false)
                     model.setProtectedDataAvailable(false)
@@ -101,7 +104,11 @@ import Darwin
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
                     background.setProtectedData(true)
                     model.setProtectedDataAvailable(true)
+                    PhoneAgentRuntime.shared.museConnection.resumeIfEnabled()
                     PhoneAgentRuntime.shared.commands.resumePendingExecutions()
+                }
+                .onChange(of: model.hasBusySessions) { _, busy in
+                    if !busy { PhoneAgentRuntime.shared.museConnection.resumeIfEnabled() }
                 }
         }
     }

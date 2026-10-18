@@ -8,11 +8,15 @@ import XCTest
         defaults.setPersistentDomain(values, forName: name)
         return (BackgroundSettingsStore(defaults: defaults, domain: name), defaults, name)
     }
-    func testStandbyActivityDefaultsOnAndChoiceSurvivesResidencyChangesAndReload() {
+    func testStandbyActivityDefaultsOffAndChoiceSurvivesResidencyChangesAndReload() {
         let (settings, defaults, name) = store([BackgroundSettingsStore.residentKey: true])
         defer { defaults.removePersistentDomain(forName: name) }
-        XCTAssertTrue(settings.standbyActivityEnabled)
+        XCTAssertFalse(settings.standbyActivityEnabled)
+        XCTAssertFalse(settings.reservesStandbyActivity)
+        XCTAssertFalse(BackgroundSettingsStore(defaults: defaults, domain: name).standbyActivityEnabled)
+        settings.setStandbyActivity(true)
         XCTAssertTrue(settings.reservesStandbyActivity)
+        XCTAssertTrue(BackgroundSettingsStore(defaults: defaults, domain: name).standbyActivityEnabled)
         settings.setStandbyActivity(false)
         XCTAssertTrue(settings.residentEnabled)
         XCTAssertFalse(settings.reservesStandbyActivity)
@@ -34,14 +38,15 @@ import XCTest
             }
             let restored = BackgroundSettingsStore(defaults: defaults, domain: name)
             XCTAssertEqual(restored.selection, settings.selection)
-            XCTAssertEqual(restored.selection.count, mask.nonzeroBitCount)
+            XCTAssertEqual(restored.configuration.knownSelection.count, mask.nonzeroBitCount)
+            XCTAssertEqual(restored.selection, restored.configuration.knownSelection.subtracting([.systemTask]))
         }
     }
     func testNewInstallAndLegacyMigration() {
         for (values, expected) in [([String: Any](), Set<BackgroundMechanism>([.audio])),
                                    (["backgroundPlaybackMode": "audio"], [.audio]),
                                    (["backgroundPlaybackMode": "pictureInPicture"], [.pictureInPicture]),
-                                   (["backgroundPlaybackMode": "systemTask"], [.systemTask]),
+                                   (["backgroundPlaybackMode": "systemTask"], []),
                                    (["backgroundPlaybackMode": "future"], []),
                                    (["backgroundPlaybackMode": ""], []),
                                    (["backgroundPlaybackMode": 42], []),
@@ -51,6 +56,9 @@ import XCTest
             defer { defaults.removePersistentDomain(forName: name) }
             XCTAssertEqual(settings.selection, expected)
             XCTAssertEqual(BackgroundSettingsStore(defaults: defaults, domain: name).selection, expected)
+            XCTAssertEqual(settings.residentEnabled, values[BackgroundSettingsStore.residentKey] as? Bool ?? true)
+            settings.setResident(false)
+            XCTAssertFalse(BackgroundSettingsStore(defaults: defaults, domain: name).residentEnabled)
             for key in values.keys { XCTAssertNotNil(defaults.persistentDomain(forName: name)?[key]) }
         }
     }
@@ -64,14 +72,14 @@ import XCTest
         XCTAssertNil(defaults.persistentDomain(forName: name)?[BackgroundSettingsStore.key])
         defaults.setPersistentDomain([:], forName: name)
         let installed = BackgroundSettingsStore(defaults: defaults, domain: name, existingInstallation: true)
-        XCTAssertEqual(installed.selection, [.audio]); XCTAssertFalse(installed.residentEnabled)
+        XCTAssertEqual(installed.selection, [.audio]); XCTAssertTrue(installed.residentEnabled)
     }
     func testRegistrationDomainIsNotExplicitChoice() {
         let name = UUID().uuidString, defaults = UserDefaults(suiteName: UUID().uuidString)!
-        defaults.register(defaults: ["backgroundPlaybackMode": "systemTask", "backgroundResidentEnabled": true])
+        defaults.register(defaults: ["backgroundPlaybackMode": "systemTask", "backgroundResidentEnabled": false])
         let settings = BackgroundSettingsStore(defaults: defaults, domain: name)
         defer { defaults.removePersistentDomain(forName: name) }
-        XCTAssertEqual(settings.selection, [.audio]); XCTAssertFalse(settings.residentEnabled)
+        XCTAssertEqual(settings.selection, [.audio]); XCTAssertTrue(settings.residentEnabled)
     }
     func testUnknownValuesRoundTripAndFutureSchemaCannotBeOverwritten() {
         for raw in [#"{"version":2,"selected":["future","audio","future"]}"#,

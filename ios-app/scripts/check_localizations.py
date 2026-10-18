@@ -88,6 +88,8 @@ def non_ui_literal(item):
             return True
         if any("type:" + kind in contexts for kind in ("ReasoningFixtureProvider", "SkillFixtureProvider", "ToolErrorFixtureProvider", "TaskPiPProbeProvider")):
             return True
+    if name == "RemoteConnectionController.swift" and ("func:runLANPairingUIFixture" in contexts or "func:make" in contexts and literal == '"书桌上的 Muse"'):
+        return True  # Synthetic peer identity and fixture errors; never production copy.
     if name == "PhoneAgentRuntime.swift" and any("func:" + fn in contexts for fn in ("makeModel", "invokeSiriFixtureIfNeeded", "completeBackgroundUIFixtureIfNeeded")):
         return True  # Synthetic user/model history used by UI tests.
     if name == "AgentViewModel.swift" and "func:sendDraft" in contexts and "<attachment_content>" in literal:

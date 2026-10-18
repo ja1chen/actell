@@ -5,6 +5,12 @@ import CoreImage
 import CoreVideo
 import CNCMBackend
 @testable import PhoneAgentNCM
+private final class PerformanceSamples: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [NativePerformanceTrace.Sample] = []
+    func append(_ sample: NativePerformanceTrace.Sample) { lock.lock(); defer { lock.unlock() }; values.append(sample) }
+    var samples: [NativePerformanceTrace.Sample] { lock.lock(); defer { lock.unlock() }; return values }
+}
 final class NativeBackendTests: XCTestCase {
     @MainActor func testDisplayMetadataCropsDecodedFrameAndRejectsInvalidBounds() async throws {
         var bytes = Data(base64Encoded: "AQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAACQXwEAAQAAAEAAAABgAAAAGAAAACkAAAAHAAAAGgAAAEABDAH//wFgAAADAJAAAAMAAAMAHpWYCUIBAQFgAAADAJAAAAMAAAMAHqAggYWWVmkkyvAWgIAAAAMAgAAAAwCERAHBcrQiQAAAABYoAa8TgOUyUf/aKP+n1f6Aa0AIIx2H")!
@@ -13,10 +19,22 @@ final class NativeBackendTests: XCTestCase {
         XCTAssertEqual(try NCMVideoSample(bytes).visibleSize, CGSize(width:62,height:94))
         let decoder = NCMVideoDecoder()
         try await decoder.consume(bytes)
-        let output = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
+        let timings = PerformanceSamples()
+        let output = try await NativePerformanceTrace.$observer.withValue({ timings.append($0) }) {
+            try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)), freshFrameWait: NativePerformanceTrace.begin(.freshFrameWait))
+        }
+        XCTAssertEqual(timings.samples.map(\.stage), [.freshFrameWait, .originalEncoding])
+        XCTAssertEqual(timings.samples.last?.bytes, output?.count)
+        XCTAssertTrue(timings.samples.allSatisfy { $0.succeeded && $0.elapsedNanoseconds > 0 })
         let source = try XCTUnwrap(CGImageSourceCreateWithData(try XCTUnwrap(output) as CFData,nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
         XCTAssertEqual(image.width,62); XCTAssertEqual(image.height,94)
+        let firstGeometry = await decoder.currentGeometryToken()
+        bytes[0] = 2; bytes[64] = 61
+        try await decoder.consume(bytes)
+        let changedGeometry = await decoder.currentGeometryToken()
+        XCTAssertNotNil(changedGeometry)
+        XCTAssertNotEqual(changedGeometry, firstGeometry, "Visible crop changes invalidate the geometry token")
         bytes[64] = 65
         XCTAssertThrowsError(try NCMVideoSample(bytes))
     }
@@ -35,14 +53,23 @@ final class NativeBackendTests: XCTestCase {
         try await decoder.consume(first)
         let initial = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
         let green = try XCTUnwrap(initial)
+        let initialGeometry = await decoder.currentGeometryToken()
+        XCTAssertNotNil(initialGeometry)
+        let capturedGeometry = await decoder.capturedGeometryToken()
+        XCTAssertEqual(capturedGeometry, initialGeometry)
         try await Task.sleep(for: .milliseconds(1100))
         try await decoder.consume(second)
         let updated = try await decoder.jpeg(notBefore: .now.advanced(by: .seconds(-1)))
         let blue = try XCTUnwrap(updated)
+        let updatedGeometry = await decoder.currentGeometryToken()
+        XCTAssertEqual(updatedGeometry, initialGeometry, "Animation changes pixels, not geometry")
         XCTAssertNotEqual(green, blue, "A P-frame must update the screenshot without input or another keyframe")
         let source = try XCTUnwrap(CGImageSourceCreateWithData(blue as CFData, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
         XCTAssertEqual(image.width,62); XCTAssertEqual(image.height,94, "Content geometry persists when later P-frames omit the trailer")
+        await decoder.reset()
+        let resetGeometry = await decoder.currentGeometryToken()
+        XCTAssertNil(resetGeometry, "A reset invalidates geometry before another frame")
     }
     func testSWContentsRectFooterHandlesEscapingAcrossSliceBoundary() throws {
         func escaped(_ raw: [UInt8]) -> [UInt8] {
@@ -307,6 +334,11 @@ final class NativeBackendTests: XCTestCase {
             let source=try XCTUnwrap(CGImageSourceCreateWithData(jpeg as CFData,nil))
             let image=try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
             XCTAssertEqual(image.width,64); XCTAssertEqual(image.height,96)
+            let geometry = try XCTUnwrap(client.capturedVideoGeometryToken)
+            try await client.validateVideoGeometry(geometry)
+            do { try await client.validateVideoGeometry("invalid-token"); XCTFail("Invalid token must fail") }
+            catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.invalidToken)) }
+            try await client.validateVideoGeometry(geometry)
             // Only non-sync frames follow the initial keyframe. Repeated idle
             // screenshots after the old one-second expiry must still work.
             try await Task.sleep(for: .milliseconds(1200))
@@ -356,6 +388,21 @@ final class NativeBackendTests: XCTestCase {
         catch { XCTAssertEqual(error as? NativeBackendError, .closed) }
         client.close()
     }
+    @MainActor func testInputGeometryQueryTimeoutRetainsNativeSession() async throws {
+        let client = NativeDeveloperServices()
+        try await client.connectMediaFailureFixture()
+        defer { client.close() }
+        do { _ = try await client.inputDisplayGeometry(); XCTFail("Expected metadata timeout") }
+        catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.metadataQuery, stage: 11, cause: 2)) }
+        // Cross the native worker again, not merely its cached ready flag.
+        try await client.checkDeveloperReadiness()
+        do { try await client.validateVideoGeometry("synthetic|1"); XCTFail("No decoder") }
+        catch { XCTAssertEqual(error as? NativeInputGeometryError, NativeInputGeometryError(.decoderUnavailable)) }
+        try await client.checkDeveloperReadiness()
+        client.closeWorkerFixture() // Worker can close while Swift still caches ready=true.
+        do { try await client.validateVideoGeometry("synthetic|1"); XCTFail("Closed worker is fatal") }
+        catch { XCTAssertEqual(error as? NativeBackendError, .closed) }
+    }
     @MainActor func testDragCrossesNativeABIAndUncertainDeliveryClosesSession() async throws {
         let client = NativeDeveloperServices()
         try await client.connectMediaFailureFixture()
@@ -390,8 +437,15 @@ final class NativeBackendTests: XCTestCase {
     }
     @MainActor func testSwiftRustRealCRelayPropagatesPairVerifyFailure() async throws {
         let fixture = try Fixture(hold: false), client = NativeDeveloperServices()
-        do { try await client.connectLoopbackFixture(port: fixture.port); XCTFail("synthetic peer never authenticates") }
-        catch { XCTAssertEqual(error as? NativeBackendError, .protocolFailure(stage: 3, cause: 1)) }
+        let timings = PerformanceSamples()
+        do {
+            try await NativePerformanceTrace.$observer.withValue({ timings.append($0) }) {
+                try await client.connectLoopbackFixture(port: fixture.port)
+            }
+            XCTFail("synthetic peer never authenticates")
+        } catch { XCTAssertEqual(error as? NativeBackendError, .protocolFailure(stage: 3, cause: 1)) }
+        XCTAssertEqual(timings.samples.map(\.stage), [.pairSocket, .pairVerify, .pairValidation])
+        XCTAssertEqual(timings.samples.last?.succeeded, false)
         let evidence = fixture.finish()
         XCTAssertEqual(fixture.process.terminationStatus, 0)
         XCTAssertTrue(evidence.contains("GREETING")); XCTAssertTrue(evidence.contains("VERIFY_M1")); XCTAssertTrue(evidence.contains("CLOSED"))

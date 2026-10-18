@@ -2,6 +2,51 @@
 import Foundation
 import CNCMBackend
 
+/// Fixed, payload-free timings. The observer is inherited by child Tasks; spans
+/// capture it explicitly before crossing decoder queues. No wall-clock subtraction.
+public enum NativePerformanceTrace {
+    public enum Stage: String, Sendable {
+        case controlPreparation = "control_preparation", discovery, developerReadiness = "developer_readiness"
+        case pairSocket = "pair_socket", pairVerify = "pair_verify", pairValidation = "pair_validation"
+        case tunnelListener = "tunnel_listener", tunnelSocket = "tunnel_socket", tunnelTLS = "tunnel_tls"
+        case serviceSocket = "service_socket", serviceDiscovery = "service_discovery"
+        case mediaStart = "media_start", freshFrameWait = "fresh_frame_wait", originalEncoding = "original_encoding"
+        case thumbnailEncoding = "thumbnail_encoding", cacheWrite = "cache_write", resultReady = "result_ready", release
+    }
+    public struct Sample: Sendable {
+        public let stage: Stage
+        public let elapsedNanoseconds: UInt64
+        public let uptimeNanoseconds: UInt64
+        public let succeeded: Bool
+        public let bytes: Int?
+    }
+    @TaskLocal public static var observer: (@Sendable (Sample) -> Void)?
+    public struct Span: Sendable {
+        let stage: Stage
+        let began = DispatchTime.now().uptimeNanoseconds
+        let observer: (@Sendable (Sample) -> Void)?
+        public func end(succeeded: Bool = true, bytes: Int? = nil) {
+            let now = DispatchTime.now().uptimeNanoseconds
+            observer?(Sample(stage: stage, elapsedNanoseconds: now - began,
+                             uptimeNanoseconds: now, succeeded: succeeded, bytes: bytes))
+        }
+    }
+    public static func begin(_ stage: Stage) -> Span { Span(stage: stage, observer: observer) }
+    public static func measure<T>(_ stage: Stage, _ work: () async throws -> T) async rethrows -> T {
+        let span = begin(stage)
+        do { let result = try await work(); span.end(); return result }
+        catch { span.end(succeeded: false); throw error }
+    }
+    static func recoverySample(stage: UInt32, failed: Bool, data: Data) throws {
+        let stages: [Stage] = [.pairSocket, .pairVerify, .pairValidation, .tunnelListener,
+                               .tunnelSocket, .tunnelTLS, .serviceSocket, .serviceDiscovery]
+        guard (1...8).contains(stage), data.count == 8 else { throw NativeBackendError.malformedEvent }
+        let duration = data.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << ($1.offset * 8) }
+        observer?(Sample(stage: stages[Int(stage) - 1], elapsedNanoseconds: duration,
+                         uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds, succeeded: !failed, bytes: nil))
+    }
+}
+
 /// Existing, authorized RemotePairing identity only. No filesystem/Keychain
 /// discovery, generation or conversion from a Lockdown record is performed.
 public struct AuthorizedRemoteIdentity {
@@ -42,6 +87,33 @@ public enum NativeBackendError: Error, Equatable {
     case touchPreparationFailure(stage: UInt32, cause: UInt32)
     case applicationQueryFailure(stage: UInt32, cause: UInt32)
     case screenshotFailure(stage: UInt32, cause: UInt32)
+}
+/// Read-only input preparation failed; no HID report has been submitted.
+/// These failures do not invalidate the authenticated control session.
+public struct NativeInputGeometryError: Error, Equatable, Sendable {
+    public enum Reason: String, Sendable {
+        case metadataQuery = "metadata_query"
+        case metadataInvalid = "metadata_invalid"
+        case decoderUnavailable = "decoder_unavailable"
+        case decoderFailed = "decoder_failed"
+        case invalidToken = "invalid_token"
+        case generationChanged = "generation_changed"
+        case snapshotUnavailable = "snapshot_unavailable"
+        case decoderChanged = "decoder_changed"
+        case streamChanged = "stream_changed"
+        case sizeMismatch = "size_mismatch"
+        case framePending = "frame_pending"
+    }
+    public let reason: Reason
+    public let stage: UInt32
+    public let cause: UInt32
+    public init(_ reason: Reason, stage: UInt32 = 0, cause: UInt32 = 0) {
+        self.reason = reason; self.stage = stage; self.cause = cause
+    }
+    /// Fixed categories only; no peer payload, image, coordinates or credential.
+    public var diagnosticFields: [String: String] {
+        ["geometry_reason": reason.rawValue, "native_stage": String(stage), "native_cause": String(cause)]
+    }
 }
 public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified }
 
@@ -142,6 +214,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                 } catch is CancellationError { return }
                 catch {
                     if let self, self.handle == token, self.videoDecoder === decoder {
+                        _ = ncm_backend_video_invalidate_geometry(token)
                         self.videoDecodeFailure = .screenshotFailure(stage: 20, cause: 1)
                     }
                     return
@@ -160,10 +233,70 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         if let decoder { await decoder.reset() }
     }
     /// Snapshot the continuously decoded video picture, independent of input history.
+    private var publishedDecoderGeometry: (token: String, credential: UInt64)?
+    public private(set) var capturedVideoGeometryToken: String?
+    /// Reads the existing decoded stream only; never requests another screenshot.
+    public func validateVideoGeometry(_ expected: String) async throws {
+        guard ready, handle != 0 else { throw NativeBackendError.closed }
+        let token = handle
+        var before = ncm_video_snapshot()
+        let snapshotStatus = ncm_backend_video_get_snapshot(token, &before)
+        if snapshotStatus == 3 { throw NativeBackendError.closed }
+        guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+        guard let decoder = videoDecoder else { throw NativeInputGeometryError(.decoderUnavailable) }
+        guard let separator = expected.lastIndex(of: "|"),
+              let credential = UInt64(expected[expected.index(after: separator)...]), credential != 0 else { throw NativeInputGeometryError(.invalidToken) }
+        let decodedGeometry = String(expected[..<separator])
+        guard ncm_backend_video_geometry_generation(token) == credential else { throw NativeInputGeometryError(.generationChanged) }
+        guard snapshotStatus == 0 else { throw NativeInputGeometryError(.snapshotUnavailable) }
+        let geometry = await decoder.currentGeometryToken()
+        guard token == handle, ready else { throw NativeBackendError.closed }
+        guard geometry == decodedGeometry else { throw NativeInputGeometryError(.decoderChanged) }
+        var after = ncm_video_snapshot()
+        let afterStatus = ncm_backend_video_get_snapshot(token, &after)
+        if afterStatus == 3 { throw NativeBackendError.closed }
+        guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+        guard videoDecoder === decoder else { throw NativeInputGeometryError(.decoderChanged) }
+        guard afterStatus == 0,
+              before.epoch == after.epoch,
+              ncm_backend_video_geometry_generation(token) == credential,
+              decodedGeometry.hasPrefix("\(after.epoch):") else { throw NativeInputGeometryError(.streamChanged) }
+    }
+    /// Read authenticated display metadata and existing decoder geometry only.
+    /// No JPEG encoding, screenshot request or image publication occurs here.
+    public func inputDisplayGeometry() async throws -> String {
+        let data = try await operation(12, expectedKind: 15)
+        guard let size = (try? JSONSerialization.jsonObject(with: data)) as? [String: Int],
+              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
+        let handleAtStart = handle
+        let until = ContinuousClock.now.advanced(by: .seconds(3))
+        while ContinuousClock.now < until {
+            try Task.checkCancellation()
+            guard ready, handle != 0, handle == handleAtStart else { throw NativeBackendError.closed }
+            var snapshot = ncm_video_snapshot()
+            if ncm_backend_video_get_snapshot(handle, &snapshot) == 3 { throw NativeBackendError.closed }
+            guard videoDecodeFailure == nil else { throw NativeInputGeometryError(.decoderFailed) }
+            guard let decoder = videoDecoder else { throw NativeInputGeometryError(.decoderUnavailable) }
+            if let published = publishedDecoderGeometry,
+               published.credential == ncm_backend_video_geometry_generation(handle),
+               let token = await decoder.currentGeometryToken(), token == published.token {
+                let parts = token.split(separator: ":")
+                guard parts.count == 8 else { throw NativeInputGeometryError(.invalidToken) }
+                guard Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeInputGeometryError(.sizeMismatch) }
+                let result = "\(token)|\(published.credential)"
+                try await validateVideoGeometry(result)
+                return result
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NativeInputGeometryError(.framePending)
+    }
     public func captureVideoJPEG() async throws -> Data {
+        capturedVideoGeometryToken = nil
         guard ready, handle != 0, let decoder = videoDecoder else { throw NativeBackendError.closed }
         videoSnapshotDiagnostics = nil
         let token = handle, began = ContinuousClock.now
+        let freshFrameWait = NativePerformanceTrace.begin(.freshFrameWait)
         var initial = ncm_video_status()
         let initialCode = ncm_backend_video_get_status(token, &initial)
         var initialSnapshot = ncm_video_snapshot()
@@ -184,18 +317,25 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             // emitted packets form the already decoded picture. Picture age alone
             // says nothing about a static display; no input-history dependency.
             let confirmed = snapshot.report > initialSnapshot.report ? snapshot.serial : 0
-            if videoPollSerial != polledAfter,
-               let jpeg = try await decoder.jpeg(notBefore: began, confirmedEpoch: snapshot.epoch, confirmedSerial: confirmed) {
+            let published = publishedDecoderGeometry
+            let geometryCredential = published?.credential ?? 0
+            if videoPollSerial != polledAfter, geometryCredential != 0,
+               let jpeg = try await decoder.jpeg(notBefore: began, confirmedEpoch: snapshot.epoch, confirmedSerial: confirmed, freshFrameWait: freshFrameWait) {
                 guard token == handle, ready else { throw NativeBackendError.closed }
                 var after = ncm_video_snapshot()
                 guard ncm_backend_video_get_snapshot(token, &after) == 0 else { throw NativeBackendError.closed }
                 if after.epoch != snapshot.epoch { continue }
                 videoDecodeFailure = nil
                 videoSnapshotDiagnostics = "screenshot.video received=true decoder=\(await decoder.diagnosticStatus())"
+                guard let decodedGeometry = await decoder.capturedGeometryToken(),
+                      geometryCredential == ncm_backend_video_geometry_generation(token),
+                      decodedGeometry == published?.token else { continue }
+                capturedVideoGeometryToken = "\(decodedGeometry)|\(geometryCredential)"
                 return jpeg
             }
             try await Task.sleep(for: .milliseconds(25))
         }
+        freshFrameWait.end(succeeded: false)
         var status = ncm_video_status()
         let code = ncm_backend_video_get_status(token, &status)
         NSLog("NCM screenshot timeout status=%d datagrams=%llu rtp=%llu rejected=%llu frames=%llu discontinuities=%llu overflows=%llu refreshes=%llu sourcePort=%llu", code, status.datagrams, status.rtp, status.rejected, status.frames, status.discontinuities, status.overflows, status.refreshes, status.source_port)
@@ -227,12 +367,27 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         }
         if header.size < data.count { data.removeSubrange(header.size..<data.count) }
         do {
+            let sample = try NCMVideoSample(data)
+            let receivedCredential = ncm_backend_video_sample_geometry(token, sample.serial, sample.epoch)
             let decoded = try await decoder.consume(data)
             guard handle == token, ready, videoDecoder === decoder else { throw NativeBackendError.closed }
-            if decoded { videoDecodeFailure = nil }
+            if decoded {
+                videoDecodeFailure = nil
+                let geometry = await decoder.currentGeometryToken()
+                guard handle == token, ready, videoDecoder === decoder else { throw NativeBackendError.closed }
+                if let geometry, receivedCredential != 0,
+                   ncm_backend_video_geometry_generation(token) == receivedCredential {
+                    // Never attach a newly read credential to an older decoded
+                    // frame. The credential came from this exact queued sample.
+                    let credential = geometry == publishedDecoderGeometry?.token ? receivedCredential
+                        : ncm_backend_video_publish_geometry(token, receivedCredential)
+                    if credential != 0 { publishedDecoderGeometry = (geometry, credential) }
+                }
+            }
         } catch {
             try Task.checkCancellation()
             guard handle == token, ready, videoDecoder === decoder else { throw NativeBackendError.closed }
+            _ = ncm_backend_video_invalidate_geometry(token)
             videoDecodeFailure = (error as? NativeBackendError) ?? .screenshotFailure(stage: 20, cause: 1)
             NSLog("NCM screenshot decode failed: %@", String(describing: error))
             await decoder.reset()
@@ -244,13 +399,15 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     /// Explicit developer probe only; no automatic persistence or network upload.
     public func videoDiagnosticKeyframe() async -> Data? { await videoDecoder?.diagnosticKeyframe() }
     #endif
-    public func tapDelivery(x: UInt16, y: UInt16) async throws -> InputDelivery {
-        _ = try await operation(4, x: x, y: y); return .reportsWrittenVisualEffectUnverified
+    public func tapDelivery(x: UInt16, y: UInt16, geometryToken: String? = nil) async throws -> InputDelivery {
+        let credential = try inputGeometryCredential(geometryToken)
+        _ = try await operation(4, x: x, y: y, expectedGeometry: credential); return .reportsWrittenVisualEffectUnverified
     }
     public func tap(x: UInt16, y: UInt16) async throws { _ = try await tapDelivery(x: x, y: y) }
-    public func dragDelivery(fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16) async throws -> InputDelivery {
+    public func dragDelivery(fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometryToken: String? = nil) async throws -> InputDelivery {
         guard (100...2000).contains(durationMS) else { throw NativeBackendError.malformedEvent }
-        _ = try await operation(6, x: fromX, y: fromY, drag: (toX, toY, durationMS))
+        let credential = try inputGeometryCredential(geometryToken)
+        _ = try await operation(6, x: fromX, y: fromY, drag: (toX, toY, durationMS), expectedGeometry: credential)
         return .reportsWrittenVisualEffectUnverified
     }
     public func home() async throws { _ = try await operation(7) }
@@ -261,7 +418,14 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     public func typeText(_ text: String) async throws {
         _ = try await operation(10, payload: JSONSerialization.data(withJSONObject: ["text": text]))
     }
-    private func operation(_ action: UInt32, x: UInt16 = 0, y: UInt16 = 0, expectedKind: UInt32 = 2, drag: (UInt16, UInt16, UInt16)? = nil, payload: Data? = nil) async throws -> Data {
+    private func inputGeometryCredential(_ token: String?) throws -> UInt64? {
+        guard let token else { return nil }
+        // Caller checked decoder geometry and its final TTL/deadline fence.
+        // Parse without another suspension; Rust revalidates at dequeue/Down.
+        guard let value = token.split(separator: "|").last.flatMap({ UInt64($0) }), value != 0 else { throw NativeBackendError.malformedEvent }
+        return value
+    }
+    private func operation(_ action: UInt32, x: UInt16 = 0, y: UInt16 = 0, expectedKind: UInt32 = 2, drag: (UInt16, UInt16, UInt16)? = nil, payload: Data? = nil, expectedGeometry: UInt64? = nil) async throws -> Data {
         guard !busy else { throw NativeBackendError.busy }
         guard ready, handle != 0 else { throw NativeBackendError.closed }
         busy = true; defer { busy = false }; let token = handle
@@ -269,7 +433,10 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         do {
             try Task.checkCancellation()
             let code: Int32
-            if let payload { code = withSlices([payload]) { ncm_backend_command(token, id, action, $0[0]) } }
+            if let expectedGeometry {
+                code = ncm_backend_input_guarded(token, id, action, x, y, drag?.0 ?? 0, drag?.1 ?? 0, drag?.2 ?? 0, expectedGeometry)
+            }
+            else if let payload { code = withSlices([payload]) { ncm_backend_command(token, id, action, $0[0]) } }
             else if let drag { code = ncm_backend_drag(token, id, x, y, drag.0, drag.1, drag.2) }
             else { code = ncm_backend_submit(token, id, action, x, y) }
             guard code == 0 else { throw NativeBackendError.transport(code: code) }
@@ -277,6 +444,13 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             guard header.kind == expectedKind else { throw NativeBackendError.malformedEvent }
             return data
         } catch {
+            // Display metadata uses its own read-only service stream. A query
+            // error is not a tunnel failure; Rust checks the owner again before
+            // returning it. Closed sessions and malformed ABI events stay fatal.
+            if action == 12, case NativeBackendError.protocolFailure(let stage, let cause) = error,
+               [UInt32(10), 11].contains(stage) {
+                throw NativeInputGeometryError(.metadataQuery, stage: stage, cause: cause)
+            }
             // A screenshot owns a fresh, read-only service stream. Dropping that
             // stream does not revoke the authenticated tunnel or replay any input.
             // Cancellation, worker closure and malformed ABI events remain fatal.
@@ -307,6 +481,17 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                 guard copied == 0 else { throw NativeBackendError.transport(code: copied) }
             } else if status != 0 { throw NativeBackendError.transport(code: status) }
             guard event.request_id == requestID, event.reserved == 0 else { throw NativeBackendError.malformedEvent }
+            if event.kind == 16 {
+                guard requestID == 0, event.stage == 0, event.cause == 0,
+                      !data.isEmpty, data.count <= 128, data.count % 16 == 0 else { throw NativeBackendError.malformedEvent }
+                for offset in stride(from: 0, to: data.count, by: 16) {
+                    let stage = data[offset..<(offset + 4)].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << ($1.offset * 8) }
+                    let failed = data[(offset + 4)..<(offset + 8)].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << ($1.offset * 8) }
+                    guard stage == UInt32(offset / 16 + 1), failed <= 1 else { throw NativeBackendError.malformedEvent }
+                    try NativePerformanceTrace.recoverySample(stage: stage, failed: failed == 1, data: Data(data[(offset + 8)..<(offset + 16)]))
+                }
+                continue
+            }
             if event.kind == 10 { throw NativeBackendError.touchPreparationFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 12 { throw NativeBackendError.applicationQueryFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 3 { throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause) }
@@ -316,6 +501,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     }
     #if NCM_OFFLINE_FIXTURES
     /// Compiled only into the separately built host test target.
+    func closeWorkerFixture() { if handle != 0 { ncm_backend_close(handle) } }
     func connectMediaFailureFixture() async throws {
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         var started: UInt64 = 0
@@ -494,7 +680,7 @@ final class NCMVideoDecoder: @unchecked Sendable {
     private func resetOnQueue() {
         if let session { VTDecompressionSessionInvalidate(session) }
         session = nil; format = nil; revision = nil; epoch = nil
-        latest = nil; streamContentSize = nil; loggedGeometry = nil; requiresSync = true
+        latest = nil; encodedGeometryToken = nil; streamContentSize = nil; loggedGeometry = nil; requiresSync = true
         #if DEBUG
         probeKeyframe = nil
         #endif
@@ -611,14 +797,40 @@ final class NCMVideoDecoder: @unchecked Sendable {
         latest = (pixels, rect, observed.advanced(by: .milliseconds(-Int64(min(sample.ageMS, UInt64(Int64.max))))), sample.serial)
         return true
     }
-    func jpeg(notBefore: ContinuousClock.Instant, confirmedEpoch: UInt64? = nil, confirmedSerial: UInt64 = 0) async throws -> Data? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
+    private var encodedGeometryToken: String?
+    private func geometryTokenOnQueue() -> String? {
+        guard let latest, !requiresSync, let epoch, let revision else { return nil }
+        let r = latest.rect
+        return "\(epoch):\(revision):\(CVPixelBufferGetWidth(latest.buffer)):\(CVPixelBufferGetHeight(latest.buffer)):\(r.origin.x):\(r.origin.y):\(r.width):\(r.height)"
+    }
+    func currentGeometryToken() async -> String? {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.geometryTokenOnQueue()) }
+        }
+    }
+    func capturedGeometryToken() async -> String? {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.encodedGeometryToken) }
+        }
+    }
+    func jpeg(notBefore: ContinuousClock.Instant, confirmedEpoch: UInt64? = nil, confirmedSerial: UInt64 = 0,
+              freshFrameWait: NativePerformanceTrace.Span? = nil) async throws -> Data? {
+        let observer = NativePerformanceTrace.observer
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
             queue.async {
                 do {
                     guard let latest = self.latest, !self.requiresSync,
                           latest.received >= notBefore || (confirmedSerial > 0 && self.epoch == confirmedEpoch && latest.serial >= confirmedSerial)
                     else { continuation.resume(returning: nil); return }
-                    let data = try NCMVideoImage.jpeg(buffer: latest.buffer, rect: latest.rect, context: self.context)
+                    freshFrameWait?.end()
+                    let data = try NativePerformanceTrace.$observer.withValue(observer) {
+                        let span = NativePerformanceTrace.begin(.originalEncoding)
+                        do {
+                            let data = try NCMVideoImage.jpeg(buffer: latest.buffer, rect: latest.rect, context: self.context)
+                            span.end(bytes: data.count); return data
+                        } catch { span.end(succeeded: false); throw error }
+                    }
+                    self.encodedGeometryToken = self.geometryTokenOnQueue()
                     continuation.resume(returning: data)
                 } catch { continuation.resume(throwing: error) }
             }

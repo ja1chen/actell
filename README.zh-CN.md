@@ -20,11 +20,11 @@ App 使用 [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)、[MacPaw
 - 可导入 Markdown/TXT 技能包，按需读取文本；导入不执行脚本。支持会话历史、图片附件、工具审批与手动停止。同一手机的控制任务按整轮排队，结果不确定的动作不自动重放。
 - 控制会话持续接收显示流，用 VideoToolbox 解码并缓存最近完整帧。截图工具从该流取得画面、裁去填充区域并编码 JPEG，默认不逐次调用系统独立截图服务。调用时仍会等待新解码帧，或请求开始后的发送端进度报告确认缓存画面完整；最长等待八秒，不能理解为立即返回任意旧缓存。独立 PNG 截图实现保留，但不会自动回退。
 - ESP32 路线已有真实截图与测试按钮计数增加的记录；VPN 回环路线在 2026-10-09 的 iPhone 15 Pro 测试中复用配对身份，得到 1179 × 2556 截图、实际点击计数 0 → 1，并确认媒体释放。完整模型任务、拖动及 VPN 回环后台持续执行仍待单独验收。
-- 后台执行支持音频、画中画、系统后台任务和定位独立多选，也可全不选。新安装默认开启音频，定位与常驻关闭；旧用户明确选择按原值迁移。后台选项集中在“设置 → 后台执行”独立子页面，用途与开启效果在各组底部说明。打开定位开关时，若尚未请求权限则申请“使用 App 期间”授权；曾拒绝时提供系统设置入口。授权本身不启动定位，仅任务运行或开启常驻时使用。坐标不保存、不上传，但仍有系统定位指示并增加耗电。定位权限状态独立显示。系统挂起、终止、锁屏或连接故障仍会停止任务。旧 ScreenCaptureKit/PA3 USB HID 与 TLS 实现继续保留，暂未提供切换入口。
+- 可在“设置 → 后台执行”选择音频、画中画和定位。系统后台任务入口隐藏，已保存的开启状态也按关闭处理。音频和后台常驻默认开启，定位默认关闭，已保存的选择保持不变。定位需系统授权，坐标不保存或上传。后台运行可能增加耗电，仍受系统和连接状态限制。
 
 以上依据当前源码与项目内已有验证记录；不同路线、设备和历史阶段的结果不能互相替代。详见 [项目待办与验证](docs/PROJECT-TODOS.md)、[视频几何与帧完整性](docs/ncm-coredevice/VIDEO-GEOMETRY.md)、[VPN 回环使用与验证](docs/ncm-coredevice/LOCALDEVVPN.md)。
 
-后台常驻提供独立的“待命时显示实时活动”开关，默认开启。它预留带星星图标的极简活动，以便在后台收到任务时更新灵动岛；关闭仅移除待命活动，任务活动仍正常显示。系统后台任务副标题展示当前或最近处理的状态，不再统计响应或工具调用次数。
+“待命时显示实时活动”默认关闭，开启后可保留待命实时活动，用于后台任务状态更新；任务实时活动独立控制。
 
 ## 准备与运行
 
@@ -54,6 +54,25 @@ App 使用 [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)、[MacPaw
 - 独立安装 Rust，并运行 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` 安装 iOS target。脚本从 PATH 或标准 Cargo 安装位置查找 Rust，可用 `NCM_RUST_TOOLCHAIN` 显式选择工具链，不依赖旁边的项目目录。后端使用 `--locked` 和标准 Cargo 缓存（或 `CARGO_HOME` / `NCM_CARGO_HOME`），首次构建可下载依赖；缓存完备后可设置 `NCM_CARGO_OFFLINE=1` 离线构建。包使用 edition 2024，版本见 [Cargo.lock](ncm-dev/rust/Cargo.lock)。
 - 固件使用 ESP-IDF 5.5.5，可通过 `IDF_PATH`、`IDF_TOOLS_PATH` 指向已安装环境；组件版本由 [清单](firmware-device/main/idf_component.yml) 和锁文件固定。
 - Xcode 项目已提交；新增源文件后可运行 `python3 ios-app/scripts/generate_xcode_project.py` 重新生成。首次构建允许 Swift Package Manager 解析依赖；Xcode 构建阶段会生成当前平台的 Rust 静态库。
+
+生成工程时，可通过环境变量自定义 Bundle ID 和签名团队：
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。
+示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，测试 target 和 Debug/Release
+也使用同一基础标识及团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。
+保持两个变量的 `export` 配置，后续生成工程时会继续使用。
+
+启用提交 hook，禁止将本地 Bundle ID 和签名团队改动提交到 Xcode 工程：
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ```sh
 # iPhoneOS 无签名构建；不会安装或修改签名
@@ -111,3 +130,21 @@ Rust 其余直接及传递依赖见 [Cargo.toml](ncm-dev/rust/Cargo.toml) 和 [C
 - [主工程整合](docs/ncm-coredevice/MAIN-INTEGRATION.md) · [系统配对记录](docs/ncm-coredevice/PAIRING.md)
 - [后台执行诊断](docs/BACKGROUND-RUN-RECOVERY.md) · [会话停止与释放](docs/CONTROL-SESSION-TEARDOWN.md)
 - [PA3 协议](docs/usb-device/PROTOCOL.md) · [历史归档入口](archives/README.md)
+
+## Muse 远程工具原型
+
+Muse Gadget 端代码独立维护于 [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods)，本仓库提供 Actell 端实现。
+
+可选的 [Muse 适配层](docs/muse-remote/README.md) 由 Muse 规划，执言通过独立远程运行对象按已配对设备权限执行工具，保留生命周期、互斥执行和截图时效检查。远程调用不创建 Agent 会话，也不切换当前聊天。设置 → 扩展能力 → Muse Gadget现只保留设备列表、添加入口，以及显式连接开关。每台已配对设备可修改并保存显示名称、分别设置截图、应用列表和操控权限，并可移除。证书材料与客户端密钥保存在本机专用钥匙串，服务会保存上次开关状态，在 App 已解锁、处于前台且空闲时恢复。技术连接配置已从普通导航移除。
+
+### 独立 Muse 伴侣连接
+
+正常连接流程采用 [Simple LAN 配对（SLAN/1）](docs/muse-remote/COMPANION-PAIRING.md)：开启“Muse Gadget 服务”，点“添加 Muse”，在 Muse 上选择“连接 Actell”，再在手机允许收到的申请。唯一合法开放窗口会自动申请，不再在 Muse 选择服务名称；多个窗口时只保留目标手机的添加窗口后重试。执言复用稳定的本机 P-256 TLS 身份，交付设备专属凭据，仅在收到经过认证的 `companion.hello` 后显示已配对。Bonjour TXT `host` 提供现有证书 SAN 与 TLS SNI，Muse 使用发现的 SRV 地址联网，IP 变化保留原身份。配对成功默认开启截图、应用列表和操控三项权限，之后可分别关闭；已开放的 Muse 操作直接执行，无需逐次确认。关闭服务会取消未完成配对，保留已完成设备和权限。普通后台切换和远程运行结束不主动关闭监听，也不清空已认证设备的在线记录；工具执行仍须已有后台租约。未完成配对在进入后台时关闭。系统挂起仍可能中断通信；监听停止后，回到已解锁且空闲的前台会自动恢复，不重开配对窗口、不重放任务。重新启动 App 会恢复上次开关状态；首次安装默认关闭。用户选择会在启动检查前保存，启动失败时仍保留开关开启，并显示服务未运行。网络监听中断会在已解锁、空闲的前台以 1–32 秒退避自动重试；关闭开关或离开前台会取消重试。权限或存储故障导致的安全停止不自动重启。
+
+Muse 执行准入失败会返回具体错误码及诊断编号。Agent 排查时先按[诊断流程](docs/muse-remote/DIAGNOSTICS.md)优先通过系统日志、Xcode 原生接口和 CLI 自行提取证据，界面读取仅作兜底，不以用户复制日志为前提。**Muse Gadget → 更多 → 复制诊断日志**保留为手动导出入口，内容包括请求当时的前后台、保护数据、任务占用及手机操控通道状态。Muse 最近 300 条诊断跨 App 重启保留，不记录请求正文、工具参数、凭据或截图。导出使用运行中的日志实例，最近一次写盘失败时仍保留最新事件及存储错误。前置鉴权 401 的格式、时间、凭据可用性、签名、重放及 nonce 容量原因也仅在本地诊断中区分，对外仍返回通用认证失败。
+
+请仅在可信 Wi-Fi 下首次配对：首次 TOFU 不防同一局域网中的主动攻击者。后续连接必须保留精确证书 pin 和逐客户端 HMAC，不复用 Muse 官方账号或 setup token。iPhone／Muse 真机互通和长期后台行为仍待验证。见[实施、清理与验证记录](docs/muse-remote/SLAN-IMPLEMENTATION.md)。旧手动配置仅在带 `--muse-development` 启动参数的 Debug 版本中提供。
+
+[远程工具技术文档](docs/muse-remote/REMOTE-TOOLS.md)统一说明 Gadget 直接工具接口、不依赖先截图的归一化输入、保留 30 分钟的受保护图像结果、执行生命周期及尚存的集成边界。
+
+远程任务允许在后台发起，不额外要求前台运行历史或续接回执；执行能力由现有后台保护、连接和超时链路决定。Muse 服务可在操作之间保留用户已选择的连续后台方式，同时在每次操作结束后释放手机操控权。关闭服务、撤销权限、锁屏或停止执行会释放这部分后台需求，不会自动开启未选择的后台选项。

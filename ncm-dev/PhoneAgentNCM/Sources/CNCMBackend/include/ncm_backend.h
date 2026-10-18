@@ -26,6 +26,11 @@ typedef struct { uint64_t request_id; uint32_t kind,stage,cause,reserved; size_t
  * 3 stage/cause failure, 4 PNG (memory only). Input event 2 never proves visible effect.
  * 10 touch video preparation failure (stage/cause, no payload): no touch has
  * been sent; scoped preparation resources closed, existing session retained.
+ * 16 recovery timing (request/stage/cause 0): 1..8 records, each LE u32
+ * stage, LE u32 failed (0/1), LE u64 elapsed ns. Stages in increasing order:
+ * 1 pair socket, 2 PairVerify, 3 pair validation, 4 tunnel listener,
+ * 5 tunnel socket, 6 tunnel TLS, 7 service socket, 8 service discovery.
+ * One bounded event before ready/failure; contains no protocol data.
  * At most 2 process sessions, 1 queued request and 1 pending event per session.
  * Tokens are monotonically allocated handles, never C pointers. */
 /* Independent media poll: kind 13 = complete HEVC sample, 14 = decoder reset.
@@ -88,6 +93,13 @@ int32_t ncm_backend_poll(uint64_t handle,ncm_event *,uint8_t *buffer,size_t capa
 /* Idempotent. Immediately revokes handle and requests worker cancellation. Does
  * not block UI waiting for join or assert remote media/touch release succeeded. */
 void ncm_backend_close(uint64_t handle);
+/* Additive thumbnail-v2 geometry fence. Zero is invalid. */
+uint64_t ncm_backend_video_geometry_generation(uint64_t handle);
+uint64_t ncm_backend_video_invalidate_geometry(uint64_t handle);
+uint64_t ncm_backend_video_sample_geometry(uint64_t handle,uint64_t serial,uint64_t epoch);
+uint64_t ncm_backend_video_publish_geometry(uint64_t handle,uint64_t expected);
+int32_t ncm_backend_input_guarded(uint64_t handle,uint64_t request_id,uint32_t action,uint16_t x,uint16_t y,uint16_t end_x,uint16_t end_y,uint16_t duration_ms,uint64_t expected_geometry);
+
 #ifdef NCM_OFFLINE_FIXTURES
 /* Exists only in the separately built test archive; always 127.0.0.1. Public
  * deterministic fixture identity, no persistent keys or real-device fallback. */

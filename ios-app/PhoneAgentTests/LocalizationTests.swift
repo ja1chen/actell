@@ -14,7 +14,9 @@ final class LocalizationTests: XCTestCase {
             let chinese = try languageBundle("zh-Hans", in: target)
             for (key, translation) in [("Settings", "设置"), ("Waiting for confirmation", "等待确认"),
                                        ("Task completed", "任务已完成"), ("Open app", "打开 App"),
-                                       ("Background standby", "后台待命"), ("Keep running in background", "后台常驻")] {
+                                       ("Background standby", "后台待命"), ("Keep running in background", "后台常驻"),
+                                       ("Muse Gadget Service", "Muse Gadget 服务"), ("Add Muse", "添加 Muse"),
+                                       ("Waiting for Muse", "等待 Muse 申请"), ("Remove Device", "移除设备")] {
                 XCTAssertEqual(english.localizedString(forKey: key, value: nil, table: nil), key)
                 XCTAssertEqual(chinese.localizedString(forKey: key, value: nil, table: nil), translation)
             }
@@ -25,6 +27,14 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(String(localized: "Removed \(1) unused files", bundle: en, locale: Locale(identifier: "en")), "Removed 1 unused file")
         XCTAssertEqual(String(localized: "Removed \(2) unused files", bundle: en, locale: Locale(identifier: "en")), "Removed 2 unused files")
         XCTAssertEqual(String(localized: "Removed \(2) unused files", bundle: zh, locale: Locale(identifier: "zh-Hans")), "已清理 2 个未引用文件")
+    }
+    func testMuseDiagnosticMessagePreservesDetailsAndIdentifierInBothLanguages() throws {
+        let en = try languageBundle("en"), zh = try languageBundle("zh-Hans")
+        let message = "Synthetic detail", identifier = "0123456789abcdef"
+        XCTAssertEqual(String(localized: "\(message) (Diagnostic ID: \(identifier))", bundle: en),
+                       "Synthetic detail (Diagnostic ID: 0123456789abcdef)")
+        XCTAssertEqual(String(localized: "\(message) (Diagnostic ID: \(identifier))", bundle: zh),
+                       "Synthetic detail（诊断编号：0123456789abcdef）")
     }
     func testPrivacyPromptsAndDisplayNamesAreLocalized() throws {
         for (language, name) in [("en", "Actell"), ("zh-Hans", "执言")] {

@@ -1,6 +1,6 @@
 # 执言（Actell）iOS
 
-最低 iOS 27，Bundle ID 保持 `com.ja1chen.PhoneAgent`。截图与输入工具默认经 VPN 回环调用 CoreDevice 开发者服务执行；连接只在实际工具调用时校验，普通聊天不要求连接。手机操控支持在“设置 → 手机操控 → 连接模式”选择 VPN 回环（默认，免 ESP32）或 ESP32 NCM，在“连接与验证”中操作；首页和消息页不再显示设备入口。原 ScreenCaptureKit/PA3 HID 和 TLS 实现保留，暂未提供切换开关。NCM 任务在系统后台资格有效时可继续，无需启动录屏；各会话独立运行，同一手机控制按整轮排队。服务商管理位于“设置 → 服务商”，支持添加、编辑、确认移除及恢复。会话选择服务商/模型，当前运行不允许切换配置。现有单服务商配置与 Keychain 引用自动保留；修改服务地址不会转发旧地址的密钥。已保存的 API 密钥在编辑页以正常文字色的圆点显示，仅查询存在状态，不回填真实值；不输入替换值时保留原密钥。
+最低 iOS 27，默认 Bundle ID 为 `com.ja1chen.PhoneAgent`，可在生成工程时配置前缀。截图与输入工具默认经 VPN 回环调用 CoreDevice 开发者服务执行；连接只在实际工具调用时校验，普通聊天不要求连接。手机操控支持在“设置 → 手机操控 → 连接模式”选择 VPN 回环（默认，免 ESP32）或 ESP32 NCM，在“连接与验证”中操作；首页和消息页不再显示设备入口。原 ScreenCaptureKit/PA3 HID 和 TLS 实现保留，暂未提供切换开关。NCM 任务在系统后台资格有效时可继续，无需启动录屏；各会话独立运行，同一手机控制按整轮排队。服务商管理位于“设置 → 服务商”，支持添加、编辑、确认移除及恢复。会话选择服务商/模型，当前运行不允许切换配置。现有单服务商配置与 Keychain 引用自动保留；修改服务地址不会转发旧地址的密钥。已保存的 API 密钥在编辑页以正常文字色的圆点显示，仅查询存在状态，不回填真实值；不输入替换值时保留原密钥。
 
 真实模型使用 screenshot / tap / drag / wait 设备工具，最终文字回复结束本轮。启用用户导入的技能后，系统提示词包含已启用技能的名称、描述、id 和 revision；额外提供 load_skill，只按需读取该技能包的文本。同一响应可含多个工具，按返回顺序串行执行；每个动作仍须经过原有授权、截图与故障检查，ID 不得重复或重用。模型调用数、输入数、累计 token 与固定运行时长不再作为产品预算。图像/协议大小、网络故障、系统后台资格、锁屏、手动停止、未知动作不重放仍然生效。App 不保证系统无限后台执行。
 
@@ -9,6 +9,16 @@
 服务商明确返回的可读思考内容／摘要会在消息中单独折叠展示，支持流式状态、取消／失败后保留以及历史恢复。Chat Completions 解析 reasoning_content、reasoning 和可读 reasoning_details；Responses 展示明确返回的 summary 或 reasoning_text content（包括 DeepSeek 思考流事件），并将 encrypted_content 仅用于同域回放；不生成思考正文，不解释加密块，不从普通回复抽取，也不自动把历史思考发送到新任务。
 
 ## 构建
+
+生成工程时使用 `ACTELL_BUNDLE_ID_PREFIX` 替换完整的默认 App ID `com.ja1chen.PhoneAgent`，extension 和测试 target 使用同一基础标识派生：
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，App、extension 和测试 target 的 Debug/Release 均使用该团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。两个变量在生成工程时读取，后续生成时继续提供即可。
 
 使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
 
@@ -37,7 +47,7 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 
 页面提供系统配对、连接/停止、截图和真实点击计数验证；文件位于 `PhoneAgent/ESP32Control`。主 App 编译复用 `../ncm-dev/PhoneAgentNCM` 的 Swift/C ABI 和 Rust 后端，构建阶段自动生成当前平台的静态库，支持 arm64 真机和 arm64 模拟器。Probe 共用同一界面。
 
-配对使用独立 `.pairing` 系统持续任务；设置 → 后台执行可独立多选音频、画中画、系统后台任务和定位，也可全不选。新装默认音频，定位与常驻关闭；旧显式单选保留为单项，旧常驻安装不自动加入定位，未知选项保留、未来版本配置不覆盖。后台选项移至独立子页面，各组底部说明用途与开启效果；定位权限独立显示。新增项下一轮生效，取消项立即对当前所有运行否决，重新勾选也不加回旧轮。
+在“设置 → 后台执行”选择音频、画中画和定位。系统后台任务入口隐藏，已保存的开启状态也按关闭处理。音频和后台常驻默认开启，定位默认关闭，已保存的选择保持不变。实现与约束见[后台执行说明](../docs/background-execution/IMPLEMENTATION.md)。
 
 定位默认关闭。打开定位开关时，尚未授权则直接请求 WhenInUse，无需先启动任务或常驻；已经拒绝时提供系统设置入口。授权本身不启动定位，任务或常驻需要时才启动。原“启用定位”和“重试已选持续方式”按钮已移除。Siri/后台入口不首次请求或新启定位，只能使用已生效的常驻来源并取得本轮租约。坐标不保存、不上传，不申请 Always 或精确定位升级。定位可能增加耗电、显示系统指示，首次新鲜有效回执才作为运行证据；静止时没有新回调不等于失效，也不保证持续运行。
 
@@ -62,3 +72,17 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 新增供应商预设顺序为 OpenAI、OpenRouter、ChatGPT 订阅、自定义。订阅配置固定官方地址与无状态 Responses，不接收 API Key。Continue with ChatGPT 使用系统认证浏览器与 HTTP 回环授权，校验官方 JWKS 身份后保存账号隔离的本机 Keychain 凭据。仅获套餐授权的账号模型使用独立订阅流式 Responses；退出尝试官方 discovery 撤销端点并清理本地 token。全部开发验证只用本地 mock，真实账号授权、实体设备与订阅计费尚未验证。完整官方能力与验证边界见 [订阅整合说明](../docs/CHATGPT-SUBSCRIPTION.md)。
 
 每服务商／模型可保存思考强度；仅显示明确报告或官方文档确认的档位，未知模型使用默认、不猜档位。Responses 映射 reasoning.effort，Chat Completions 映射 reasoning_effort。GPT-6.1 Sol 的文档档位只用于官方地址的 Responses 配置，不推广到代理或未知模型。
+
+## Muse 伴侣连接
+
+Muse Gadget 端代码独立维护于 [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods)，本仓库提供 Actell 端实现。
+
+设置 → 扩展能力 → Muse Gadget现采用 SLAN/1：显式开启服务，点“添加 Muse”开放 120 秒窗口，在 Muse 上选择“连接 Actell”，然后在手机允许或拒绝收到的申请。允许后自动交付独立凭据，收到正式 HMAC hello 才成为已配对设备；配对成功默认开启截图、应用列表和操控权限，之后可分别关闭，已开放的 Muse 操作无需逐次确认。关闭服务会撤销未完成配对，保留已完成设备；服务记住最后一次开关选择，重启后在解锁、前台且空闲时恢复；首次安装默认关闭。普通前后台切换和远程运行结束不主动停止监听，工具执行仍受已有后台租约约束；未完成配对在进入后台时关闭。系统挂起仍可能中断通信；手动关闭后不会恢复，不重开配对窗口或重放任务。
+
+仅在可信 Wi-Fi 首次配对：首次 TOFU 不防同 LAN 主动中间人，后续严格固定 TLS 证书 pin 和每客户端 HMAC。仅支持 Wi-Fi 上的 RFC1918 IPv4，不承诺后台常驻或离线冷启动。官方 Muse 账号与设备 Wi-Fi setup 保持独立。真机配对、TLS/Bonjour、模型截图可见性和实际触控仍待验收。见[共同协议](../docs/muse-remote/SLAN-1.md)和[本端实施与验证](../docs/muse-remote/SLAN-IMPLEMENTATION.md)。
+
+自动 TLS 身份测试需要签名的模拟器 App。普通无签名脚本保留原行为；可显式选择本地 ad-hoc 模式，使用随机测试命名空间，不配置开发者账号或真实凭据：
+
+```sh
+SIMULATOR_ADHOC_SIGN=1 NCM_CARGO_OFFLINE=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
+```

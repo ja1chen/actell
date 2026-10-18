@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Reject staged Xcode bundle identifier and signing team changes."""
+import json
+import subprocess
+import sys
+
+PROTECTED = {"PRODUCT_BUNDLE_IDENTIFIER", "DEVELOPMENT_TEAM"}
+
+
+def git(*args):
+    return subprocess.check_output(["git", *args], stderr=subprocess.PIPE)
+
+
+def settings(revision, path):
+    item = subprocess.run(["git", "show", f"{revision or ''}:{path}"], capture_output=True)
+    if item.returncode:
+        # A missing path is valid for an added or deleted project.
+        names = git("ls-tree", "-z", "--name-only", revision, "--", path) if revision is not None else git("ls-files", "-z", "--", path)
+        if names:
+            raise ValueError("Cannot read project contents")
+        return {}
+    parsed = subprocess.run(["plutil", "-convert", "json", "-o", "-", "-"],
+                            input=item.stdout, capture_output=True)
+    if parsed.returncode:
+        raise ValueError("Cannot parse project contents")
+    objects = json.loads(parsed.stdout)["objects"]
+    return {(identity, key): value
+            for identity, obj in objects.items()
+            for key, value in obj.get("buildSettings", {}).items()
+            if key.split("[", 1)[0] in PROTECTED}
+
+
+def main():
+    paths = git("diff", "--cached", "--name-only", "--no-renames", "-z").decode().split("\0")
+    projects = [path for path in paths if path.endswith(".pbxproj")]
+    blocked = []
+    for path in projects:
+        before = settings("HEAD", path)
+        after = settings(None, path)
+        changed = {key.split("[", 1)[0] for identity, key in before.keys() | after.keys()
+                   if before.get((identity, key)) != after.get((identity, key))}
+        if changed:
+            blocked.append((path, changed))
+    if not blocked:
+        return 0
+    print("Commit blocked: keep Bundle ID and signing team overrides local.", file=sys.stderr)
+    for path, keys in blocked:
+        print(f"  {path}: {', '.join(sorted(keys))}", file=sys.stderr)
+    print("Unstage these settings while preserving your local configuration.", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
+        print("Commit blocked: could not validate staged Xcode signing settings.", file=sys.stderr)
+        sys.exit(1)

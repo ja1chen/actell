@@ -50,7 +50,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     var agentReserved: Bool { !agentRuns.isEmpty || agentOwner != nil }
     private var registeredBackgroundTask = false
     private var mediaStarted = false
-    private let mediaLifetime = ControlMediaLifetime()
+    private var mediaUseOwners: Set<UUID> = []
+    var mediaStopping: Bool { mediaLifetime.stopping }
+    private(set) var mediaRetentionGeneration: UUID? = UUID()
+    private let mediaLifetime: ControlMediaLifetime
+    private let startMedia: @MainActor (NativeDeveloperServices) async throws -> Void
+    private let stopMedia: @MainActor (NativeDeveloperServices) async throws -> Void
     private var job: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var heartbeatEpoch = UUID()
@@ -80,7 +85,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     override convenience init() {
         self.init(store: RemotePairRecordStore(url: URL.applicationSupportDirectory.appending(path: "RemotePairing/identity.plist")))
     }
-    init(store: RemotePairRecordStore, defaults: UserDefaults = .standard) {
+    init(store: RemotePairRecordStore, defaults: UserDefaults = .standard,
+         mediaLifetime: ControlMediaLifetime = ControlMediaLifetime(),
+         startMedia: @escaping @MainActor (NativeDeveloperServices) async throws -> Void = { try await $0.startTouchMedia() },
+         stopMedia: @escaping @MainActor (NativeDeveloperServices) async throws -> Void = { try await $0.stopTouchMedia() }) {
+        self.mediaLifetime = mediaLifetime; self.startMedia = startMedia; self.stopMedia = stopMedia
         self.store = store; self.defaults = defaults; route = DeviceControlRoute.load(from: defaults)
         let saved = defaults.dictionary(forKey: Self.vpnConfigurationKey) as? [String: String]
         vpnConfiguration = (try? VPNLoopbackConfiguration(localAddress: saved?["localAddress"] ?? VPNLoopbackConfiguration.defaults.localAddress,
@@ -123,7 +132,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         guard registeredBackgroundTask else { message = String(localized: "The system pairing task was not registered. Reopen the app."); return }
         guard #available(iOS 26.0, *) else { message = String(localized: "Interactive system pairing needs continued background tasks on iOS 26 or later"); return }
         generation = UUID(); running = true; pairingActive = true; message = String(localized: "Requesting a background task for pairing. Please wait.")
-        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: String(localized: "PhoneAgent pairing"), subtitle: String(localized: "Complete authorization in system Settings"))
+        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: String(localized: "\(AppIdentity.displayName) pairing"), subtitle: String(localized: "Complete authorization in system Settings"))
         request.strategy = .fail
         do { try BGTaskScheduler.shared.submit(request) }
         catch { running = false; pairingActive = false; message = String(localized: "The system did not allow the background task. Keep the app open and try again.") }
@@ -178,7 +187,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func cancel() {
         connectionStopID = UUID()
-        mediaLifetime.revoke()
+        mediaLifetime.revoke(); mediaUseOwners.removeAll()
         operationLease?.complete(success: false); operationLease = nil
         stopHeartbeat()
         generation = UUID(); controlSessionID = UUID(); agentOwner = nil; agentRuns.removeAll(); agentQueue.removeAll()
@@ -234,15 +243,18 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                 if route == .vpnLoopback {
                     message = String(localized: "Finding this phone's RemotePairing service. Keep the VPN loopback connection on.")
                     let configuration = vpnConfiguration
-                    let port = try await localDiscovery.discoverPort(configuration: configuration)
+                    let port = try await NativePerformanceTrace.measure(.discovery) { try await localDiscovery.discoverPort(configuration: configuration) }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     message = String(localized: "Verifying identity and opening the CoreDevice tunnel through VPN loopback")
                     try await backend.connectLocalVPN(identity: identity, authorization: authorization, pairingPort: port, configuration: configuration)
                 } else {
                     message = String(localized: "Finding the phone's RemotePairing service through ESP32")
-                    var discovery = try await client.request(.discoverIPv4)
-                    if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
-                        discovery = try await client.request(.discoverIPv6)
+                    let discovery = try await NativePerformanceTrace.measure(.discovery) {
+                        var discovery = try await client.request(.discoverIPv4)
+                        if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
+                            discovery = try await client.request(.discoverIPv6)
+                        }
+                        return discovery
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
@@ -251,7 +263,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     message = String(localized: "Verifying identity and opening the developer tunnel through ESP32")
                     try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint)
                 }
-                try await backend.checkDeveloperReadiness()
+                try await NativePerformanceTrace.measure(.developerReadiness) { try await backend.checkDeveloperReadiness() }
                 try Task.checkCancellation(); guard generation == epoch else { return }
                 ready = true; startHeartbeat(); message = String(localized: "\(route.connectionName) authentication, tunnel, and service checks succeeded. You can test screenshots and input.")
             } catch { guard generation == epoch else { return }; backend.close(); message = failure(error); lastFailure = message }
@@ -275,6 +287,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     } }
     private func operation(capturing: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
         guard ready, !running, !agentReserved else { return }
+        mediaLifetime.clearIdle()
         generation = UUID(); let epoch = generation
         running = true; self.capturing = capturing
         beginOperationLease(epoch: epoch)
@@ -347,6 +360,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             return value
         } catch {
             guard controlSessionID == session else { throw NCMControlError.stopped }
+            if let geometry = error as? NativeInputGeometryError {
+                BackgroundExecutionTrace.record("input.geometry.failed reason=\(geometry.reason.rawValue) stage=\(geometry.stage) cause=\(geometry.cause) connectionRetained=true")
+                message = String(localized: "Could not verify the current screen layout. No input was sent.")
+                lastFailure = message
+                throw geometry
+            }
             if case NativeBackendError.touchPreparationFailure = error {
                 mediaStarted = false; message = String(localized: "\(failure(error)). No input was sent."); lastFailure = message
                 throw NCMControlError.unavailable(message)
@@ -364,6 +383,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             if error is CancellationError || (error as? NCMControlError) != nil {
                 cancel(); throw NCMControlError.stopped
             }
+            if case NativeBackendError.protocolFailure(let stage, let cause) = error {
+                BackgroundExecutionTrace.record("control.operation.failed stage=\(stage) cause=\(cause) connectionRetained=false")
+            } else if case NativeBackendError.closed = error {
+                BackgroundExecutionTrace.record("control.operation.failed reason=closed connectionRetained=false")
+            }
             message = String(localized: "\(failure(error)); reconnect to \(route.connectionName)"); lastFailure = message
             stopHeartbeat(); ready = false; mediaStarted = false; backend.close()
             invalidateAgentSession(); running = false
@@ -371,15 +395,18 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         }
     }
     func prepareAgentInput(_ services: NativeDeveloperServices) async throws {
+        mediaLifetime.suspendIdle()
+        if let agentOwner { mediaUseOwners.insert(agentOwner) }
+        if mediaStarted { BackgroundExecutionTrace.record("control.mediaReused") }
         if !mediaStarted {
-            try await services.startTouchMedia()
+            try await NativePerformanceTrace.measure(.mediaStart) { try await self.startMedia(services) }
             try Task.checkCancellation()
             mediaStarted = true
             mediaLifetime.didOpen()
         }
     }
     private func invalidateAgentSession() {
-        mediaLifetime.revoke()
+        mediaLifetime.revoke(); mediaUseOwners.removeAll()
         controlSessionID = UUID(); agentOwner = nil
         agentRuns.removeAll(); agentQueue.removeAll()
     }
@@ -394,10 +421,21 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func registerAgent(owner: UUID, session: UUID) {
         guard ready, controlSessionID == session else { return }
+        mediaLifetime.suspendIdle()
         agentRuns.insert(owner)
     }
     func releaseAgent(owner: UUID, session: UUID) {
-        guard controlSessionID == session else { return }
+        releaseAgent(owner: owner, session: session, retainingMedia: false)
+    }
+    func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?) {
+        releaseAgent(owner: owner, session: session, retainingMedia: retentionGeneration == mediaRetentionGeneration)
+    }
+    private func releaseAgent(owner: UUID, session: UUID, retainingMedia: Bool) {
+        guard controlSessionID == session, agentRuns.contains(owner) else { return }
+        let usedMedia = mediaUseOwners.remove(owner) != nil
+        if retainingMedia {
+            if usedMedia && mediaStarted { mediaLifetime.refreshMuseIdle() }
+        } else { mediaLifetime.clearIdle() }
         agentRuns.remove(owner); agentQueue.removeAll { $0 == owner }
         guard agentOwner == owner else {
             finishControlMediaIfIdle()
@@ -410,8 +448,33 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             finishControlMediaIfIdle()
         }
     }
+    func revokeMuseMediaRetention() {
+        mediaRetentionGeneration = UUID()
+        releaseIdleMuseMedia()
+    }
+    /// Only drops the optional Muse cache, never an owner, queued run or input.
+    @discardableResult func releaseIdleMuseMedia() -> Bool {
+        guard ready, !running, !agentReserved, agentQueue.isEmpty,
+              !capturing, !pairingActive, !mediaLifetime.stopping,
+              mediaLifetime.idleUntil != nil, mediaStarted else { return false }
+        mediaLifetime.clearIdle()
+        finishControlMediaIfIdle()
+        return mediaLifetime.stopping
+    }
+    func releaseIdleMuseMediaAndWait() async -> Bool {
+        let session = controlSessionID
+        guard releaseIdleMuseMedia() else { return false }
+        await mediaLifetime.wait()
+        return controlSessionID == session && !mediaStarted
+    }
     private func finishControlMediaIfIdle() {
-        guard ready, !running, mediaStarted else { return }
+        guard ready, !running, mediaStarted, !agentReserved, agentQueue.isEmpty else { return }
+        if mediaLifetime.idleUntil != nil {
+            finishOperationLease()
+            BackgroundExecutionTrace.record("control.mediaIdle timeoutSeconds=600")
+            mediaLifetime.scheduleIdle { [weak self] in self?.releaseIdleMuseMedia() }
+            return
+        }
         let session = controlSessionID
         let accepted = mediaLifetime.finishIfIdle(hasUsers: !agentRuns.isEmpty || agentOwner != nil,
             stop: { [weak self] in
@@ -422,7 +485,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                 }
                 guard self.controlSessionID == session, self.ready else { throw CancellationError() }
                 BackgroundExecutionTrace.record("control.mediaStopRequested scoped=true")
-                try await self.backend.stopTouchMedia()
+                try await self.stopMedia(self.backend)
             }, completed: { [weak self] success in
                 guard let self, self.controlSessionID == session else { return }
                 self.running = false; self.mediaStarted = false

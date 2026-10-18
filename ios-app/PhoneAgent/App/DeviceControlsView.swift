@@ -72,7 +72,7 @@ private struct USBDiagnosticsControls: View {
                 Button(String(localized: "View log")) { refresh(); showingLog = true }.accessibilityIdentifier("showUSBDiagnostics")
             }.buttonStyle(.bordered)
             if copied { Text(String(localized: "Diagnostic log copied")).font(.caption).accessibilityIdentifier("usbDiagnosticsCopied") }
-            Text(String(localized: "Keeps the latest 600 capture and USB diagnostics from this app session, including first-frame status and frame-drop reasons. Copy after a failure. Restarting clears the log. Screenshots, task text, and keys are excluded."))
+            Text(String(localized: "Keeps the latest 600 capture and USB diagnostics for this app session, and the latest 300 Muse diagnostics across app launches. Screenshots, task text, and keys are excluded."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $showingLog) {

@@ -3467,6 +3467,23 @@
         }
       }
     },
+    "Could not verify the current screen layout. No input was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify the current screen layout. No input was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法确认当前屏幕布局，未发送操作。"
+          }
+        }
+      }
+    },
     "Could not allocate the status frame": {
       "extractionState": "manual",
       "localizations": {
@@ -8897,19 +8914,19 @@
         }
       }
     },
-    "PhoneAgent pairing": {
+    "%@ pairing": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PhoneAgent pairing"
+            "value": "%@ pairing"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "PhoneAgent 配对"
+            "value": "%@ 配对"
           }
         }
       }
@@ -16146,19 +16163,19 @@
         }
       }
     },
-    "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby.": {
+    "Turn on audio, picture-in-picture, or location first.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby."
+            "value": "Turn on audio, picture-in-picture, or location first."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请先开启音频、画中画或定位。仅开启系统后台任务无法保持待命。"
+            "value": "请先开启音频、画中画或定位。"
           }
         }
       }
@@ -17842,6 +17859,3287 @@
           "stringUnit": {
             "state": "translated",
             "value": "检查点无法读写；原文件保留，执行已禁用"
+          }
+        }
+      }
+    },
+    "%@ (Diagnostic ID: %@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Diagnostic ID: %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（诊断编号：%@）"
+          }
+        }
+      }
+    },
+    "A failed import keeps the previous certificate. Importing does not start the service. Connection details exclude private keys and passwords.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A failed import keeps the previous certificate. Importing does not start the service. Connection details exclude private keys and passwords."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入失败时原证书保留。导入不会自动启动连接。私钥和密码不会写入连接信息。"
+          }
+        }
+      }
+    },
+    "A local task is still running or stopping. Wait for it to finish and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A local task is still running or stopping. Wait for it to finish and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地任务仍在运行或释放设备，请等待结束后重试"
+          }
+        }
+      }
+    },
+    "A remote task is using this device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A remote task is using this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程任务正在占用设备"
+          }
+        }
+      }
+    },
+    "A remote tool is running. Wait for it to finish.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A remote tool is running. Wait for it to finish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程工具正在执行"
+          }
+        }
+      }
+    },
+    "Access Not Allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access Not Allowed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限未开放"
+          }
+        }
+      }
+    },
+    "Actell Device Identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actell Device Identity"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执言本机身份"
+          }
+        }
+      }
+    },
+    "Add Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Again"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新添加"
+          }
+        }
+      }
+    },
+    "Add Client": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Client"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加客户端"
+          }
+        }
+      }
+    },
+    "Add Muse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Muse"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 Muse"
+          }
+        }
+      }
+    },
+    "Add a valid client first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a valid client first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先添加有效的客户端"
+          }
+        }
+      }
+    },
+    "Adding a client creates credentials shown only once. Transfer them securely to your trusted Muse client. Revoking stops its task and access; actions already sent cannot be undone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding a client creates credentials shown only once. Transfer them securely to your trusted Muse client. Revoking stops its task and access; actions already sent cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加后会生成独立连接信息，仅在本次添加时提供。请通过安全方式交给你信任的 Muse 客户端。撤销会拒绝后续请求，并停止该客户端当前运行；已送出的动作无法撤回。"
+          }
+        }
+      }
+    },
+    "All permissions are off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All permissions are off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有权限已关闭"
+          }
+        }
+      }
+    },
+    "Allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        }
+      }
+    },
+    "Allow Access": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Access"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问"
+          }
+        }
+      }
+    },
+    "Allow and Start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow and Start"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许并启动"
+          }
+        }
+      }
+    },
+    "Allow authorized clients to access Actell?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow authorized clients to access Actell?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许已授权客户端访问执言？"
+          }
+        }
+      }
+    },
+    "Allowed client IP addresses, one per line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed client IP addresses, one per line"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许的客户端来源 IP，每行一个"
+          }
+        }
+      }
+    },
+    "Another Muse task is using this device. Stop it first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another Muse task is using this device. Stop it first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有 Muse 操控任务占用设备，请先结束该任务"
+          }
+        }
+      }
+    },
+    "Another task is using phone control. Stop it first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another task is using phone control. Stop it first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机操控通道已被其他任务占用，请先结束该任务"
+          }
+        }
+      }
+    },
+    "App List": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App List"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取应用列表"
+          }
+        }
+      }
+    },
+    "Authorized Clients": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorized Clients"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授权客户端"
+          }
+        }
+      }
+    },
+    "Authorized clients can receive screenshots and app lists. Allowed actions run without further prompts. Tasks may stop when the phone locks or background execution becomes unavailable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorized clients can receive screenshots and app lists. Allowed actions run without further prompts. Tasks may stop when the phone locks or background execution becomes unavailable."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅允许已授权客户端访问。截图和应用列表会提供给该客户端；已开放的操作直接执行，无需逐次确认。锁屏或后台资格失效时可能暂停，回到前台后自动恢复。"
+          }
+        }
+      }
+    },
+    "Authorized, not connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorized, not connected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授权，未连接"
+          }
+        }
+      }
+    },
+    "Certificate IP Address or Domain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate IP Address or Domain"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书对应的 IP 或域名"
+          }
+        }
+      }
+    },
+    "Certificate Password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate Password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书导入密码"
+          }
+        }
+      }
+    },
+    "Certificate import failed. Check the .p12/.pfx file, password, and private key. The previous certificate was kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate import failed. Check the .p12/.pfx file, password, and private key. The previous certificate was kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导入证书，请检查 .p12/.pfx 文件、密码与私钥；原证书保留"
+          }
+        }
+      }
+    },
+    "Choose a certificate file smaller than 32 KiB.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a certificate file smaller than 32 KiB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书文件须小于 32 KiB"
+          }
+        }
+      }
+    },
+    "Choose a file smaller than 32 KiB containing the server certificate and private key.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a file smaller than 32 KiB containing the server certificate and private key."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书文件须小于 32 KiB，且包含服务器证书及私钥"
+          }
+        }
+      }
+    },
+    "Choose “Connect Actell” on Muse.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose “Connect Actell” on Muse."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Muse 上选择“连接 Actell”。"
+          }
+        }
+      }
+    },
+    "Client Connection Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client Connection Details"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端连接信息"
+          }
+        }
+      }
+    },
+    "Client Name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client Name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端名称"
+          }
+        }
+      }
+    },
+    "Client added. Transfer the connection details securely.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client added. Transfer the connection details securely."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端已添加；请通过安全方式交付连接信息"
+          }
+        }
+      }
+    },
+    "Client credentials could not be created. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client credentials could not be created. Try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法生成客户端密钥，请重试"
+          }
+        }
+      }
+    },
+    "Clients can read screenshots and app lists and request phone control. Allowed actions run without further prompts. This starts the HTTPS service on the configured port.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clients can read screenshots and app lists and request phone control. Allowed actions run without further prompts. This starts the HTTPS service on the configured port."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端可读取屏幕与应用列表并请求操控；已开放的操作无需逐次确认。此操作会在当前端口启动 HTTPS 监听。"
+          }
+        }
+      }
+    },
+    "Complete trusted USB setup and wait for the device’s pairing request.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete trusted USB setup and wait for the device’s pairing request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先通过可信 USB 配置确认设备身份，并等待设备申请绑定"
+          }
+        }
+      }
+    },
+    "Configure a server certificate before creating USB pairing details.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure a server certificate before creating USB pairing details."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先配置独立服务器证书，再生成可信 USB 配对材料"
+          }
+        }
+      }
+    },
+    "Connect to the same local network as Muse.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to the same local network as Muse."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 Muse 处于同一局域网。"
+          }
+        }
+      }
+    },
+    "Connected and authenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected and authenticated"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        }
+      }
+    },
+    "Connection Address": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Address"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接地址"
+          }
+        }
+      }
+    },
+    "Connection Details Ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Details Ready"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接信息已生成"
+          }
+        }
+      }
+    },
+    "Connection Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Status"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接状态"
+          }
+        }
+      }
+    },
+    "Connection credentials are unavailable. Unlock the phone and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection credentials are unavailable. Unlock the phone and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问连接凭据，请解锁后重试。"
+          }
+        }
+      }
+    },
+    "Connection credentials could not be created. Unlock the phone and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection credentials could not be created. Unlock the phone and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建连接凭据，请解锁后重试。"
+          }
+        }
+      }
+    },
+    "Connection identity ready. Add a device and transfer its pairing details through trusted USB.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection identity ready. Add a device and transfer its pairing details through trusted USB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机独立身份已准备。请添加设备并通过可信 USB 交付配对材料。"
+          }
+        }
+      }
+    },
+    "Connection settings saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection settings saved"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接配置已保存"
+          }
+        }
+      }
+    },
+    "Contains device credentials and the public server certificate, valid for 10 minutes. Transfer only through a trusted USB serial connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contains device credentials and the public server certificate, valid for 10 minutes. Transfer only through a trusted USB serial connection."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含此设备独有凭据与公开服务器证书，10 分钟内有效。通过你控制的 USB 串口交付；普通局域网页面不属于可信交付渠道。"
+          }
+        }
+      }
+    },
+    "Copied (expires in 5 minutes)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied (expires in 5 minutes)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制（5 分钟后过期）"
+          }
+        }
+      }
+    },
+    "Copy Connection Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Connection Details"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制连接信息"
+          }
+        }
+      }
+    },
+    "Could Not Complete Operation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Complete Operation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作未完成"
+          }
+        }
+      }
+    },
+    "Device ID: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device ID: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备编号：%@"
+          }
+        }
+      }
+    },
+    "Device Name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device Name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备名称"
+          }
+        }
+      }
+    },
+    "Device Removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device Removed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备已被撤销"
+          }
+        }
+      }
+    },
+    "Device credentials are missing. Remove the device and pair again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device credentials are missing. Remove the device and pair again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备凭据已丢失，请移除记录后重新配对"
+          }
+        }
+      }
+    },
+    "Device credentials are unavailable. Reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device credentials are unavailable. Reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备凭据不可用，请重新打开执言"
+          }
+        }
+      }
+    },
+    "Device credentials are unavailable. Unlock the phone and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device credentials are unavailable. Unlock the phone and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问设备凭据，请解锁后重试。"
+          }
+        }
+      }
+    },
+    "Device credentials could not be accessed. Unlock the phone and reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device credentials could not be accessed. Unlock the phone and reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备凭据无法读取或清理，请解锁后重新打开执言"
+          }
+        }
+      }
+    },
+    "Device data is unavailable. Unlock the phone and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device data is unavailable. Unlock the phone and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统保护数据尚不可用，请解锁手机后重试"
+          }
+        }
+      }
+    },
+    "Device name updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device name updated"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备名称已更新"
+          }
+        }
+      }
+    },
+    "Devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        }
+      }
+    },
+    "Done Editing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done Editing"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成输入"
+          }
+        }
+      }
+    },
+    "Enter 1–64 allowed client IP addresses.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter 1–64 allowed client IP addresses."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请填写 1–64 个允许的客户端来源 IP"
+          }
+        }
+      }
+    },
+    "Enter a valid DNS name or IP address for the connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a valid DNS name or IP address for the connection."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机 TLS 需要有效的 DNS 名称或 IP 地址"
+          }
+        }
+      }
+    },
+    "Enter an iPhone address reachable by Muse that matches the server certificate. Use the client IP address received by Actell; subnets and wildcards are unsupported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an iPhone address reachable by Muse that matches the server certificate. Use the client IP address received by Actell; subnets and wildcards are unsupported."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写 Muse 客户端可到达的 iPhone 地址，且须与服务器证书匹配。来源 IP 须是执言实际收到的地址；不支持网段或通配符。"
+          }
+        }
+      }
+    },
+    "Enter the certificate’s IP address or domain, without https:// or a path.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the certificate’s IP address or domain, without https:// or a path."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入证书对应的 IP 地址或域名，不含 https:// 或路径"
+          }
+        }
+      }
+    },
+    "Expires": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期"
+          }
+        }
+      }
+    },
+    "For example, Desk Muse. Generating credentials does not grant access. Confirm the device and permissions after USB setup and its pairing request.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For example, Desk Muse. Generating credentials does not grant access. Confirm the device and permissions after USB setup and its pairing request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如书桌上的 Muse。生成材料不授予任何能力；设备完成可信 USB 配置并申请绑定后，你再确认身份与授权。"
+          }
+        }
+      }
+    },
+    "Import Certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入证书"
+          }
+        }
+      }
+    },
+    "Import Server Certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Server Certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入服务器证书"
+          }
+        }
+      }
+    },
+    "Import a .p12 or .pfx file containing the certificate and private key. They are stored in this device’s Keychain. Clients must still verify the certificate and connection address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a .p12 or .pfx file containing the certificate and private key. They are stored in this device’s Keychain. Clients must still verify the certificate and connection address."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入包含证书与私钥的 .p12 或 .pfx 文件。证书与导入密码仅保存在本机钥匙串；客户端仍须验证证书和连接地址。"
+          }
+        }
+      }
+    },
+    "Import a server certificate first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a server certificate first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先导入服务器证书"
+          }
+        }
+      }
+    },
+    "Keeps the latest 600 capture and USB diagnostics for this app session, and the latest 300 Muse diagnostics across app launches. Screenshots, task text, and keys are excluded.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps the latest 600 capture and USB diagnostics for this app session, and the latest 300 Muse diagnostics across app launches. Screenshots, task text, and keys are excluded."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留本次运行最近 600 条采集与 USB 诊断，以及跨重启保存的最近 300 条 Muse 诊断。不含截图、任务正文或密钥。"
+          }
+        }
+      }
+    },
+    "Legacy Connection Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy Connection Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧版连接配置"
+          }
+        }
+      }
+    },
+    "Listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在监听"
+          }
+        }
+      }
+    },
+    "Local records are being cleaned up. Wait and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local records are being cleaned up. Wait and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清理本地记录，请等待完成后重试"
+          }
+        }
+      }
+    },
+    "More": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多"
+          }
+        }
+      }
+    },
+    "Muse Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 连接"
+          }
+        }
+      }
+    },
+    "Muse Developer Tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Developer Tools"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 开发工具"
+          }
+        }
+      }
+    },
+    "Muse Gadget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Gadget"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Gadget"
+          }
+        }
+      }
+    },
+    "Muse Gadget Service": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Gadget Service"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Gadget 服务"
+          }
+        }
+      }
+    },
+    "Muse authorization could not be saved. No input was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse authorization could not be saved. No input was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 动作授权记录不可用；未发送输入"
+          }
+        }
+      }
+    },
+    "Muse authorization expired. No input was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse authorization expired. No input was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 动作授权已失效；未发送输入"
+          }
+        }
+      }
+    },
+    "Muse connection stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse connection stopped"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 连接已停止"
+          }
+        }
+      }
+    },
+    "Muse control could not start. Reopen Actell and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse control could not start. Reopen Actell and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动 Muse 操控，请重新打开执言后重试。"
+          }
+        }
+      }
+    },
+    "Muse control requires VPN loopback or ESP32 NCM.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse control requires VPN loopback or ESP32 NCM."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 操控仅支持 VPN 回环或 ESP32 NCM 通道"
+          }
+        }
+      }
+    },
+    "Muse device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 设备"
+          }
+        }
+      }
+    },
+    "Muse is using this device. Stop its task first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse is using this device. Stop its task first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 远程运行占用设备；请先停止该运行"
+          }
+        }
+      }
+    },
+    "Muse settings could not be read. Check and save the connection settings again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse settings could not be read. Check and save the connection settings again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 配置无法读取；请检查后重新保存连接配置"
+          }
+        }
+      }
+    },
+    "Muse task stopped. Check the device for actions already sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse task stopped. Check the device for actions already sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 远程运行已关闭；已送出的动作请核对设备"
+          }
+        }
+      }
+    },
+    "No authorized clients": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No authorized clients"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无已授权客户端"
+          }
+        }
+      }
+    },
+    "No certificate selected. Choose a file again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No certificate selected. Choose a file again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书选择未完成，可重新选择"
+          }
+        }
+      }
+    },
+    "No devices added": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No devices added"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未添加设备"
+          }
+        }
+      }
+    },
+    "No server certificate imported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No server certificate imported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未导入服务器证书"
+          }
+        }
+      }
+    },
+    "Not Started": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Started"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未启动"
+          }
+        }
+      }
+    },
+    "Paired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对"
+          }
+        }
+      }
+    },
+    "Pairing Ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing Ended"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加已结束"
+          }
+        }
+      }
+    },
+    "Pairing Expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing Expired"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对已过期"
+          }
+        }
+      }
+    },
+    "Pairing Incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing Incomplete"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对未完成"
+          }
+        }
+      }
+    },
+    "Pairing could not be saved. Unlock the phone and reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not be saved. Unlock the phone and reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存配对，请解锁后重新打开执言"
+          }
+        }
+      }
+    },
+    "Pairing could not be stored. Unlock the phone and reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not be stored. Unlock the phone and reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对无法保存，请解锁后重新打开执言"
+          }
+        }
+      }
+    },
+    "Pairing details expired. Remove the device and add it again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing details expired. Remove the device and add it again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对材料已过期，请撤销后重新添加"
+          }
+        }
+      }
+    },
+    "Pairing details expired. Revoke them and generate new details.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing details expired. Revoke them and generate new details."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对材料已过期，请撤销后重新生成"
+          }
+        }
+      }
+    },
+    "Pairing is incomplete. Add the device again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing is incomplete. Add the device again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对未完成，请重新添加设备"
+          }
+        }
+      }
+    },
+    "Pairing stopped. Unlock the phone and reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing stopped. Unlock the phone and reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对已停止，请解锁后重新打开执言"
+          }
+        }
+      }
+    },
+    "Paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停"
+          }
+        }
+      }
+    },
+    "Permissions updated. Waiting for the device to reconnect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions updated. Waiting for the device to reconnect."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权已更新，等待设备重新确认连接"
+          }
+        }
+      }
+    },
+    "Phone Control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone Control"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操控手机"
+          }
+        }
+      }
+    },
+    "Phone control could not start. Check the connection and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone control could not start. Check the connection and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动手机操控，请检查连接后重试。"
+          }
+        }
+      }
+    },
+    "Phone control disconnected. Input has stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone control disconnected. Input has stopped."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机操控通道已失效；输入已停止"
+          }
+        }
+      }
+    },
+    "Phone control is disconnected. Connect in Settings → Phone Control → Connection & Validation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone control is disconnected. Connect in Settings → Phone Control → Connection & Validation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机操控尚未连接，请在设置 → 手机操控 → 连接与验证中完成连接。"
+          }
+        }
+      }
+    },
+    "Phone control setup is in progress. Wait for it to finish and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone control setup is in progress. Wait for it to finish and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机操控通道正在处理连接或验证操作，请等待完成后重试"
+          }
+        }
+      }
+    },
+    "Phone control setup or preview is in progress. Finish it and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone control setup or preview is in progress. Finish it and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接或预览手机操控，请结束该操作后重试"
+          }
+        }
+      }
+    },
+    "Port": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
+        }
+      }
+    },
+    "Prepare the connection identity first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare the connection identity first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先准备本机 TLS 身份"
+          }
+        }
+      }
+    },
+    "Remote task records are unavailable. The service did not start. Check local storage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote task records are unavailable. The service did not start. Check local storage."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程运行记录不可用，连接未启动；请检查本地记录"
+          }
+        }
+      }
+    },
+    "Remote task records could not be saved. The task stopped. Check the device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote task records could not be saved. The task stopped. Check the device."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程记录无法写入；运行已停止，请核对设备"
+          }
+        }
+      }
+    },
+    "Remove Certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除证书"
+          }
+        }
+      }
+    },
+    "Remove Device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除设备"
+          }
+        }
+      }
+    },
+    "Remove all devices before removing the server identity.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove all devices before removing the server identity."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除服务器身份前，请先撤销所有设备"
+          }
+        }
+      }
+    },
+    "Remove existing devices before replacing the server identity, then pair them again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove existing devices before replacing the server identity, then pair them again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更换服务器身份前，请先撤销现有设备并重新配对"
+          }
+        }
+      }
+    },
+    "Remove server certificate?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove server certificate?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除服务器证书？"
+          }
+        }
+      }
+    },
+    "Remove this device?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove this device?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除这个设备？"
+          }
+        }
+      }
+    },
+    "Replace Certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更换证书"
+          }
+        }
+      }
+    },
+    "Return to Actell and dismiss any system dialogs, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return to Actell and dismiss any system dialogs, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执言当前未处于可交互前台，请关闭系统弹窗并回到 App 后重试"
+          }
+        }
+      }
+    },
+    "Revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销"
+          }
+        }
+      }
+    },
+    "Revoke Client": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke Client"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销客户端"
+          }
+        }
+      }
+    },
+    "Revoke development clients before switching to companion pairing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke development clients before switching to companion pairing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到独立伴侣连接前，请先撤销开发模式客户端"
+          }
+        }
+      }
+    },
+    "Revoke this client?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke this client?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销这个客户端？"
+          }
+        }
+      }
+    },
+    "Revoked %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoked %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤销 %@"
+          }
+        }
+      }
+    },
+    "Save Connection Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Connection Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存连接配置"
+          }
+        }
+      }
+    },
+    "Save the connection address and allowed sources first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save the connection address and allowed sources first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先保存连接地址与允许来源"
+          }
+        }
+      }
+    },
+    "Screenshot validated for the authorized remote client.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot validated for the authorized remote client."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截图已校验；仅供已授权远程客户端读取"
+          }
+        }
+      }
+    },
+    "Screenshots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取屏幕截图"
+          }
+        }
+      }
+    },
+    "Screenshots and app information may be sent through Muse to its service or model. Allowed actions run without further prompts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots and app information may be sent through Muse to its service or model. Allowed actions run without further prompts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截图和应用信息可能经 Muse 发送给其服务或模型。已开放的操作直接执行，无需逐次确认。"
+          }
+        }
+      }
+    },
+    "Server Certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server Certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器证书"
+          }
+        }
+      }
+    },
+    "Server certificate removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server certificate removed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器证书已移除"
+          }
+        }
+      }
+    },
+    "Server certificate saved in this device’s Keychain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server certificate saved in this device’s Keychain"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器证书已保存在本机钥匙串"
+          }
+        }
+      }
+    },
+    "Service Not Running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Service Not Running"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务未运行"
+          }
+        }
+      }
+    },
+    "Set up the device account and Wi-Fi in the Muse app.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up the device account and Wi-Fi in the Muse app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "板卡的账号与 Wi-Fi 配对请在 Muse App 中完成。"
+          }
+        }
+      }
+    },
+    "Start Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动连接"
+          }
+        }
+      }
+    },
+    "Starting the service does not confirm a Muse connection or image delivery to its model.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting the service does not confirm a Muse connection or image delivery to its model."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前尚未验证 Home Link 联动；启动监听不代表 Muse 已连接或模型已看到截图。"
+          }
+        }
+      }
+    },
+    "Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        }
+      }
+    },
+    "Stop Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止连接"
+          }
+        }
+      }
+    },
+    "Stop the Muse connection before changing its settings or certificate.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the Muse connection before changing its settings or certificate."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先停止 Muse 连接，再修改连接配置或证书"
+          }
+        }
+      }
+    },
+    "Stopping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止"
+          }
+        }
+      }
+    },
+    "Stopping the task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping the task"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止并释放执行"
+          }
+        }
+      }
+    },
+    "Take a screenshot before tapping or dragging.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take a screenshot before tapping or dragging."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程坐标动作需要截图引用"
+          }
+        }
+      }
+    },
+    "The Muse task could not be saved and has not started. Reopen Actell and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Muse task could not be saved and has not started. Reopen Actell and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存 Muse 任务，任务未开始。请重新打开执言后重试。"
+          }
+        }
+      }
+    },
+    "The certificate does not match the address or is unsuitable for this server.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate does not match the address or is unsuitable for this server."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书与连接地址不匹配，或证书链不适合服务器 TLS"
+          }
+        }
+      }
+    },
+    "The certificate is not yet valid or has expired.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate is not yet valid or has expired."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书尚未生效或已经过期"
+          }
+        }
+      }
+    },
+    "The certificate or private key is incomplete.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate or private key is incomplete."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书或私钥不完整"
+          }
+        }
+      }
+    },
+    "The certificate record is inconsistent. Import it again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate record is inconsistent. Import it again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书记录不一致，请重新导入"
+          }
+        }
+      }
+    },
+    "The connection certificate does not match its key. Reset the connection and pair again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection certificate does not match its key. Reset the connection and pair again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接凭据不匹配，请重置连接后重新配对。"
+          }
+        }
+      }
+    },
+    "The connection certificate has expired or does not match. Reset the connection and pair again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection certificate has expired or does not match. Reset the connection and pair again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接证书已过期或不匹配，请重置连接后重新配对。"
+          }
+        }
+      }
+    },
+    "The connection identity could not be saved completely. Try again. Existing pairing certificates remain unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection identity could not be saved completely. Try again. Existing pairing certificates remain unchanged."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机 TLS 身份尚未完整保存，请重试；已有配对不会自动更换证书"
+          }
+        }
+      }
+    },
+    "The connection identity is inconsistent. The service stopped. Check it and pair again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection identity is inconsistent. The service stopped. Check it and pair again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机身份记录不一致；连接已关闭，请检查后重新配对"
+          }
+        }
+      }
+    },
+    "The device could not be added. Remove unused devices and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The device could not be added. Remove unused devices and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法添加设备，请移除不再使用的设备后重试"
+          }
+        }
+      }
+    },
+    "The device could not be removed. The connection stopped. Unlock the phone and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The device could not be removed. The connection stopped. Unlock the phone and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法移除设备，连接已停止。请解锁后重试。"
+          }
+        }
+      }
+    },
+    "The device is locked or its data is unavailable. Muse input has stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The device is locked or its data is unavailable. Muse input has stopped."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备已锁定或保护数据不可用；Muse 输入已停止"
+          }
+        }
+      }
+    },
+    "The device record could not be read.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The device record could not be read."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备记录无法读取"
+          }
+        }
+      }
+    },
+    "The key will not be shown again after closing. If transfer fails, revoke the client and add it again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The key will not be shown again after closing. If transfer fails, revoke the client and add it again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后不会再次显示密钥。若未成功交付，请撤销客户端后重新添加。"
+          }
+        }
+      }
+    },
+    "The pairing record is invalid. Add the device again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pairing record is invalid. Add the device again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对记录无效，请重新添加设备"
+          }
+        }
+      }
+    },
+    "The remote screenshot exceeds 8 MiB or uses an unsupported format.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote screenshot exceeds 8 MiB or uses an unsupported format."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程截图超过 8 MiB 或格式不受支持"
+          }
+        }
+      }
+    },
+    "The request expired. Add Muse again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The request expired. Add Muse again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "申请已过期，请重新添加 Muse"
+          }
+        }
+      }
+    },
+    "The screen changed or the screenshot expired. Take another screenshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screen changed or the screenshot expired. Take another screenshot."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程坐标参照已变化或过期"
+          }
+        }
+      }
+    },
+    "The screen changed. Take another screenshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screen changed. Take another screenshot."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕已变化，请重新截图。"
+          }
+        }
+      }
+    },
+    "The server certificate could not be read.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server certificate could not be read."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器证书不可读取"
+          }
+        }
+      }
+    },
+    "This connection cannot verify screen changes before input.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This connection cannot verify screen changes before input."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前连接无法确认屏幕变化，请更换连接方式。"
+          }
+        }
+      }
+    },
+    "This connection cannot verify the current screen layout.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This connection cannot verify the current screen layout."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前连接无法确认屏幕布局，请更换连接方式。"
+          }
+        }
+      }
+    },
+    "This connection does not support remote task deadlines.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This connection does not support remote task deadlines."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前连接不支持限时远程任务，请更换连接方式。"
+          }
+        }
+      }
+    },
+    "This installation cannot access device credentials. Check app signing and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This installation cannot access device credentials. Check app signing and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前安装无法访问设备凭据，请检查安装签名后重试。"
+          }
+        }
+      }
+    },
+    "This pairing request is unavailable. Add the device again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pairing request is unavailable. Add the device again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未识别的配对请求"
+          }
+        }
+      }
+    },
+    "This screenshot cannot be used for phone control. Take another screenshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This screenshot cannot be used for phone control. Take another screenshot."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这张截图无法用于操控，请重新截图。"
+          }
+        }
+      }
+    },
+    "This stops the device’s task and removes its access.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This stops the device’s task and removes its access."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将停止此设备的任务并关闭访问权限。"
+          }
+        }
+      }
+    },
+    "Turn on Muse Gadget Service and keep Actell open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Muse Gadget Service and keep Actell open."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先开启 Muse 连接并保持执言在前台"
+          }
+        }
+      }
+    },
+    "Turn on Muse Gadget Service and wait for it to start, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Muse Gadget Service and wait for it to start, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先开启 Muse 连接，等待服务运行后重试"
+          }
+        }
+      }
+    },
+    "Unfinished pairing could not be removed. Unlock the phone and reopen Actell.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unfinished pairing could not be removed. Unlock the phone and reopen Actell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完成配对无法清理，请解锁后重新打开执言"
+          }
+        }
+      }
+    },
+    "Unlock the phone and keep Actell open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock the phone and keep Actell open."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请解锁手机并保持执言在前台"
+          }
+        }
+      }
+    },
+    "Unlock the phone and open Actell to start the connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock the phone and open Actell to start the connection."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请解锁设备并在前台启动连接"
+          }
+        }
+      }
+    },
+    "Unlock the phone and wait for tasks to finish before changing or starting the Muse connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock the phone and wait for tasks to finish before changing or starting the Muse connection."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在设备解锁且任务空闲时修改或启动 Muse 连接"
+          }
+        }
+      }
+    },
+    "Unlock the phone and wait for the current task to finish before allowing more access.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock the phone and wait for the current task to finish before allowing more access."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请解锁设备并等待当前任务结束后增加授权"
+          }
+        }
+      }
+    },
+    "Up to 16 clients can be saved. Revoke unused clients first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to 16 clients can be saved. Revoke unused clients first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多保存 16 个客户端，请先撤销不再使用的客户端"
+          }
+        }
+      }
+    },
+    "Use 1–64 characters for the client name.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use 1–64 characters for the client name."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端名称须为 1–64 个字符"
+          }
+        }
+      }
+    },
+    "Use 1–64 characters for the device name, without line breaks or control characters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use 1–64 characters for the device name, without line breaks or control characters."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备名称须为 1–64 个字符，不能包含换行或控制字符"
+          }
+        }
+      }
+    },
+    "Use a port from 1 to 65535.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a port from 1 to 65535."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口须为 1–65535"
+          }
+        }
+      }
+    },
+    "Use distinct IP addresses. Domains, subnets, and wildcards are unsupported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use distinct IP addresses. Domains, subnets, and wildcards are unsupported."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源须为不重复的具体 IP 地址，不支持域名、网段或通配符"
+          }
+        }
+      }
+    },
+    "Use only your trusted USB setup tool to transfer these credentials. Do not send them through chat or a web page. The device must still request pairing and permission here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use only your trusted USB setup tool to transfer these credentials. Do not send them through chat or a web page. The device must still request pairing and permission here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅交付到你控制的 USB 配置工具；不要发送到聊天、普通网页或不可信串口。设备拿到材料后仍需在此申请绑定和授权。"
+          }
+        }
+      }
+    },
+    "Wait for pairing to finish, or remove the unfinished device and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for pairing to finish, or remove the unfinished device and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待当前配对完成，或移除未完成的设备后重试"
+          }
+        }
+      }
+    },
+    "Wait for the device to finish pairing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the device to finish pairing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待设备完成配对"
+          }
+        }
+      }
+    },
+    "Waiting for Muse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Muse"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待 Muse 申请"
+          }
+        }
+      }
+    },
+    "Waiting for device approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for device approval"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待确认设备"
+          }
+        }
+      }
+    },
+    "Waiting for the device after USB setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the device after USB setup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待 USB 配置后的设备申请"
+          }
+        }
+      }
+    },
+    "Connection interrupted. Check the local network and restart Muse Gadget Service.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection interrupted. Check the local network and restart Muse Gadget Service."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已中断，请检查本地网络并重新开启 Muse Gadget 服务。"
           }
         }
       }

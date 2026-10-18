@@ -38,6 +38,7 @@ struct FrameImage: Sendable {
     let capturedAt: Date
     let isDemo: Bool
     var capture: CaptureStamp? = nil
+    var remoteGeometryToken: String? = nil
 }
 struct Approval: Identifiable, Sendable {
     let id = UUID()

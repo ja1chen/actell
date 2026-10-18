@@ -3,6 +3,26 @@ import CoreLocation
 @testable import PhoneAgent
 
 @MainActor final class BackgroundExecutionCoordinatorTests: XCTestCase {
+    func testSavedSystemTaskStaysDisabledWhenLoadingAndChangingOtherOptions() throws {
+        let name = "Background.DisabledSystemTask." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let saved = try JSONEncoder().encode(BackgroundConfiguration(selected: [.audio, .systemTask]))
+        defaults.setPersistentDomain([BackgroundSettingsStore.key: saved], forName: name)
+        let settings = BackgroundSettingsStore(defaults: defaults, domain: name)
+        let coordinator = BackgroundExecutionCoordinator(settings: settings,
+            registry: BackgroundExecutionRegistry(), nativeDrivers: false)
+        XCTAssertEqual(defaults.data(forKey: BackgroundSettingsStore.key), saved)
+        XCTAssertTrue(settings.configuration.knownSelection.contains(.systemTask))
+        XCTAssertFalse(settings.hasUnknownOptions)
+        XCTAssertEqual(settings.selection, [.audio])
+        XCTAssertEqual(coordinator.selection, [.audio])
+        settings.set(.location, selected: true)
+        XCTAssertEqual(coordinator.selection, [.audio, .location])
+        let token = coordinator.acquireDemand(runID: UUID(), allowed: Set(BackgroundMechanism.allCases))
+        XCTAssertFalse(coordinator.allowed(token).contains(.systemTask))
+        coordinator.releaseDemand(token)
+    }
     func testMasksGenerationsAndObserverRemoval() {
         let registry = BackgroundExecutionRegistry()
         let owner = UUID(), old = BackgroundSourceToken(mechanism: .audio, owner: owner)
@@ -124,6 +144,7 @@ import CoreLocation
         let name = "Background.Settings.Permission." + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         let settings = BackgroundSettingsStore(defaults: defaults, domain: name)
+        settings.setResident(false)
         let registry = BackgroundExecutionRegistry()
         let location = LocationBackgroundDriver(registry: registry, configured: true, factory: { manager }, gate: gate)
         let coordinator = BackgroundExecutionCoordinator(settings: settings, registry: registry, nativeDrivers: false, locationDriver: location, gate: gate)

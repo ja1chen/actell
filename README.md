@@ -20,13 +20,13 @@ The ESP32-S3 currently provides USB NCM networking, discovery, and restricted bi
 - Imports Markdown/TXT skill packages and reads their text on demand; importing does not execute scripts. Supports conversation history, image attachments, tool approval, and manual stopping. Control tasks for the same phone are queued by whole agent turn, and actions with uncertain outcomes are not automatically replayed.
 - Control sessions continuously receive a display stream, decode it with VideoToolbox, and cache the latest complete frame. The screenshot tool takes an image from that stream, removes padding, and encodes it as JPEG; it does not call the system's separate screenshot service for each request by default. Each call still waits for a newly decoded frame or a sender progress report received after the request begins to confirm that the cached image is complete. The wait can take up to eight seconds; this does not mean immediately returning any old cached frame. The standalone PNG screenshot implementation remains available in the source, but is not an automatic fallback.
 - The ESP32 route has recorded real screenshots and increases in a test button's tap counter. In an iPhone 15 Pro test on 2026-10-09, the VPN loopback route reused the pairing identity, produced a 1179 × 2556 screenshot, increased the actual tap counter from 0 to 1, and confirmed media release. Complete model-driven tasks, dragging, and sustained background execution over VPN loopback still require separate acceptance testing.
-- Background execution supports independent audio, picture-in-picture, system-task, and location selections, including selecting none. New installations default to audio with location and idle residency off; existing explicit choices migrate unchanged. Background options are grouped on a dedicated Settings → Background execution page. Turning on location requests When In Use permission if it has not yet been requested; a previous denial is handled through system Settings. Permission alone does not start location updates: a task or idle residency must need them. Location coordinates are not saved or uploaded; the system indicator and increased battery use still apply. Location permission status is shown separately from the selection. System suspension, termination, screen locking, or connection failures can still stop tasks. The older ScreenCaptureKit/PA3 USB HID and TLS implementations remain in the repository; there is currently no switch to select the older route.
+- Background execution supports audio, picture-in-picture, and location in Settings → Background execution. The system background task option is hidden and treated as off, including saved selections. Audio and background standby are enabled by default; location is off, and saved choices are preserved. Location requires system permission; coordinates are not saved or uploaded. Background operation may increase battery use and remains subject to system and connection limits.
 
 Enabling idle residency retains only selected continuous sources; system-task-only residency no longer implicitly plays audio. Removing an option stops its contribution immediately and vetoes it for current runs; added options apply to the next run. A system continued-task cancellation/expiration pauses that run even if another source is available. This is an experimental execution mechanism, not a promise of indefinite background operation or App Store eligibility. Physical-device location, Personal Team signing, stationary behavior, audio interruptions, and CoreDevice background reliability have not been verified for this change. See the [implementation and validation record](docs/background-execution/IMPLEMENTATION.md).
 
 These statements reflect the current source and validation records in the project. Results from different routes, devices, and historical stages are not interchangeable. See [project tasks and validation](docs/PROJECT-TODOS.md), [video geometry and frame completeness](docs/ncm-coredevice/VIDEO-GEOMETRY.md), and [VPN loopback setup and validation](docs/ncm-coredevice/LOCALDEVVPN.md).
 
-Idle residency includes a separate **Show Live Activity while waiting** switch, enabled by default. It reserves a minimal star activity so tasks received in the background can update the Dynamic Island. Turning it off removes the idle activity without disabling task activities. System task subtitles describe current or recent work instead of counting responses or tool calls.
+The **Show Live Activity while waiting** switch is off by default. Enabling it keeps a standby Live Activity available for background task updates; task activities are controlled separately.
 
 ## Setup and running
 
@@ -56,6 +56,26 @@ Run all commands below from the repository root. The scripts reuse a local toolc
 - Install Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets (`rustup target add aarch64-apple-ios aarch64-apple-ios-sim`). The script discovers Rust through PATH or the standard Cargo installation; `NCM_RUST_TOOLCHAIN` optionally selects an installed toolchain. It does not depend on a sibling project. Backend builds use `--locked` and the standard Cargo cache (or `CARGO_HOME` / `NCM_CARGO_HOME`); the first build can download dependencies. Set `NCM_CARGO_OFFLINE=1` for cached offline builds. The package uses edition 2024; versions are in [Cargo.lock](ncm-dev/rust/Cargo.lock).
 - Firmware uses ESP-IDF 5.5.5. Set `IDF_PATH` and `IDF_TOOLS_PATH` to an installed environment as needed. Component versions are pinned by the [manifest](firmware-device/main/idf_component.yml) and lockfile.
 - The Xcode project is checked in. After adding source files, regenerate it with `python3 ios-app/scripts/generate_xcode_project.py`. Allow Swift Package Manager to resolve dependencies on the first build. An Xcode build phase generates the Rust static library for the current platform.
+
+To customize the Bundle ID and signing team when generating the project:
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+Replace these examples with your full App Bundle ID and Apple Developer Team ID.
+The example produces `org.example.Actell` and `org.example.Actell.LiveActivity`;
+test targets and both build configurations use the same base ID and team.
+Unset or empty values default to `com.ja1chen.PhoneAgent` and an empty team.
+Keep both variables exported for subsequent project generations.
+
+Enable the commit hook to keep local Bundle ID and signing team overrides out of commits:
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ```sh
 # Unsigned iPhoneOS build; does not install or change signing
@@ -113,3 +133,21 @@ Existing license and attribution records are in [LICENSE](LICENSE), [THIRD_PARTY
 - [Main project integration](docs/ncm-coredevice/MAIN-INTEGRATION.md) · [System pairing records](docs/ncm-coredevice/PAIRING.md)
 - [Background execution diagnostics](docs/BACKGROUND-RUN-RECOVERY.md) · [Control session stop and release](docs/CONTROL-SESSION-TEARDOWN.md)
 - [PA3 protocol](docs/usb-device/PROTOCOL.md) · [Historical archive index](archives/README.md)
+
+## Muse remote tools prototype
+
+The Muse Gadget-side code is maintained separately in [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods); this repository provides the Actell-side implementation.
+
+The optional [Muse adapter](docs/muse-remote/README.md) lets Muse plan while Actell executes tools in an independent remote runtime using paired-device scopes and its existing lifecycle, mutual-exclusion and screenshot freshness checks. Remote calls do not create Agent conversations or change the selected chat. Settings → Extensions → Muse Gadget now contains a device list, an add-device entry, and an explicit allow-connection switch. Each paired device supports a saved local display name, independent screenshot, app-list and control permissions, plus removal. Identity material and client secrets remain in the device-only Keychain; the service remembers the last switch setting and restores it when the app is unlocked, in the foreground and idle. Technical connection configuration is hidden from normal navigation.
+
+### Independent Muse companion
+
+The normal connection flow uses [Simple LAN pairing (SLAN/1)](docs/muse-remote/COMPANION-PAIRING.md): turn on **Muse Gadget Service**, choose **Add Muse**, then choose **Connect Actell** on Muse and allow the incoming request on the phone. Muse automatically requests the single compatible open pairing window; if several are open, keep only the target phone’s window open and retry. Actell reuses its stable app-owned P-256 TLS identity, delivers a device-specific credential, and marks the device paired only after its authenticated `companion.hello`. Bonjour TXT `host` identifies the existing certificate SAN and TLS SNI; Muse connects to the discovered SRV address, so IP changes retain the saved identity. Successful pairing enables screenshot, app-list and control permissions by default; each remains independently configurable, and permitted Muse actions execute without per-action prompts. Switching the service off cancels unfinished pairing and retains completed devices and permissions. Ordinary backgrounding and remote-run cleanup keep the listener open and retain authenticated peer presence; tool execution still requires its existing background lease. Unfinished pairing closes on backgrounding. System suspension can still interrupt communication; returning to the unlocked, idle foreground restores a stopped listener without reopening pairing or replaying work. Relaunching the app restores the last switch setting; new installations start off. The choice is saved before startup admission, so a failed start keeps the switch on while reporting that the service is not running. Network listener failures also retry automatically in the unlocked, idle foreground with a 1–32 second backoff; switching off or leaving the foreground cancels retries. Permission and storage failures remain stopped.
+
+Muse admission failures now carry a diagnostic ID and a specific rejection code. For agent-led troubleshooting, prefer native log services, Xcode APIs and CLI using the [diagnostic workflow](docs/muse-remote/DIAGNOSTICS.md); manual copying is not a prerequisite. **Muse Gadget → More → Copy Diagnostic Log** remains an optional export of request-time scene, protected-data, execution ownership and control-route state. The last 300 Muse diagnostic events persist across app launches; raw request bodies, tool arguments, credentials and screenshots are excluded. Export uses the live log instance so events and storage errors remain visible even when the latest disk write failed. Local diagnostics also distinguish pre-authentication HTTP 401 causes (format, clock, credential availability, signature, replay and nonce capacity), while the remote response stays generic.
+
+Pair only on trusted Wi-Fi: the initial TOFU enrollment does not protect against an active attacker on the same LAN. Later connections must retain the exact certificate pin and per-client HMAC. The app does not use official Muse account/setup tokens. Physical iPhone/Muse interoperability and long-running background behavior remain unverified. See [implementation, cleanup and validation](docs/muse-remote/SLAN-IMPLEMENTATION.md). Legacy manual configuration is available only in Debug builds explicitly launched with `--muse-development`.
+
+The [remote tools technical document](docs/muse-remote/REMOTE-TOOLS.md) defines the direct Gadget interface, screenshot-independent normalized input, 30-minute protected image results, execution lifecycle and remaining integration boundaries.
+
+Remote calls can start in the background without a prior foreground invocation or a separate continuation-receipt admission gate; the existing execution lifecycle, connection and deadlines determine readiness. The Muse service can retain already-selected continuous background sources between operations, while releasing phone execution ownership after each operation. Closing the service, revoking permissions or locking/stopping execution releases that demand; no unselected background option is enabled.
