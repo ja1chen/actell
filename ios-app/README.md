@@ -51,7 +51,15 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 
 两种模式共用 App 内的系统配对身份；切换释放旧连接并重新认证，运行中禁止切换。VPN 回环在建立连接阶段需要处于 Wi-Fi 环境，需由用户先启用支持本机数据包回注的外部 VPN，控制页可编辑接口与对端 IPv4 地址（默认 10.7.1.1、10.7.0.1）；接口地址支持从下拉菜单选择 10.7.1.1 或 198.18.0.1，对端地址候选为 10.7.0.1；两个菜单均提供「自定义」，点击会激活对应输入框，也可直接编辑，有修改时导航栏右上角显示「保存」；App 不管理外部 VPN，已在受控实机验证复用身份、截图和实际点击，拖动/后台仍待单独验收，见 [使用与验证](../coredevice/docs/LOCALDEVVPN.md)。
 
-页面提供系统配对、连接/停止、截图和真实点击计数验证；文件位于 `PhoneAgent/ESP32Control`。主 App 编译复用 `../coredevice/swift` 的 Swift/C ABI 和 Rust 后端，构建阶段自动生成当前平台的静态库，支持 arm64 真机和 arm64 模拟器。
+页面提供系统配对、连接/停止、截图和真实点击计数验证。两种模式共用 `PhoneAgent/DeviceControl/` 下的 App 控制层：
+
+- `DeviceControlCoordinator.swift`：配对、连接认证、控制任务排队、媒体与前后台生命周期。
+- `DeviceControlRoute.swift`：连接模式及其持久化选项。
+- `DeviceControlSettingsView.swift`：控制设置入口与 VPN 地址配置。
+- `DeviceConnectionSection.swift`：配对、连接状态和服务验证操作。
+- `TouchVerificationView.swift`：以实际收到的点击计数验证输入。
+
+`PhoneAgent/Bridge/CoreDeviceBridge.swift` 将共用控制连接接入 Agent 工具。主 App 编译复用 `../coredevice/swift` 的 Swift/C ABI 和 Rust 后端，构建阶段自动生成当前平台的静态库，支持 arm64 真机和 arm64 模拟器。
 
 在“设置 → 后台执行”选择音频、画中画和定位。系统后台任务入口隐藏，已保存的开启状态也按关闭处理。音频和后台常驻默认开启，定位默认关闭，已保存的选择保持不变。实现与约束见[后台执行说明](../docs/background-execution/IMPLEMENTATION.md)。
 

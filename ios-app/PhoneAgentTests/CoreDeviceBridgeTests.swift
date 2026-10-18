@@ -124,7 +124,7 @@ import ProviderCore
     }
 
     func testReadOnlyGeometryFailureRetainsFlowButClosedTransportRevokesIt() async throws {
-        let flow = PairingFlow(), owner = UUID()
+        let flow = DeviceControlCoordinator(), owner = UUID()
         flow.ready = true
         let session = flow.controlSessionID
         flow.registerAgent(owner: owner, session: session)
@@ -574,7 +574,7 @@ import ProviderCore
         let store = RemotePairRecordStore(url: directory.appending(path: "identity.plist"))
         // Even an invalid/stale local record must have a recovery path.
         try Data("stale-fixture".utf8).write(to: store.url)
-        let flow = PairingFlow(store: store)
+        let flow = DeviceControlCoordinator(store: store)
         XCTAssertTrue(flow.hasRecord)
         flow.ready = true; flow.lastFailure = "fixture failure"
         let session = flow.controlSessionID
@@ -644,7 +644,7 @@ import ProviderCore
         XCTAssertTrue(lifetime.finishIfIdle(hasUsers: false, stop: { throw NativeBackendError.closed }, completed: { result = $0 }))
         for _ in 0..<20 { await Task.yield() }
         XCTAssertEqual(result, false); XCTAssertFalse(lifetime.active)
-        let flow = PairingFlow(), owner = UUID()
+        let flow = DeviceControlCoordinator(), owner = UUID()
         flow.ready = true
         let session = flow.controlSessionID
         flow.registerAgent(owner: owner, session: session)
@@ -655,7 +655,7 @@ import ProviderCore
         XCTAssertNotEqual(flow.controlSessionID, session)
     }
     func testScreenshotFailureRetainsFlowGenerationButUncertainInputRevokesIt() async throws {
-        let flow = PairingFlow(), owner = UUID()
+        let flow = DeviceControlCoordinator(), owner = UUID()
         flow.ready = true
         let session = flow.controlSessionID
         flow.registerAgent(owner: owner, session: session)
@@ -788,7 +788,7 @@ import ProviderCore
     }
     func testStartupRestoreDoesNotFalselyMarkBackgroundAsForeground() {
         let url = URL.temporaryDirectory.appending(path: UUID().uuidString).appending(path: "identity.plist")
-        let flow = PairingFlow(store: RemotePairRecordStore(url: url))
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: url))
         flow.background()
         flow.restoreConnection()
         XCTAssertTrue(flow.isBackground)
@@ -796,7 +796,7 @@ import ProviderCore
         flow.cancel()
     }
     func testBackgroundKeepsIdleAuthenticatedSession() {
-        let flow = PairingFlow()
+        let flow = DeviceControlCoordinator()
         flow.ready = true
         let session = flow.controlSessionID
         flow.background()
@@ -810,7 +810,7 @@ import ProviderCore
         flow.cancel()
     }
     func testFinishingLastBackgroundRunKeepsConnectionForNextRun() {
-        let flow = PairingFlow(), owner = UUID()
+        let flow = DeviceControlCoordinator(), owner = UUID()
         flow.ready = true
         let session = flow.controlSessionID
         flow.retainConnection(owner: owner)
@@ -826,7 +826,7 @@ import ProviderCore
         XCTAssertNotEqual(flow.controlSessionID, session)
     }
     func testOrdinaryChatFinishingInBackgroundDoesNotRevokeControl() {
-        let flow = PairingFlow(), owner = UUID()
+        let flow = DeviceControlCoordinator(), owner = UUID()
         flow.ready = true
         let session = flow.controlSessionID
         flow.retainConnection(owner: owner)
@@ -951,7 +951,7 @@ import ProviderCore
         }
     }
     func testOrdinaryRunPreservesBackgroundConnectionWithoutReservingDevice() async throws {
-        let flow = PairingFlow(); flow.ready = true
+        let flow = DeviceControlCoordinator(); flow.ready = true
         let bridge = try CoreDeviceBridge(flow: flow)
         XCTAssertFalse(flow.agentReserved)
         flow.background()
@@ -961,7 +961,7 @@ import ProviderCore
         flow.cancel()
     }
     func testDeviceRunsQueueAndWaitingCancellationPreservesOwner() async throws {
-        let flow = PairingFlow(); flow.ready = true
+        let flow = DeviceControlCoordinator(); flow.ready = true
         let session = flow.controlSessionID, a = UUID(), b = UUID(), c = UUID()
         flow.registerAgent(owner: a, session: session)
         flow.registerAgent(owner: b, session: session)
@@ -1013,7 +1013,7 @@ import ProviderCore
     }
 
     func testConnectionFailureClearsAllOwnersAndNeverReplaysQueuedInput() async throws {
-        let flow = PairingFlow(); flow.ready = true
+        let flow = DeviceControlCoordinator(); flow.ready = true
         let old = flow.controlSessionID, a = UUID(), b = UUID()
         flow.registerAgent(owner: a, session: old); flow.registerAgent(owner: b, session: old)
         _ = try await flow.agentOperation(owner: a, session: old) { _ in 1 }
@@ -1080,7 +1080,7 @@ extension CoreDeviceBridgeTests {
         let lifetime = ControlMediaLifetime(now: { clock.instant }, sleep: { await clock.sleep($0) })
         var starts = 0, stops = 0
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let flow = PairingFlow(store: RemotePairRecordStore(url: url), mediaLifetime: lifetime,
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: url), mediaLifetime: lifetime,
             startMedia: { _ in starts += 1 }, stopMedia: { _ in stops += 1 })
         flow.ready = true
         let session = flow.controlSessionID, retention = flow.mediaRetentionGeneration
@@ -1126,7 +1126,7 @@ extension CoreDeviceBridgeTests {
         let lifetime = ControlMediaLifetime()
         var stops = 0
         var stopGate: CheckedContinuation<Void, Never>?
-        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             mediaLifetime: lifetime, startMedia: { _ in }, stopMedia: { _ in
                 stops += 1; await withCheckedContinuation { stopGate = $0 }
             })
@@ -1161,7 +1161,7 @@ extension CoreDeviceBridgeTests {
     func testExplicitStopGenerationPreventsLateNormalCompletionFromRetainingMedia() async throws {
         let lifetime = ControlMediaLifetime()
         var stops = 0
-        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             mediaLifetime: lifetime, startMedia: { _ in }, stopMedia: { _ in stops += 1 })
         flow.ready = true
         let owner = UUID(), session = flow.controlSessionID, old = flow.mediaRetentionGeneration
@@ -1194,7 +1194,7 @@ extension CoreDeviceBridgeTests {
         let lifetime = ControlMediaLifetime()
         var starts = 0, stops = 0
         var gate: CheckedContinuation<Void, Never>?
-        let flow = PairingFlow(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: .temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             mediaLifetime: lifetime, startMedia: { _ in starts += 1 }, stopMedia: { _ in
                 stops += 1; await withCheckedContinuation { gate = $0 }
             })

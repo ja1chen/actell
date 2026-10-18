@@ -13,10 +13,10 @@ import Darwin
         PhoneAgentShortcuts.updateAppShortcutParameters()
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") {
-            _ = PairingFlow.shared.selectRoute(.vpnLoopback)
+            _ = DeviceControlCoordinator.shared.selectRoute(.vpnLoopback)
         }
         #endif
-        PairingFlow.shared.registerBackgroundTask()
+        DeviceControlCoordinator.shared.registerBackgroundTask()
     }
     var body: some Scene {
         WindowGroup {
@@ -41,7 +41,7 @@ import Darwin
                 }
                 .task {
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
-                    if !streamProbe { PairingFlow.shared.restoreConnection() }
+                    if !streamProbe { DeviceControlCoordinator.shared.restoreConnection() }
                     model.liveActivities.setBackgroundResident(settings.reservesStandbyActivity)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
@@ -58,7 +58,7 @@ import Darwin
                             }
                             if step == 0 { UIApplication.shared.perform(NSSelectorFromString("suspend")) }
                         }
-                    } else { await PairingFlow.shared.runBackgroundProbeIfRequested() }
+                    } else { await DeviceControlCoordinator.shared.runBackgroundProbeIfRequested() }
                     #endif
                 }
                 .onChange(of: settings.reservesStandbyActivity) { _, enabled in
@@ -77,8 +77,8 @@ import Darwin
                     // Return run leases to foreground before stopping PiP revokes its background receipt.
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     background.setForeground(phase == .active, transitioning: phase == .inactive)
-                    if phase == .background { PairingFlow.shared.background() }
-                    else if phase == .active { PairingFlow.shared.resume() }
+                    if phase == .background { DeviceControlCoordinator.shared.background() }
+                    else if phase == .active { DeviceControlCoordinator.shared.resume() }
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
                     PhoneAgentRuntime.shared.museConnection.setScene(active: phase == .active, background: phase == .background)
                     if phase == .active { PhoneAgentRuntime.shared.commands.resumePendingExecutions() }
@@ -92,12 +92,12 @@ import Darwin
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
                     PhoneAgentRuntime.shared.remoteTools.stop()
-                    PairingFlow.shared.applicationWillTerminate()
+                    DeviceControlCoordinator.shared.applicationWillTerminate()
                     background.shutdown()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
                     PhoneAgentRuntime.shared.remoteTools.stop()
-                    PairingFlow.shared.cancel()
+                    DeviceControlCoordinator.shared.cancel()
                     background.setProtectedData(false)
                     model.setProtectedDataAvailable(false)
                 }
@@ -144,7 +144,7 @@ private struct LocalVPNProbeView: View {
     }
     @MainActor private func run() async {
         guard !started else { return }; started = true
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         let url = URL.documentsDirectory.appending(path: "local-vpn-probe.log")
         var records: [String] = []
         func record(_ line: String) {
@@ -213,7 +213,7 @@ private struct CoreDeviceVideoGeometryProbeView: View {
             try? lines.joined(separator: "\n").write(to: log, atomically: true, encoding: .utf8)
             NSLog("CoreDevice video probe %@", value)
         }
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         let backgroundProbe = ProcessInfo.processInfo.arguments.contains("--coredevice-video-background-probe")
         let repeatedProbe = backgroundProbe || ProcessInfo.processInfo.arguments.contains("--coredevice-video-repeat-probe")
         if backgroundProbe {
@@ -270,7 +270,7 @@ private struct CoreDeviceToolsProbeView: View {
         let url = URL.documentsDirectory.appending(path: "coredevice-tools-probe.log")
         var records: [String] = []
         func record(_ value: String) { records.append(Date().ISO8601Format() + " " + value); try? records.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8) }
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         statusPiP.setControlProbeRunning(true)
         let scheduler = CompositeRunScheduler(primary: ContinuedProcessingScheduler(), allowed: { [.audio, .systemTask] })
         let identifier = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".backgroundRun." + UUID().uuidString

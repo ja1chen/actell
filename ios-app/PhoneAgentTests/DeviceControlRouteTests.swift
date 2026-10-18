@@ -11,7 +11,7 @@ import XCTest
         // Opaque sentinel: selecting a route must neither parse nor rewrite secrets.
         let bytes = Data("pairing-identity-sentinel".utf8); try bytes.write(to: url)
         defaults.set(DeviceControlRoute.ncmDeveloper.rawValue, forKey: DeviceControlRoute.defaultsKey)
-        let store = RemotePairRecordStore(url: url), flow = PairingFlow(store: store, defaults: defaults)
+        let store = RemotePairRecordStore(url: url), flow = DeviceControlCoordinator(store: store, defaults: defaults)
         XCTAssertEqual(flow.route, .ncmDeveloper)
         let session = flow.controlSessionID, stop = flow.connectionStopID
         flow.ready = true
@@ -21,7 +21,7 @@ import XCTest
         XCTAssertNotEqual(flow.connectionStopID, stop)
         XCTAssertEqual(try Data(contentsOf: url), bytes)
         XCTAssertEqual(DeviceControlRoute.load(from: defaults), .vpnLoopback)
-        XCTAssertEqual(PairingFlow(store: store, defaults: defaults).route, .vpnLoopback)
+        XCTAssertEqual(DeviceControlCoordinator(store: store, defaults: defaults).route, .vpnLoopback)
         XCTAssertTrue(flow.selectRoute(.ncmDeveloper))
         XCTAssertEqual(try Data(contentsOf: url), bytes)
     }
@@ -29,7 +29,7 @@ import XCTest
         let suite = "LocalVPNTests.\(UUID().uuidString)", defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(DeviceControlRoute.ncmDeveloper.rawValue, forKey: DeviceControlRoute.defaultsKey)
-        let flow = PairingFlow(store: RemotePairRecordStore(url: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)), defaults: defaults)
+        let flow = DeviceControlCoordinator(store: RemotePairRecordStore(url: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)), defaults: defaults)
         let bridge = try CoreDeviceBridge(flow: flow)
         XCTAssertFalse(flow.selectRoute(.vpnLoopback))
         XCTAssertEqual(flow.route, .ncmDeveloper)
@@ -48,7 +48,7 @@ import XCTest
         let url = root.appending(path: "identity.plist"), bytes = Data("identity-sentinel".utf8)
         try bytes.write(to: url)
         defaults.set("localDevVPN", forKey: DeviceControlRoute.defaultsKey)
-        let store = RemotePairRecordStore(url: url), flow = PairingFlow(store: store, defaults: defaults)
+        let store = RemotePairRecordStore(url: url), flow = DeviceControlCoordinator(store: store, defaults: defaults)
         XCTAssertEqual(flow.route, .vpnLoopback) // Existing preference survives the display-name change.
         XCTAssertEqual(flow.vpnConfiguration, .defaults)
         let session = flow.controlSessionID
@@ -59,7 +59,7 @@ import XCTest
         try flow.saveVPNConfiguration(localAddress: "10.8.1.1", peerAddress: "10.8.0.1")
         XCTAssertFalse(flow.ready); XCTAssertNotEqual(flow.controlSessionID, session)
         XCTAssertEqual(try Data(contentsOf: url), bytes)
-        XCTAssertEqual(PairingFlow(store: store, defaults: defaults).vpnConfiguration, flow.vpnConfiguration)
+        XCTAssertEqual(DeviceControlCoordinator(store: store, defaults: defaults).vpnConfiguration, flow.vpnConfiguration)
         let bridge = try CoreDeviceBridge(flow: flow)
         XCTAssertThrowsError(try flow.saveVPNConfiguration(localAddress: "10.9.1.1", peerAddress: "10.9.0.1"))
         XCTAssertEqual(flow.vpnConfiguration.localAddress, "10.8.1.1")

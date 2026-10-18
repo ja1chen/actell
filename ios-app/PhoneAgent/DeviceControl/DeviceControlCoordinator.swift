@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import SwiftUI
+import UIKit
 import BackgroundTasks
 import Observation
 
 enum CoreDeviceControlError: Error { case unavailable(String), stopped }
 
-@MainActor @Observable final class PairingFlow: NSObject, @preconcurrency NetServiceDelegate {
-    static let shared = PairingFlow()
+/// Coordinates pairing, connection ownership and media lifetime across VPN and NCM routes.
+@MainActor @Observable final class DeviceControlCoordinator: NSObject, @preconcurrency NetServiceDelegate {
+    static let shared = DeviceControlCoordinator()
     static let taskID = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".pairing"
     private let pairing = RemotePairingSession()
     private let backend = NativeDeveloperServices()
@@ -521,7 +522,8 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
     private func stopHeartbeat() {
         heartbeatEpoch = UUID(); heartbeatTask?.cancel(); heartbeatTask = nil; maintenanceBusy = false
     }
-    /// Read-only service traffic keeps the ESP32's 60-second relay idle lease alive.
+    /// Read-only service traffic checks connection readiness on both routes and
+    /// keeps the ESP32 relay's idle lease alive when using NCM.
     /// Shares the operation gate; never overlaps a screenshot or touch request.
     private func startHeartbeat(immediate: Bool = false) {
         stopHeartbeat(); let epoch = heartbeatEpoch
@@ -666,142 +668,4 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
         } catch { record("probe failed: \(error)") }
     }
     #endif
-}
-
-struct PairingSection: View {
-    @State private var flow = PairingFlow.shared
-    let showTouchTest: () -> Void
-    private var stateText: String {
-        if flow.pairingActive { return String(localized: "Pairing") }
-        if flow.ready { return String(localized: "Connected") }
-        if flow.running { return String(localized: "Connecting") }
-        return flow.hasRecord ? String(localized: "Not connected") : String(localized: "Not paired")
-    }
-    private var showsDetail: Bool {
-        (flow.running && !flow.ready) ||
-        (!flow.hasRecord && flow.message != String(localized: "Complete system pairing first"))
-    }
-    var body: some View {
-        Section {
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(stateText).foregroundStyle(flow.ready ? .green : .secondary)
-                        if flow.running && !flow.ready { ProgressView().controlSize(.small) }
-                    }
-                    if showsDetail {
-                        Text(flow.lastFailure ?? flow.statusText)
-                            .font(.footnote).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("pairingResult")
-                    }
-                    if let pin = flow.pin {
-                        Text(pin).font(.title.monospacedDigit())
-                            .accessibilityIdentifier("pairingPIN")
-                    }
-                }
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if !flow.ready && !flow.running && !flow.agentReserved {
-                        Button(flow.hasRecord ? String(localized: "Connect") : String(localized: "Pair")) {
-                            if flow.hasRecord { flow.verify() }
-                            else { flow.startPairing() }
-                        }.disabled(flow.running || flow.agentReserved)
-                    }
-                    if !flow.ready && flow.hasRecord && !flow.running && !flow.agentReserved {
-                        Button(String(localized: "Pair again")) { flow.pairAgain() }
-                            .accessibilityIdentifier("pairAgain")
-                    }
-                    if flow.running || flow.ready || flow.agentReserved {
-                        Button(String(localized: "Stop")) { flow.cancel() }
-                    }
-                }
-                .buttonStyle(.bordered)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-            }
-        }
-        if flow.ready {
-            Section(String(localized: "Service verification")) {
-                Button { flow.capture() } label: {
-                    HStack {
-                        Text(flow.capturing ? String(localized: "Taking a screenshot") : String(localized: "Take screenshot"))
-                        if flow.capturing { ProgressView().controlSize(.small) }
-                    }
-                }.disabled(flow.running || flow.agentReserved)
-                Button(String(localized: "Verify tap"), action: showTouchTest).disabled(flow.running || flow.agentReserved)
-            }
-            if let image = flow.image {
-                Section {
-                    Image(uiImage: image).resizable().scaledToFit().accessibilityLabel(String(localized: "Phone screenshot"))
-                } header: {
-                    HStack {
-                        Text(String(localized: "Screenshot"))
-                        Spacer()
-                        if let data = flow.screenshotData {
-                            SaveScreenshotButton(data: data).disabled(flow.capturing)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The counter is changed only by UIKit/SwiftUI delivering a real button action,
-/// never by an HID send acknowledgement. Keep this page foreground during test.
-struct TouchVerificationView: View {
-    let flow: PairingFlow
-    @Environment(\.dismiss) private var dismiss
-    @State private var count = 0
-    @State private var baseline = 0
-    @State private var testing = false
-    @State private var result = String(localized: "Do not touch the center button during the test")
-    @State private var task: Task<Void, Never>?
-    var body: some View {
-        ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
-            Button { count += 1 } label: {
-                VStack {
-                    Text(String(localized: "Center touch target")).font(.title2)
-                    Text(String(localized: "Touches received: \(count)")).font(.title.monospacedDigit())
-                }.frame(width: 260, height: 160)
-            }.buttonStyle(.borderedProminent).accessibilityIdentifier("touchVerificationTarget")
-            VStack {
-                HStack { Text(String(localized: "Verify actual taps")).font(.headline); Spacer(); Button(String(localized: "Close")) { dismiss() }.disabled(testing) }
-                Spacer()
-                Text(result).multilineTextAlignment(.center).accessibilityIdentifier("touchVerificationResult")
-                Text(flow.message).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                if !flow.ready {
-                    Button(String(localized: "Reconnect to \(flow.route.connectionName)")) { flow.verify() }.disabled(flow.running || flow.agentReserved)
-                }
-                if testing { ProgressView() }
-                Button(String(localized: "Tap the center target through \(flow.route.connectionName)")) { test() }.buttonStyle(.bordered).disabled(testing || !flow.ready || flow.running || flow.agentReserved)
-                Text(String(localized: "Keep this page open. An increased count confirms that the screen received the tap. A successful send alone does not confirm delivery."))
-                    .font(.footnote).foregroundStyle(.secondary)
-            }.padding()
-        }
-        .interactiveDismissDisabled()
-        .onDisappear { task?.cancel(); if testing { flow.cancel() } }
-    }
-    private func test() {
-        baseline = count; testing = true; result = String(localized: "Preparing the video session and sending one center tap. Do not touch the screen.")
-        task = Task { @MainActor in
-            defer { testing = false; task = nil }
-            flow.tapCenter()
-            do {
-                let deadline = ContinuousClock.now.advanced(by: .seconds(60))
-                while ContinuousClock.now < deadline {
-                    try Task.checkCancellation()
-                    if !flow.running {
-                        try await Task.sleep(for: .milliseconds(500))
-                        result = count > baseline ? String(localized: "Verified: the test page received a tap and the count increased") : String(localized: "Tap not confirmed: the count did not change.\n\(flow.message)")
-                        return
-                    }
-                    try await Task.sleep(for: .milliseconds(50))
-                }
-                flow.cancel()
-                result = String(localized: "Timed out without confirming a tap. It will not be resent automatically.")
-            } catch { result = String(localized: "Test stopped") }
-        }
-    }
 }

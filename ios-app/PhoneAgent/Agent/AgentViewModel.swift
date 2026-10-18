@@ -129,7 +129,7 @@ struct AgentRunServices {
     private var remoteRuntime: RemoteToolRuntime?
     private var remoteContinuityDemand: UUID?
     func endRemoteContinuity(releaseMedia: Bool = true) {
-        if releaseMedia { PairingFlow.shared.revokeMuseMediaRetention() }
+        if releaseMedia { DeviceControlCoordinator.shared.revokeMuseMediaRetention() }
         if let remoteContinuityDemand { executionBackground.releaseDemand(remoteContinuityDemand) }
         remoteContinuityDemand = nil
     }
@@ -1166,7 +1166,7 @@ struct AgentRunServices {
 extension AgentViewModel {
     var remoteCanConfigure: Bool { appOwner.foreground && appOwner.protectedDataAvailable }
     var remoteAdmissionSnapshot: [String: String] {
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         return [
             "scene": String(describing: currentScene), "foreground": String(foreground),
             "protected_data": String(protectedDataAvailable), "root_owner": String(appOwner === self),

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-struct ESP32ControlSettingsView: View {
-    @State private var flow = PairingFlow.shared
+struct DeviceControlSettingsView: View {
+    @State private var flow = DeviceControlCoordinator.shared
     @State private var showingTouchTest = false
-    @State private var localAddress = PairingFlow.shared.vpnConfiguration.localAddress
-    @State private var peerAddress = PairingFlow.shared.vpnConfiguration.peerAddress
+    @State private var localAddress = DeviceControlCoordinator.shared.vpnConfiguration.localAddress
+    @State private var peerAddress = DeviceControlCoordinator.shared.vpnConfiguration.peerAddress
     @State private var error: String?
     private enum AddressField: Hashable { case local, peer }
     @FocusState private var editing: AddressField?
@@ -14,12 +14,12 @@ struct ESP32ControlSettingsView: View {
             if flow.route == .vpnLoopback {
                 vpnConfigurationSection
             }
-            PairingSection { showingTouchTest = true }
+            DeviceConnectionSection { showingTouchTest = true }
         }
             .navigationTitle(flow.route.controlTitle)
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showingTouchTest) {
-                TouchVerificationView(flow: PairingFlow.shared)
+                TouchVerificationView(flow: DeviceControlCoordinator.shared)
             }
             .toolbar {
                 ToolbarItem(id: "vpnLoopbackSave", placement: .confirmationAction) {
@@ -30,7 +30,7 @@ struct ESP32ControlSettingsView: View {
                     }
                 }
             }
-            .task { PairingFlow.shared.resume() }
+            .task { DeviceControlCoordinator.shared.resume() }
     }
     private var changed: Bool {
         localAddress != flow.vpnConfiguration.localAddress || peerAddress != flow.vpnConfiguration.peerAddress
