@@ -13392,6 +13392,23 @@
         }
       }
     },
+    "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认 ChatGPT 回复是否完整，本轮已停止。请检查回复后再试。"
+          }
+        }
+      }
+    },
     "The ChatGPT request timed out. Acceptance is unknown. It was not retried automatically.": {
       "extractionState": "manual",
       "localizations": {

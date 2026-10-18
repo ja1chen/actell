@@ -13,6 +13,7 @@ public struct ProviderRunCheckpoint: Codable, Sendable {
     public var expectedAssistant: ModelMessage?
     public var pendingCalls: [ModelToolCall] = []
     public var cancelEpoch = 0
+    public var responseEventHistory: [ProviderResponseEvents]?
 }
 public struct StreamCheckpoint: Codable, Sendable {
     public var version = 1
@@ -24,6 +25,7 @@ public struct StreamCheckpoint: Codable, Sendable {
     public var completedItems: [Int: ModelOutputItem] = [:]
     public var contentPreviews: [String: String] = [:]
     public var argumentPreviews: [String: String] = [:]
+    public var events: [ProviderStreamEvent]?
     public init(responseID: String?, sequence: Int?, terminal: ResponseStatus?) { self.responseID = responseID; self.sequence = sequence; self.terminal = terminal }
 }
 public struct PreparedContext: Sendable { public let request: ModelRequest; public let revision: Int; public let cancelEpoch: Int; fileprivate let digests: [String]; fileprivate let replay: [ModelInputItem] }
@@ -85,6 +87,13 @@ public final class ContextCoordinator: @unchecked Sendable {
             guard response.status == .completed else { throw ModelError.protocolViolation("Only completed output can advance head") }
             try ToolBatchValidator.validate(response.toolCalls, previousCallIDs: Set(checkpoint.replay.compactMap { if case .replay(.functionCall(let c)) = $0 { return c.id }; return nil }))
             var next = checkpoint
+            guard response.streamEvents.allSatisfy({ $0.responseID == response.id }) else { throw ModelError.protocolViolation("Response scope changed") }
+            if !response.streamEvents.isEmpty {
+                var history = Array(((next.responseEventHistory ?? []) + [ProviderResponseEvents(responseID: response.id, events: response.streamEvents)]).suffix(16))
+                while try JSONEncoder().encode(history).count > 2 * 1024 * 1024, history.count > 1 { history.removeFirst() }
+                guard try JSONEncoder().encode(history).count <= 2 * 1024 * 1024 else { throw ModelError.protocolViolation("Stream extension limit") }
+                next.responseEventHistory = history
+            }
             next.replay = prepared.replay + (try response.output.map { try $0.asReplayInput(scope: scope) })
             // Keep tool/text dependencies; remove old device image bytes, retaining
             // user attachments. Chain mode's remote history is unaffected by this.
@@ -105,6 +114,7 @@ public final class ContextCoordinator: @unchecked Sendable {
     public func recordStream(_ stream: StreamCheckpoint, force: Bool = false) throws {
         try lock.withLock {
             guard checkpoint.cancelEpoch == 0 else { throw ModelError.cancelledLocally }
+            guard stream.scope == scope else { throw ModelError.protocolViolation("Response scope changed") }
             guard force || stream.terminal != nil || (stream.sequence ?? 1) % 32 == 0 else { return }
             guard let file else { return }
             let destination = file.deletingPathExtension().appendingPathExtension("stream.json")

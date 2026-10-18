@@ -25,7 +25,8 @@ public struct SSEFrameDecoder: Sendable {
     public func finish() throws { guard line.isEmpty, dataLines.isEmpty else { throw ModelError.protocolViolation("Truncated SSE frame") } }
 }
 /// Single writer, per-response reducer. Final snapshots are authoritative; only
-/// previews append deltas. Sequence digests deduplicate without retaining payloads.
+/// previews append deltas. Sequence digests deduplicate original events; only credential-redacted extension
+/// payloads are retained as non-executable response attachments.
 public struct ResponsesReducer: Sendable {
     private let codec: OpenAIWireCodec
     private let request: ModelRequest
@@ -36,18 +37,28 @@ public struct ResponsesReducer: Sendable {
     private var doneItems: [Int: ModelOutputItem] = [:]
     private var contentPreviews: [String: String] = [:]
     private var argumentPreviews: [String: String] = [:]
+    private var retainedEvents: [ProviderStreamEvent] = []
+    private var retainedBytes = 0
     public private(set) var response: ModelResponse?
+    /// Applies only to the latest consume call; attachments cannot execute tools.
+    public private(set) var retainedExtensionEvent = false
+    /// Known metadata is retained silently; only novel event types need a warning.
+    public var retainedUnknownEvent: Bool {
+        retainedExtensionEvent && retainedEvents.last?.type != "response.metadata"
+    }
     public var checkpoint: StreamCheckpoint {
         var value = StreamCheckpoint(responseID: responseID, sequence: lastSequence, terminal: response?.status)
         value.scope = codec.scope
         value.itemIDs = itemIDs; value.completedItems = doneItems; value.contentPreviews = contentPreviews; value.argumentPreviews = argumentPreviews
+        value.events = retainedEvents.isEmpty ? nil : retainedEvents
         return value
     }
     public init(codec: OpenAIWireCodec, request: ModelRequest) { self.codec = codec; self.request = request }
     public mutating func consume(payload: String) throws -> [ModelEvent] {
+        retainedExtensionEvent = false
         let previous = lastSequence
         var output = try reduce(payload: payload)
-        if lastSequence != previous, response == nil,
+        if lastSequence != previous, response == nil, !retainedExtensionEvent,
            let object = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] {
             output.append(.progress(.init(responseID: responseID, sequence: lastSequence,
                 itemID: object["item_id"] as? String ?? (object["item"] as? [String: Any])?["id"] as? String,
@@ -61,8 +72,8 @@ public struct ResponsesReducer: Sendable {
         guard payload.utf8.count <= 256 * 1024 else { throw ModelError.protocolViolation("SSE event size limit") }
         if payload == "[DONE]" { return [] }
         guard let o = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any], let type = o["type"] as? String else { throw ModelError.protocolViolation("SSE event missing type") }
-        // Documented non-semantic extension policy: names outside response.*
-        // are ignored. Unknown response/tool lifecycle events fail closed.
+        // Heartbeats need no sequence. Other extensions retain sequence/scope
+        // checks and never supply output or authorize completion/execution.
         if ["ping", "keepalive"].contains(type) || type.hasPrefix("vendor.metrics.") { return [] }
         guard let seq = o["sequence_number"] as? Int, seq >= 0 else { throw ModelError.protocolViolation("Event missing sequence") }
         let canonical = try JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])
@@ -73,7 +84,13 @@ public struct ResponsesReducer: Sendable {
         guard response == nil, lastSequence.map({ seq > $0 }) ?? true, sequences.count < 65536 else { throw ModelError.protocolViolation("Late/out of order response event") }
         sequences[seq] = digest; lastSequence = seq
         if let r = o["response"] as? [String: Any], let id = r["id"] as? String {
-            if let previous = responseID, previous != id { throw ModelError.protocolViolation("Response scope changed") }; responseID = id
+            if let previous = responseID, previous != id { throw ModelError.protocolViolation("Response scope changed") }
+            // An extension may reference the response, but cannot establish
+            // the identity needed to validate later output/completion.
+            if ["response.created", "response.in_progress", "response.completed", "response.incomplete", "response.failed", "response.cancelled"].contains(type) {
+                retainedEvents = try retainedEvents.map { try $0.bound(to: id) }
+                responseID = id
+            }
         }
         if let id = o["response_id"] as? String, let previous = responseID, id != previous { throw ModelError.protocolViolation("Response scope changed") }
         switch type {
@@ -115,9 +132,21 @@ public struct ResponsesReducer: Sendable {
                 }
                 try Self.requireExecutable(parsed)
             }
-            response = parsed; return [.terminal(parsed)]
+            let attached = try retainedEvents.map { try $0.bound(to: parsed.id) }
+            let result = ModelResponse(id: parsed.id, model: parsed.model, status: parsed.status, scope: parsed.scope, output: parsed.output, usage: parsed.usage, error: parsed.error, incomplete: parsed.incomplete, extra: parsed.extra, streamEvents: attached, request: parsed.request, providerName: parsed.providerName, permitsTextToolInference: parsed.permitsTextToolInference)
+            retainedEvents = attached
+            response = result; return [.terminal(result)]
         case "error": throw ModelError.providerError("模型流返回错误；没有自动重试")
-        default: throw ModelError.unsupportedCapability("Unsupported Responses event: " + type.prefix(100))
+        default:
+            guard retainedEvents.count < 128, retainedBytes + canonical.count <= 512 * 1024 else { throw ModelError.protocolViolation("Stream extension limit") }
+            if let direct = o["response_id"] as? String, let nested = (o["response"] as? [String: Any])?["id"] as? String, direct != nested { throw ModelError.protocolViolation("Response scope changed") }
+            let hint = o["response_id"] as? String ?? (o["response"] as? [String: Any])?["id"] as? String
+            if let responseID, let hint, hint != responseID { throw ModelError.protocolViolation("Response scope changed") }
+            let retainedJSON = try JSONSerialization.data(withJSONObject: EventCredentialRedactor.redact(o), options: [.sortedKeys, .withoutEscapingSlashes])
+            let event = ProviderStreamEvent(type: type, sequence: seq, responseID: responseID ?? hint, payloadJSON: retainedJSON)
+            retainedEvents.append(event); retainedBytes += canonical.count
+            retainedExtensionEvent = true
+            return []
         }
     }
     private func address(_ o: [String: Any]) throws -> Int {

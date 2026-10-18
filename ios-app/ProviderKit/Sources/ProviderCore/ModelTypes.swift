@@ -92,6 +92,7 @@ public struct ModelResponse: Sendable {
     public let error: APIErrorInfo?
     public let incomplete: JSONValue?
     public let extra: [String: JSONValue]
+    public let streamEvents: [ProviderStreamEvent]
     public let usage: ModelUsage?
     public let request: ModelRequest
     public let providerName: String
@@ -102,12 +103,14 @@ public struct ModelResponse: Sendable {
     public var text: String { output.compactMap { if case .message(let m) = $0 { return m.content.compactMap { if case .text(let text, _) = $0 { return text }; if case .refusal(let text) = $0 { return text }; return nil }.joined() }; return nil }.joined() }
     public var reasoning: String? { let s = output.compactMap { if case .reasoning(let r) = $0 { return r.readableText }; return nil }.joined(separator: "\n"); return s.isEmpty ? nil : s }
     public var toolCalls: [ModelToolCall] { output.compactMap { if case .functionCall(let c) = $0 { return c }; return nil } }
-    public init(id: String, model: String, status: ResponseStatus, scope: ProviderScope? = nil, output: [ModelOutputItem], usage: ModelUsage? = nil, error: APIErrorInfo? = nil, incomplete: JSONValue? = nil, extra: [String: JSONValue] = [:], request: ModelRequest, providerName: String, permitsTextToolInference: Bool = false) {
+    public init(id: String, model: String, status: ResponseStatus, scope: ProviderScope? = nil, output: [ModelOutputItem], usage: ModelUsage? = nil, error: APIErrorInfo? = nil, incomplete: JSONValue? = nil, extra: [String: JSONValue] = [:], streamEvents: [ProviderStreamEvent] = [], request: ModelRequest, providerName: String, permitsTextToolInference: Bool = false) {
+        self.streamEvents = streamEvents
         self.replayState = nil; self.id = id; self.scope = scope; self.model = model; self.status = status; self.output = output; self.usage = usage; self.error = error; self.incomplete = incomplete; self.extra = extra; self.request = request; self.providerName = providerName; self.permitsTextToolInference = permitsTextToolInference
         finishReason = status == .completed ? (output.contains { if case .functionCall = $0 { return true }; return false } ? .toolCalls : .stop) : .unknown
     }
     /// In-process fixtures supply the same domain output without SDK DTOs.
     public init(text: String, reasoning: String? = nil, finishReason: ModelFinishReason? = nil, usage: ModelUsage? = nil, toolCalls: [ModelToolCall] = [], request: ModelRequest, providerName: String, rawData: Data? = nil, replayState: ScopedChatReplayState? = nil) {
+        self.streamEvents = []
         self.replayState = replayState; self.id = request.id.uuidString; self.scope = nil; self.model = request.model; self.status = .completed; self.usage = usage; self.request = request; self.providerName = providerName; self.finishReason = finishReason; self.error = nil; self.incomplete = nil; self.extra = [:]; self.permitsTextToolInference = false
         output = (reasoning.map { [.reasoning(.init(id: "reasoning", summary: [$0]))] } ?? []) + (text.isEmpty ? [] : [.message(.init(id: "message", content: [.text(text, annotations: [])]))]) + toolCalls.map(ModelOutputItem.functionCall)
     }

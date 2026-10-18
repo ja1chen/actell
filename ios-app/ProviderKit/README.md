@@ -29,8 +29,14 @@ SDK-specific adaptations stay here: construct InputItem.item for native replay
 (the facade discriminator does not select function/reasoning directly); normalize
 omitted output_text.logprobs to an empty array for schema validation. These do
 not invent tool IDs, arguments, terminal states or reasoning. Unknown executable
-items/events fail closed. Only `ping`, `keepalive`, and `vendor.metrics.*`
-nonsemantic events are ignored. Duplicate sequence/content is ignored; conflicts
+items fail closed. Unknown stream events are credential-redacted and retained as scoped response
+attachments after sequence and response-scope validation; they cannot supply
+output or authorize tools. Per-response limits are 128 events and 512 KiB; overflow
+fails explicitly. Attachments persist separately from replay in stream checkpoints
+and bounded committed response history, and are never sent back to the model. A
+completed terminal snapshot must still match every completed output item before
+success or tool dispatch. `ping`, `keepalive`, and `vendor.metrics.*` need no
+sequence. Duplicate sequence/content is ignored; conflicts
 and reordered sequences fail. Sequence numbers need not be consecutive.
 
 ## Context and storage

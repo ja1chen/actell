@@ -1,6 +1,58 @@
 import Foundation
 import CoreFoundation
 
+/// Preserve event semantics while removing credentials before local retention.
+public enum EventCredentialRedactor {
+    private static let keys: Set<String> = ["authorization", "proxyauthorization", "apikey", "xapikey", "accesskey", "accesskeyid", "secretaccesskey", "accesstoken", "refreshtoken", "idtoken", "sessiontoken", "clientsecret", "password", "passwd", "secret", "token", "cookie", "setcookie", "privatekey", "signingkey", "signature"]
+    public static func redact(_ value: Any, depth: Int = 0) throws -> Any {
+        guard depth < 48 else { throw ModelError.protocolViolation("JSON nesting limit") }
+        if let object = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (key, child) in object {
+                let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+                result[key] = keys.contains(normalized) ? "[REDACTED]" : try redact(child, depth: depth + 1)
+            }
+            return result
+        }
+        if let array = value as? [Any] { return try array.map { try redact($0, depth: depth + 1) } }
+        if let text = value as? String {
+            if let data = text.data(using: .utf8), let nested = try? JSONSerialization.jsonObject(with: data), nested is [String: Any] || nested is [Any] {
+                let sanitized = try redact(nested, depth: depth + 1)
+                let encoded = try JSONSerialization.data(withJSONObject: sanitized, options: [.sortedKeys, .withoutEscapingSlashes])
+                let unchanged = try JSONSerialization.data(withJSONObject: nested, options: [.sortedKeys, .withoutEscapingSlashes])
+                if encoded == unchanged { return text }
+                return String(decoding: encoded, as: UTF8.self)
+            }
+            return text
+                .replacingOccurrences(of: #"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9+/_=.~\-]+"#, with: "$1 [REDACTED]", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)([?&](?:access_token|refresh_token|api_key|client_secret|password|token)=)[^&#\s]+"#, with: "$1[REDACTED]", options: .regularExpression)
+                .replacingOccurrences(of: #"\bsk-[A-Za-z0-9_\-]{16,}"#, with: "[REDACTED]", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)(https?://)[^/\s:@]+:[^/\s@]+@"#, with: "$1[REDACTED]@", options: .regularExpression)
+        }
+        return value
+    }
+}
+
+/// Local response attachment, never a replay input or tool authorization.
+public struct ProviderStreamEvent: Codable, Sendable, Equatable {
+    public let type: String
+    public let sequence: Int
+    public let responseID: String?
+    public let payloadJSON: Data
+    public init(type: String, sequence: Int, responseID: String?, payloadJSON: Data) {
+        self.type = type; self.sequence = sequence; self.responseID = responseID; self.payloadJSON = payloadJSON
+    }
+    public func bound(to responseID: String) throws -> Self {
+        guard self.responseID == nil || self.responseID == responseID else { throw ModelError.protocolViolation("Response scope changed") }
+        return Self(type: type, sequence: sequence, responseID: responseID, payloadJSON: payloadJSON)
+    }
+}
+public struct ProviderResponseEvents: Codable, Sendable {
+    public let responseID: String
+    public let events: [ProviderStreamEvent]
+    public init(responseID: String, events: [ProviderStreamEvent]) { self.responseID = responseID; self.events = events }
+}
+
 public enum JSONValue: Sendable, Equatable, Codable {
     case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
     public init(any: Any, depth: Int = 0) throws {

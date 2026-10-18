@@ -5,6 +5,103 @@ import SwiftAgentKit
 @testable import PhoneAgent
 
 final class ResponsesProviderTests: XCTestCase {
+    func testUnknownEventsRetainBusinessValuesRedactCredentialsAndBindToResponse() throws {
+        var r = try reducer([call()])
+        let payload = try event("response.metadata", seq: 3, fields: ["response_id": "resp1", "metadata": ["unregistered_business_field": ["is_blocked": false, "results": ["allowed"], "large_id": NSNumber(value: Int64(9_007_199_254_740_993)), "Authorization": "Bearer SECRET", "nested": ["api-key": "SECRET"]]]])
+        XCTAssertTrue(try r.consume(payload: payload).isEmpty)
+        XCTAssertNil(r.response)
+        XCTAssertThrowsError(try r.finish())
+        XCTAssertEqual(r.checkpoint.events?.count, 1)
+        _ = try r.consume(payload: payload)
+        XCTAssertEqual(r.checkpoint.events?.count, 1)
+        _ = try r.consume(payload: event("response.completed", seq: 4, fields: ["response": envelope([call()])]))
+        let response = try r.finish(), retained = try XCTUnwrap(response.streamEvents.first)
+        XCTAssertEqual(retained.type, "response.metadata")
+        XCTAssertEqual(retained.responseID, response.id)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: retained.payloadJSON) as? [String: Any])
+        let business = try XCTUnwrap((object["metadata"] as? [String: Any])?["unregistered_business_field"] as? [String: Any])
+        XCTAssertEqual(business["is_blocked"] as? Bool, false)
+        XCTAssertEqual(business["results"] as? [String], ["allowed"])
+        XCTAssertEqual((business["large_id"] as? NSNumber)?.int64Value, 9_007_199_254_740_993)
+        XCTAssertEqual(business["Authorization"] as? String, "[REDACTED]")
+        XCTAssertEqual((business["nested"] as? [String: Any])?["api-key"] as? String, "[REDACTED]")
+        XCTAssertFalse(String(decoding: retained.payloadJSON, as: UTF8.self).contains("SECRET"))
+        try ResponsesReducer.requireExecutable(response)
+    }
+    func testRetainedEventsCannotCrossResponseIdentityOrLeakToAnotherReducer() throws {
+        let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
+        var r = ResponsesReducer(codec: codec, request: request)
+        _ = try r.consume(payload: event("response.metadata", seq: 0, fields: ["response_id": "hint"]))
+        XCTAssertNil(r.checkpoint.responseID)
+        XCTAssertThrowsError(try r.consume(payload: event("response.created", seq: 1, fields: ["response": ["id": "other"]])))
+        r = try reducer([])
+        XCTAssertThrowsError(try r.consume(payload: event("response.metadata", seq: 1, fields: ["response_id": "resp1", "response": ["id": "other"]])))
+        let fresh = try reducer([])
+        XCTAssertNil(fresh.checkpoint.events)
+    }
+    func testRetainedEventLimitsFailExplicitlyWithoutAuthorizingTools() throws {
+        var r = try reducer([])
+        for i in 1...128 { _ = try r.consume(payload: event("response.extension", seq: i)) }
+        XCTAssertEqual(r.checkpoint.events?.count, 128)
+        XCTAssertThrowsError(try r.consume(payload: event("response.extension", seq: 129)))
+        XCTAssertNil(r.response)
+        r = try reducer([])
+        for i in 1...2 { _ = try r.consume(payload: event("response.extension", seq: i, fields: ["value": String(repeating: "x", count: 200_000)])) }
+        XCTAssertThrowsError(try r.consume(payload: event("response.extension", seq: 3, fields: ["value": String(repeating: "x", count: 200_000)])))
+        XCTAssertNil(r.response)
+    }
+    func testRetainedEventsPersistSeparatelyFromReplayAndFailedResultsDoNotCommit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), file = root.appendingPathComponent("context.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let c = try ContextCoordinator(scope: scope, checkpointFile: file), prepared = try c.prepare(request)
+        var r = try reducer([call()])
+        _ = try r.consume(payload: event("response.metadata", seq: 3, fields: ["metadata": ["marker": "retained_business_marker"]]))
+        try c.recordStream(r.checkpoint, force: true)
+        let partial = try JSONDecoder().decode(StreamCheckpoint.self, from: Data(contentsOf: file.deletingPathExtension().appendingPathExtension("stream.json")))
+        XCTAssertEqual(partial.events?.count, 1)
+        XCTAssertNil(c.snapshot().responseEventHistory)
+        _ = try r.consume(payload: event("response.completed", seq: 4, fields: ["response": envelope([call()])]))
+        let response = try r.finish()
+        try c.commit(response, prepared: prepared)
+        let restored = try ContextCoordinator(scope: scope, checkpointFile: file)
+        XCTAssertEqual(restored.snapshot().responseEventHistory?.first?.responseID, "resp1")
+        XCTAssertEqual(restored.snapshot().responseEventHistory?.first?.events, response.streamEvents)
+        var next = request; next.messages += [.assistant(content: response.text, toolCalls: response.toolCalls), .tool("done", toolCallId: "call1")]
+        let outgoing = try OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope).prepareRequest(restored.prepare(next).request, stream: true)
+        XCTAssertFalse(String(decoding: try XCTUnwrap(outgoing.httpBody), as: UTF8.self).contains("retained_business_marker"))
+        let failed = try ContextCoordinator(scope: scope)
+        r = try reducer([call()])
+        _ = try r.consume(payload: event("response.metadata", seq: 3))
+        _ = try r.consume(payload: event("response.failed", seq: 4, fields: ["response": envelope([call()], status: "failed")]))
+        XCTAssertThrowsError(try failed.commit(r.finish(), prepared: failed.prepare(request)))
+        XCTAssertNil(failed.snapshot().responseEventHistory)
+        var foreign = r.checkpoint; foreign.scope = ProviderScope(provider: "other", endpoint: "other", account: "other", model: "fixture")
+        XCTAssertThrowsError(try failed.recordStream(foreign, force: true))
+    }
+    func testResponseEventHistoryIsBoundedAndLegacyCheckpointsStillDecode() throws {
+        let c = try ContextCoordinator(scope: scope)
+        var next = request
+        for i in 0..<18 {
+            let id = "response-\(i)", prepared = try c.prepare(next)
+            let attachment = ProviderStreamEvent(type: "response.metadata", sequence: 1, responseID: id, payloadJSON: Data("{\"is_blocked\":false}".utf8))
+            let response = ModelResponse(id: id, model: "fixture", status: .completed, scope: scope, output: [], streamEvents: [attachment], request: prepared.request, providerName: "fixture")
+            try c.commit(response, prepared: prepared)
+            next.messages += [.assistant(content: "", toolCalls: []), .user("next")]
+        }
+        XCTAssertEqual(c.snapshot().responseEventHistory?.count, 16)
+        XCTAssertEqual(c.snapshot().responseEventHistory?.first?.responseID, "response-2")
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(c.snapshot())) as? [String: Any])
+        old.removeValue(forKey: "responseEventHistory")
+        let restored = try JSONDecoder().decode(ProviderRunCheckpoint.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(restored.responseEventHistory)
+        XCTAssertEqual(restored.revision, 18)
+        let r = try reducer([])
+        var legacyStream = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r.checkpoint)) as? [String: Any])
+        legacyStream.removeValue(forKey: "events")
+        let stream = try JSONDecoder().decode(StreamCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacyStream))
+        XCTAssertNil(stream.events)
+        XCTAssertEqual(stream.responseID, "resp1")
+    }
     func testPlainReasoningTextStreamsAndReplaysWithoutInventingSummary() throws {
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
         let plain: [String: Any] = ["type": "reasoning", "id": "reason", "content": [["type": "reasoning_text", "text": "public reasoning"]]]
@@ -168,10 +265,81 @@ final class ResponsesProviderTests: XCTestCase {
         let unknown = try codec.parseResponse(json(envelope([], status: "future_status")), request: request)
         XCTAssertEqual(unknown.status, .unknown); XCTAssertThrowsError(try ResponsesReducer.requireExecutable(unknown))
     }
-    func testUnknownCriticalEventsScopeConflictsAndMalformedOrDuplicateCallsFailClosed() throws {
+    func testUnknownEventsWaitForValidatedTerminalBeforeReleasingTools() throws {
+        var r = try reducer([message(), call()])
+        let metadata = try event("response.metadata", seq: 5, fields: ["metadata": ["private": "SECRET"]])
+        XCTAssertTrue(try r.consume(payload: metadata).isEmpty)
+        XCTAssertTrue(r.retainedExtensionEvent)
+        XCTAssertFalse(r.retainedUnknownEvent)
+        XCTAssertEqual(r.checkpoint.events?.last?.type, "response.metadata")
+        XCTAssertNil(r.response)
+        XCTAssertThrowsError(try r.finish())
+        // Identical replay is harmless; an extension is never executable output.
+        XCTAssertTrue(try r.consume(payload: metadata).isEmpty)
+        XCTAssertFalse(r.retainedUnknownEvent)
+        XCTAssertFalse(r.retainedExtensionEvent)
+        XCTAssertTrue(try r.consume(payload: event("response.future.extension", seq: 6)).isEmpty)
+        XCTAssertTrue(r.retainedUnknownEvent)
+        XCTAssertTrue(r.retainedExtensionEvent)
+        _ = try r.consume(payload: event("response.completed", seq: 7, fields: ["response": envelope([message(), call()])]))
+        XCTAssertFalse(r.retainedUnknownEvent)
+        XCTAssertFalse(r.retainedExtensionEvent)
+        let result = try r.finish()
+        try ResponsesReducer.requireExecutable(result)
+        XCTAssertEqual(result.text, "final answer")
+        XCTAssertEqual(result.toolCalls.map(\.id), ["call1"])
+        XCTAssertEqual(result.streamEvents.map(\.type), ["response.metadata", "response.future.extension"])
+    }
+    func testUnknownEventsDoNotWeakenSequenceScopeOrTerminalValidation() throws {
+        for fields: [String: Any] in [["response_id": "other"], ["response": ["id": "other"]]] {
+            var r = try reducer([call()])
+            XCTAssertThrowsError(try r.consume(payload: event("response.metadata", seq: 3, fields: fields)))
+        }
+        var r = try reducer([call()])
+        _ = try r.consume(payload: event("response.metadata", seq: 3))
+        XCTAssertThrowsError(try r.consume(payload: event("response.metadata", seq: 3, fields: ["changed": true])))
+        XCTAssertThrowsError(try r.consume(payload: event("response.future", seq: 2)))
+        for status in ["failed", "incomplete", "cancelled"] {
+            r = try reducer([call()])
+            _ = try r.consume(payload: event("response.metadata", seq: 3))
+            _ = try r.consume(payload: event("response." + status, seq: 4, fields: ["response": envelope([call()], status: status)]))
+            XCTAssertThrowsError(try ResponsesReducer.requireExecutable(r.finish()))
+        }
+        for output in [[call(args: "{\"x\":2}")], []] {
+            r = try reducer([call()])
+            _ = try r.consume(payload: event("response.metadata", seq: 3))
+            XCTAssertThrowsError(try r.consume(payload: event("response.completed", seq: 4, fields: ["response": envelope(output)])))
+            XCTAssertNil(r.response)
+        }
+        r = try reducer([call()])
+        _ = try r.consume(payload: event("response.metadata", seq: 3))
+        XCTAssertThrowsError(try r.consume(payload: event("error", seq: 4, fields: ["error": ["message": "SECRET"]])))
+        XCTAssertNil(r.response)
+    }
+    func testUnknownEventsCannotReplaceOutputLifecycleOrSuccessTerminal() throws {
+        let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
+        var r = ResponsesReducer(codec: codec, request: request)
+        _ = try r.consume(payload: event("response.future.created", seq: 0, fields: ["response": ["id": "resp1"]]))
+        XCTAssertNil(r.checkpoint.responseID)
+        XCTAssertNil(r.response)
+        r = ResponsesReducer(codec: codec, request: request)
+        _ = try r.consume(payload: event("response.created", seq: 0, fields: ["response": ["id": "resp1"]]))
+        _ = try r.consume(payload: event("response.output_item.added", seq: 1, fields: ["output_index": 0, "item": call()]))
+        _ = try r.consume(payload: event("response.future.done", seq: 2, fields: ["output_index": 0, "item": call()]))
+        XCTAssertThrowsError(try r.consume(payload: event("response.completed", seq: 3, fields: ["response": envelope([call()])])) )
+        XCTAssertNil(r.response)
+        r = try reducer([call()])
+        _ = try r.consume(payload: event("response.future.completed", seq: 3, fields: ["response": envelope([call()])]))
+        XCTAssertThrowsError(try r.finish())
+        XCTAssertNil(r.response)
+        XCTAssertThrowsError(try r.consume(payload: event("response.output_item.added", seq: 4, fields: ["output_index": 1, "item": ["id": "hosted", "type": "computer_call"]])))
+    }
+    func testScopeConflictsAndMalformedOrDuplicateCallsFailClosed() throws {
         var r = try reducer([])
         XCTAssertTrue(try r.consume(payload: "{\"type\":\"vendor.metrics.latency\"}").isEmpty)
-        XCTAssertThrowsError(try r.consume(payload: event("response.computer_call.executing", seq: 1)))
+        XCTAssertTrue(try r.consume(payload: event("response.computer_call.executing", seq: 1)).isEmpty)
+        XCTAssertTrue(r.retainedUnknownEvent)
+        XCTAssertThrowsError(try r.finish())
         r = try reducer([]); XCTAssertThrowsError(try r.consume(payload: event("response.completed", seq: 1, fields: ["response": envelope([], id: "different")])) )
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
         for outputs in [[call(), call(item: "fc2")], [call(args: "{")], [call("", item: "fc")]] { XCTAssertThrowsError(try codec.parseResponse(json(envelope(outputs)), request: request)) }

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import OSLog
 import CryptoKit
 import Security
@@ -100,22 +101,28 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                     let actual = prepared?.request ?? request
                     stage = "request.encode"
                     let outgoing = try wireRequest(actual, stream: true)
+                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=request.send bodyBytes=\(outgoing.httpBody?.count ?? 0) toolCount=\(actual.tools.count)")
                     stage = "stream.receive"
                     if codec.wire == .responses {
                         var reducer = ResponsesReducer(codec: codec, request: actual)
                         for try await payload in transport.payloads(outgoing) {
                             shape = LLMDiagnostics.eventShape(payload)
+                            LLMDiagnostics.traceEvent(payload, attempt: attempt)
                             stage = "event.reduce"
                             try Task.checkCancellation()
                             let events: [ModelEvent]
-                            do { events = try reducer.consume(payload: payload); try context?.recordStream(reducer.checkpoint) }
+                            do { events = try reducer.consume(payload: payload); try context?.recordStream(reducer.checkpoint, force: reducer.retainedExtensionEvent) }
                             catch { try? context?.recordStream(reducer.checkpoint, force: true); throw error }
+                            if reducer.retainedUnknownEvent {
+                                LLMDiagnostics.warning(LLMDiagnostics.retainedEvent(attempt: attempt, shape: shape))
+                            }
                             for event in events {
                                 if case .terminal(let response) = event {
                                     stage = "terminal.validate"
                                     try ResponsesReducer.requireExecutable(response)
                                     try Task.checkCancellation()
                                     if let prepared { try context?.commit(response, prepared: prepared) }
+                                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=context.commit outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
                                 }
                                 if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation(String(localized: "The model output buffer exceeds the limit")) }
                             }
@@ -130,6 +137,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                         for try await payload in transport.payloads(outgoing) {
                             try Task.checkCancellation()
                             shape = LLMDiagnostics.eventShape(payload)
+                            LLMDiagnostics.traceEvent(payload, attempt: attempt)
                             stage = "event.decode"
                             for event in try decoder.consume(line: "data: " + payload, request: request) { continuation.yield(event) }
                             if decoder.sawDone { break }
@@ -401,18 +409,144 @@ struct LLMUnexpectedResponse: Error, LocalizedError {
     }
 }
 
-/// Console diagnostics contain structural metadata and known local error literals
-/// only. No server message, raw JSON, text, arguments, identity or bearer credential.
+/// Bounded, protected raw inbound events. Never records request headers/bodies.
+final class LLMRawEventArchive: @unchecked Sendable {
+    static let shared = LLMRawEventArchive()
+    let file: URL
+    private let lock = NSLock()
+    private let capacity: Int, maximumBytes: Int
+    init(directory: URL? = nil, capacity: Int = 256, maximumBytes: Int = 2 * 1024 * 1024) {
+        let directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PhoneAgent/Diagnostics", isDirectory: true)
+        file = directory.appendingPathComponent("llm-events.json")
+        self.capacity = max(1, min(capacity, 256)); self.maximumBytes = max(1024, min(maximumBytes, 2 * 1024 * 1024))
+    }
+    @discardableResult func append(_ payload: String, attempt: UUID, enabled: Bool) throws -> Int? {
+        guard enabled, payload != "[DONE]" else { return nil }
+        guard payload.utf8.count <= 256 * 1024 else { throw ModelError.protocolViolation("SSE event size limit") }
+        let original = try JSONSerialization.jsonObject(with: Data(payload.utf8))
+        let redacted = try EventCredentialRedactor.redact(original)
+        let event: [String: Any] = ["attempt": attempt.uuidString, "source": "sse.before_normalization", "captured_at": Date().timeIntervalSince1970, "payload": redacted]
+        return try lock.withLock {
+            let manager = FileManager.default
+            var events: [[String: Any]] = []
+            if manager.fileExists(atPath: file.path) {
+                let attributes = try manager.attributesOfItem(atPath: file.path)
+                guard ((attributes[.size] as? NSNumber)?.intValue ?? 0) <= maximumBytes else { throw ModelError.protocolViolation("Raw event archive limit") }
+                let archive = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+                guard let saved = archive?["events"] as? [[String: Any]] else { throw ModelError.protocolViolation("Invalid raw event archive") }
+                events = saved
+            }
+            events.append(event); events = Array(events.suffix(capacity))
+            func encode() throws -> Data { try JSONSerialization.data(withJSONObject: ["version": 1, "events": events], options: [.sortedKeys, .withoutEscapingSlashes]) }
+            var data = try encode()
+            while data.count > maximumBytes, events.count > 1 { events.removeFirst(); data = try encode() }
+            guard data.count <= maximumBytes else { throw ModelError.protocolViolation("Raw event archive limit") }
+            var directory = file.deletingLastPathComponent()
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            var values = URLResourceValues(); values.isExcludedFromBackup = true
+            try directory.setResourceValues(values)
+            #if os(iOS)
+            try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: file, options: .atomic)
+            #endif
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return events.count
+        }
+    }
+}
+
+/// Basic diagnostics contain safe metadata. Explicit verbose mode also emits
+/// credential-redacted inbound JSON, including model business content.
 enum LLMDiagnostics {
     private static let logger = Logger(subsystem: "com.ja1chen.PhoneAgent", category: "LLM")
-    static func emit(_ line: String) { logger.error("\(line, privacy: .public)") }
+    static let verboseEnabled = verboseConfiguration(environmentValue: ProcessInfo.processInfo.environment["ACTELL_LLM_VERBOSE_LOGS"])
+    static func verboseConfiguration(environmentValue: String?) -> Bool {
+        #if ACTELL_LLM_VERBOSE_LOGS
+        return true
+        #else
+        return environmentValue == "1"
+        #endif
+    }
+    static func emit(_ line: String) { logger.error("\(jsonRecord(line, level: "error"), privacy: .public)") }
+    static func warning(_ line: String) { logger.warning("\(jsonRecord(line, level: "warning"), privacy: .public)") }
+    static func verbose(_ line: @autoclosure () -> String) {
+        guard verboseEnabled else { return }
+        let value = jsonRecord(line(), level: "info")
+        logger.info("\(value, privacy: .public)")
+    }
+    /// Existing diagnostic builders contain only locally sanitized fields.
+    /// Convert their key/value envelope at the logging boundary; payloads never
+    /// pass through this compatibility formatter.
+    static func jsonRecord(_ line: String, level: String) -> String {
+        jsonLine(attributes(line), level: level)
+    }
+    private static let attributePattern = try! NSRegularExpression(pattern: #"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)="#)
+    private static func attributes(_ line: String) -> [String: Any] {
+        let source = line as NSString
+        let matches = attributePattern.matches(in: line, range: NSRange(location: 0, length: source.length))
+        var fields: [String: Any] = [:]
+        for (index, match) in matches.enumerated() {
+            let start = NSMaxRange(match.range), end = index + 1 < matches.count ? matches[index + 1].range.location : source.length
+            let key = source.substring(with: match.range(at: 1))
+            let value = source.substring(with: NSRange(location: start, length: end - start)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if value == "true" || value == "false" { fields[key] = value == "true" }
+            else if let number = Int(value) { fields[key] = number }
+            else { fields[key] = value }
+        }
+        return fields
+    }
+    private static func jsonLine(_ fields: [String: Any], level: String) -> String {
+        var record = fields
+        record["version"] = 1; record["category"] = "LLM"; record["level"] = level
+        guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys, .withoutEscapingSlashes]) else {
+            return #"{"category":"LLM","level":"error","stage":"diagnostic.encode","version":1}"#
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+    static func traceEvent(_ payload: String, attempt: UUID) {
+        guard verboseEnabled else { return }
+        do {
+            if let count = try LLMRawEventArchive.shared.append(payload, attempt: attempt, enabled: true) {
+                verbose("[LLM] attempt=\(attempt.uuidString) stage=event.raw.saved file=llm-events.json retained=\(count)")
+            }
+        } catch {
+            warning("[LLM] attempt=\(attempt.uuidString) stage=event.raw.save error=DiagnosticStorageFailure code=\((error as NSError).code)")
+        }
+        guard let line = eventDetail(payload, attempt: attempt) else { return }
+        logger.info("\(line, privacy: .public)")
+    }
+    /// Inbound JSON before provider normalization, with only credentials removed.
+    static func eventDetail(_ payload: String, attempt: UUID, enabled: Bool = verboseEnabled) -> String? {
+        guard enabled else { return nil }
+        var record: [String: Any] = ["attempt": attempt.uuidString, "stage": "event.raw", "source": "sse.before_normalization", "bytes": payload.utf8.count]
+        guard payload.utf8.count <= 256 * 1024 else {
+            record["error"] = "EventSizeLimit"; return jsonLine(record, level: "warning")
+        }
+        if payload == "[DONE]" {
+            record["payload"] = payload
+            return jsonLine(record, level: "info")
+        }
+        do {
+            let original = try JSONSerialization.jsonObject(with: Data(payload.utf8))
+            record["payload"] = try EventCredentialRedactor.redact(original)
+            return jsonLine(record, level: "info")
+        } catch {
+            // Malformed or unredactable input must never fall back to unsafe text.
+            record["error"] = "EventJSONUnavailable"
+            return jsonLine(record, level: "warning")
+        }
+    }
+    static func retainedEvent(attempt: UUID, shape: String) -> String {
+        "[LLM] attempt=\(attempt.uuidString) stage=event.reduce notice=UnknownEvent action=retain " + shape
+    }
     static func log(_ error: Error, stage: String, attempt: UUID = UUID(), shape: String = "event=none") {
         if error is CancellationError || Task.isCancelled { return }
         emit(failure(error, attempt: attempt, stage: stage, shape: shape))
     }
     static func runnerWarning(_ message: String) {
         let kind = message.hasPrefix("Planning failed:") ? "planningFailed" : "runnerWarning"
-        emit("[LLM] stage=agent.logger error=" + kind + " detail=redacted#" + fingerprint(message))
+        warning("[LLM] stage=agent.logger error=" + kind + " detail=redacted#" + fingerprint(message))
     }
     static func toolFailure(_ message: String, attempt: UUID) {
         emit("[LLM] attempt=\(attempt.uuidString) stage=tool.result error=ToolFailure reason=" + safeReason(message))
@@ -423,7 +557,7 @@ enum LLMDiagnostics {
     private static func fingerprint(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
     }
-    private static let events: Set<String> = ["response.created", "response.in_progress", "response.output_item.added", "response.output_item.done", "response.output_text.delta", "response.output_text.done", "response.refusal.delta", "response.refusal.done", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done", "response.reasoning_text.delta", "response.reasoning_text.done", "response.function_call_arguments.delta", "response.function_call_arguments.done", "response.content_part.added", "response.content_part.done", "response.reasoning_summary_part.added", "response.reasoning_summary_part.done", "response.output_text.annotation.added", "response.completed", "response.failed", "response.incomplete", "response.cancelled", "error", "ping", "keepalive"]
+    private static let events: Set<String> = ["response.metadata", "response.created", "response.in_progress", "response.output_item.added", "response.output_item.done", "response.output_text.delta", "response.output_text.done", "response.refusal.delta", "response.refusal.done", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done", "response.reasoning_text.delta", "response.reasoning_text.done", "response.function_call_arguments.delta", "response.function_call_arguments.done", "response.content_part.added", "response.content_part.done", "response.reasoning_summary_part.added", "response.reasoning_summary_part.done", "response.output_text.annotation.added", "response.completed", "response.failed", "response.incomplete", "response.cancelled", "error", "ping", "keepalive"]
     private static let reasons: Set<String> = [
         "401：密钥无效或未提供；请检查此供应商的密钥",
         "403：此密钥无权查看模型；可手动填写已授权的模型 ID",

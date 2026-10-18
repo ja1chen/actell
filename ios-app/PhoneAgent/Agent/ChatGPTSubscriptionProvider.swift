@@ -63,9 +63,13 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         guard outgoing.httpBody!.count <= 24 * 1024 * 1024 else { throw ModelError.invalidRequest("Subscription request exceeds limit") }
         return outgoing
     }
-    private func normalize(_ payload: String, tools: Set<String>, checkpoint: StreamCheckpoint) throws -> String {
+    private func normalize(_ payload: String, tools: Set<String>, checkpoint: StreamCheckpoint, attempt: UUID) throws -> String {
         guard payload != "[DONE]" else { return payload }
         guard var o = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] else { throw ModelError.invalidResponse("Invalid subscription event") }
+        let type = o["type"] as? String ?? ""
+        // Unknown extension fields are opaque. Only normalize output carried
+        // by known item/lifecycle events; the reducer still checks scope/order.
+        guard ["response.output_item.added", "response.output_item.done", "response.created", "response.in_progress", "response.completed", "response.failed", "response.incomplete", "response.cancelled"].contains(type) else { return payload }
         func item(_ value: [String: Any], completedBoundary: Bool) throws -> [String: Any] {
             guard value["type"] as? String == "function_call" else { return value }
             guard let name = value["name"] as? String, tools.contains(name), value["namespace"] as? String == "actell" else { throw ModelError.protocolViolation("Subscription tool namespace/name mismatch") }
@@ -78,9 +82,9 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
             }
             return normalized // Preserve namespace for replay and equality.
         }
-        if let value = o["item"] as? [String: Any] { o["item"] = try item(value, completedBoundary: o["type"] as? String == "response.output_item.done") }
+        if let value = o["item"] as? [String: Any] { o["item"] = try item(value, completedBoundary: type == "response.output_item.done") }
         if var response = o["response"] as? [String: Any], let output = response["output"] as? [[String: Any]] {
-            let completed = o["type"] as? String == "response.completed" && response["status"] as? String == "completed"
+            let completed = type == "response.completed" && response["status"] as? String == "completed"
             response["output"] = try output.map { try item($0, completedBoundary: completed) }
             // The subscription stream may omit the final output snapshot after
             // sending all final item.done objects. Use only the reducer's already
@@ -110,7 +114,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     restored.append(encoded)
                 }
                 response["output"] = restored
-                LLMDiagnostics.emit("[LLM] stage=event.normalize notice=EmptyTerminalOutput action=useCompletedItems itemCount=\(count)")
+                LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=event.normalize notice=EmptyTerminalOutput action=useCompletedItems itemCount=\(count)")
             }
             o["response"] = response
         }
@@ -131,18 +135,23 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     var reducer = ResponsesReducer(codec: codec, request: actual)
                     stage = "request.encode"
                     let outgoing = try prepareRequest(actual, token: grant.token)
+                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=request.send bodyBytes=\(outgoing.httpBody?.count ?? 0) toolCount=\(actual.tools.count)")
                     stage = "stream.receive"
-                    for try await payload in payloads(outgoing) {
+                    for try await payload in payloads(outgoing, attempt: attempt) {
                         shape = LLMDiagnostics.eventShape(payload)
+                        LLMDiagnostics.traceEvent(payload, attempt: attempt)
                         try Task.checkCancellation(); try await manager.requireCurrent(grant, profileID: profileID)
                         stage = "event.normalize"
                         let checkpoint = reducer.checkpoint
                         shape += " addedItems=\(checkpoint.itemIDs.count) doneItems=\(checkpoint.completedItems.count)"
-                        let normalized = try normalize(payload, tools: Set(actual.tools.map(\.name)), checkpoint: checkpoint)
+                        let normalized = try normalize(payload, tools: Set(actual.tools.map(\.name)), checkpoint: checkpoint, attempt: attempt)
                         stage = "event.reduce"
                         let events = try reducer.consume(payload: normalized)
+                        if reducer.retainedUnknownEvent {
+                            LLMDiagnostics.warning(LLMDiagnostics.retainedEvent(attempt: attempt, shape: shape))
+                        }
                         stage = "checkpoint.write"
-                        try context.recordStream(reducer.checkpoint)
+                        try context.recordStream(reducer.checkpoint, force: reducer.retainedExtensionEvent)
                         for event in events {
                             if case .terminal(let response) = event {
                                 if let code = response.error?.code, code == "subscription_sharing_usage_limit_exceeded" {
@@ -157,6 +166,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                                 try await manager.requireCurrent(grant, profileID: profileID); try Task.checkCancellation()
                                 stage = "context.commit"
                                 try context.commit(response, prepared: prepared)
+                                LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=context.commit outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
                             }
                             if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation("Subscription stream buffer exceeded") }
                         }
@@ -202,7 +212,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
             switch model {
             case .httpError(let status, _): return String(localized: "The ChatGPT request was denied (HTTP \(status)). It was not retried automatically.")
             case .invalidRequest: return String(localized: "The ChatGPT request was not sent. The current model or context parameters are incompatible.")
-            case .protocolViolation, .invalidResponse, .streamingError: return String(localized: "The ChatGPT response format or tool state is incompatible. This turn did not finish and was not retried automatically.")
+            case .protocolViolation, .invalidResponse, .streamingError, .unsupportedCapability, .interrupted: return String(localized: "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again.")
             case .cancelledLocally: return String(localized: "The ChatGPT request was stopped locally. Remote cancellation was not confirmed.")
             default: break
             }
@@ -214,7 +224,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         for try await event in stream(request) { if case .terminal(let response) = event { terminal = response } }
         guard let terminal else { throw ModelError.interrupted }; return terminal
     }
-    private func payloads(_ request: URLRequest) -> AsyncThrowingStream<String, Error> {
+    private func payloads(_ request: URLRequest, attempt: UUID) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
             let cancellation = ChatGPTStreamCancellation()
             let task = Task {
@@ -223,6 +233,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     cancellation.install(bytes.task)
                     defer { cancellation.cancel() }
                     guard let h = response as? HTTPURLResponse else { throw ChatGPTAuthError.network }
+                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=stream.headers httpStatus=\(h.statusCode)")
                     if !(200..<300).contains(h.statusCode) {
                         var body = Data()
                         for try await byte in bytes { try Task.checkCancellation(); guard body.count < 64 * 1024 else { throw ChatGPTAuthError.network }; body.append(byte) }
@@ -254,7 +265,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                         guard ["data:", "event:", ":", "id:", "retry:"].contains(where: { first.hasPrefix($0) }) else {
                             throw LLMUnexpectedResponse(response: h, body: probe, truncated: probe.count == 1024)
                         }
-                        LLMDiagnostics.emit("[LLM] stage=stream.headers notice=MissingContentType action=parseValidatedSSE httpStatus=\(h.statusCode)")
+                        LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=stream.headers notice=MissingContentType action=parseValidatedSSE httpStatus=\(h.statusCode)")
                         for byte in probe {
                             if let payload = try decoder.consume(byte), case .dropped = continuation.yield(payload) { throw ModelError.protocolViolation("Subscription SSE buffer exceeded") }
                         }
