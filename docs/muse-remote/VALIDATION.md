@@ -1,28 +1,16 @@
-# Validation record — 2026-10-12
+# Muse 兼容性与验证边界
 
-For the subsequent Mac build and regression results, see [local validation](LOCAL-VALIDATION-2026-10-12.md). This file preserves the original cloud evidence.
+协议、严格 JSON、签名与重放防护、授权、会话隔离、取消、配对窗口、监听恢复及本地 TLS 身份由合成回归覆盖。源码检查、原生 TLS/Keychain 测试和物理设备证据分别成立。
 
-## Passed in the dot cloud workspace
+## 已得到的结论
 
-- Downloaded complete upstream source at fixed commit `7429967c47eb0f763bb14b95d68350ef2dc27f5c` from GitHub's fixed-commit archive.
-- Upstream archive SHA-256: `79ae9b2681f5a6fba03af09caef7e8a230d5cd131b25604c14b870b06efe4f3e`.
-- `python tools/muse-remote/check_static.py`: **5 passed**. These are source/packaging invariants and an independent Python HMAC calculation, not Swift execution.
-- `git diff --check`: passed.
-- New source/test references registered in the committed Xcode project; six new Swift files are included. Existing upstream tests and licenses remain present.
-- Independent read-only review of the transport, identity binding, call ledger, cancellation, screenshot observations, deadline fencing and background lifecycle led to concrete fixes. Review is not runtime verification.
-- The final patch is applied/checkable against a freshly extracted copy of the exact upstream archive; changed files are byte-compared with the working tree as part of packaging.
+- 模拟器中的自动 TLS 身份测试需要签名 App；可使用 `SIMULATOR_ADHOC_SIGN=1` 的本地 ad-hoc 模式。无签名 Keychain 失败不能直接归因于产品存储逻辑。
+- 真实设备曾因时钟偏差被 HMAC 时间窗口拒绝；修正伴侣时钟后，App 观察到已认证 hello 和配对确认完成。HTTP 成功本身不足以证明配对完成，必须有应用层确认。
+- 证书身份与网络地址分开：Bonjour 提供连接地址，稳定 `host` 用于证书名与 SNI，已保存的 DER pin 不随 DHCP 或后续广播替换。详见 [配对规范](SLAN-1.md)。
+- 普通后台切换保留已认证设备存在状态与监听；未完成配对关闭。运行结束释放执行占用，不必关闭监听。监听存活不授予后台执行资格，也不能阻止系统挂起。
 
-## Authored, not run
+## 仍需独立验收
 
-- `RemoteTransportSecurityTests`: CryptoKit HMAC vectors, replay/cache/time/identifier/key revocation, framing/smuggling/size boundaries, numeric peer-IP matching and binary response framing.
-- `RemoteStrictJSONTests`: duplicate/escaped keys, malformed/deep JSON and disabled service default.
-- `NCMDeviceBridgeTests`: deadline expiry before dispatch and after asynchronous input preparation.
-- Existing complete Actell lifecycle, approval, session, bridge and UI regression suites.
+完整 Muse 模型任务、截图实际进入模型、真实触控/拖动、长时间后台、网络变化、锁屏和重启恢复仍须按具体链路验证。配对成功不证明这些能力，模拟器 UI 或合成媒体也不替代物理验收。
 
-## Not verified and not claimed
-
-Swift compilation, Apple SDK API compatibility, Xcode build, XCTest, simulator behavior, real HTTPS handshake, certificate provisioning, Keychain UI, Muse model-image injection, hardware connectivity, actual tap/drag, cross-app execution, PiP/system task lifecycle, network reachability through Muse NAPT, power/latency, lock/unlock and crash races.
-
-No Swift/Xcode toolchain was present. No upstream build script was executed, no listener was started, no credential or identity was generated/imported, no real device/API was used, and no repository was pushed. A clean patch application is not evidence of a compiled or deployable iOS binary.
-
-The explicit activation API is integrated with the App runtime, but a completed Settings provisioning UI is not included. See README.md for the required local setup and first device-acceptance sequence.
+本地诊断只保留白名单字段，不记录凭据、签名、请求正文或截图。原始证据放在忽略目录，共享文档仅保留结论。提取入口见 [DIAGNOSTICS.md](DIAGNOSTICS.md)。

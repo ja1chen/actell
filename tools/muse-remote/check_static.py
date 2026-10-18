@@ -58,7 +58,7 @@ class PackagingChecks(unittest.TestCase):
         self.assertIn('authorizationMode: MuseCompanionAuthorization.inputMode', runtime)
         self.assertNotRegex(entry, r'createConversation\(|sessions\.begin\(|executionModel\(')
         self.assertNotRegex(runtime, r'sessions\.|ConversationStore\(|AgentViewModel\(|TaskRecord\(')
-        self.assertIn('NCMDeviceBridge(remoteExclusive: true,', entry)
+        self.assertIn('CoreDeviceBridge(remoteExclusive: true,', entry)
         self.assertIn('guard appOwner.remoteLeaseID == nil', model)
 
     def test_security_critical_fences_are_present(self):

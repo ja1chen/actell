@@ -181,10 +181,10 @@ final class USBCaptureTests: XCTestCase {
         XCTAssertThrowsError(try frames.encoded())
         XCTAssertThrowsError(try frames.requireSession(epoch))
     }
-    func testLocalCaptureRoutesWithoutUSBAndTakesPrecedenceOverLegacy() async throws {
+    func testLocalCaptureRoutesWithoutUSB() async throws {
         let frames = LatestScreenFrame(), epoch = frames.begin()
         frames.put(try pixel(), orientation: 6, presentationSeconds: 1, epoch: epoch)
-        let bridge = try LiveDeviceBridgeRouter.make(frames: frames, captureActive: true, usb: nil, backgroundEnabled: false, legacy: DemoBridge())
+        let bridge = try LiveDeviceBridgeRouter.make(frames: frames, captureActive: true, usb: nil, backgroundEnabled: false)
         let frame = try await bridge.screenshot()
         XCTAssertFalse(frame.isDemo)
         XCTAssertEqual(frame.capture?.sequence, 1)

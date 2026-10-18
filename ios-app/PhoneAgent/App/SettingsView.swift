@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AgentViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var control = PairingFlow.shared
+    @State private var control = DeviceControlCoordinator.shared
     @State private var clear = false
     @State private var clearAssets = false
     @State private var assetStatus = ""
@@ -21,7 +21,7 @@ struct SettingsView: View {
                         Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
                     }.disabled(model.hasBusySessions || !control.canChangeRoute)
                         .accessibilityIdentifier("deviceControlMode")
-                    NavigationLink { ESP32ControlSettingsView() } label: {
+                    NavigationLink { DeviceControlSettingsView() } label: {
                         Text(String(localized: "Connection and verification"))
                     }.accessibilityIdentifier("esp32ControlSettings")
                 }

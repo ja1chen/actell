@@ -9,7 +9,7 @@ struct DeviceControlsView: View {
         NavigationStack {
             Group {
                 if DeviceControlRoute.current != .localCaptureUSB {
-                    ESP32ControlSettingsView()
+                    DeviceControlSettingsView()
                 } else {
                     legacyControls
                 }

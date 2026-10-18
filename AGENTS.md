@@ -7,7 +7,9 @@
 # 文档写作
 
 - 文档描述通用的功能、设计、约束与使用方式，不写成工作日志。非必要禁止加入日期、时间、具体设备或型号、本机路径、日志片段、单次测试记录和操作过程；确有必要时仅保留与主题直接相关的内容。
-- README 精简概括核心能力、默认行为和必要的使用条件；实现细节放入对应技术文档并按需链接，不堆叠内部字段、迁移分支或验证过程。
+- README 应以概要为主，同时保留理解和使用工程所需的信息结构，包括核心能力、前置条件、构建与验证入口、工程布局、依赖与来源。精简应着重去除重复和过程信息，不以篇幅最短为目标，也不将必要的章节、列表或表格压成笼统段落。
+- 依赖与来源优先沿用已有列表或表格结构，说明用途、使用方式和来源链接。共同构成一项能力的相关组件、具有直接源码复用关系的项目可合并说明；职责不同且无直接关联的模块分别列出，不为缩短篇幅强行合并，也不机械地将所有项目拆成独立条目。
+- 实现细节放入对应技术文档并按需链接；README 保留必要的用途与边界说明，不堆叠内部字段、迁移分支或验证过程。
 - 文档调整限于当前任务涉及的内容，不顺带批量改写无关段落。
 
 # UI 设计约束
@@ -24,18 +26,18 @@
 
 # 阅读与验证入口
 
-当前 App 默认路线是 iOS 27 + VPN 回环开发者服务截图/触控（免 ESP32）；可在设置选择 ESP32 NCM 模式，复用系统配对身份与 CoreDevice 后端。ScreenCaptureKit + PA3 USB Device NCM/HID 和 TLS 实现保留，旧链路暂未提供切换开关。先读 `README.md` 和本次改动涉及的源码；项目待办重评/证据在 `docs/PROJECT-TODOS.md`。
+当前 App 默认路线是 iOS 27 + VPN 回环开发者服务截图/触控（免 ESP32）；可在设置选择 ESP32 NCM 模式，复用系统配对身份与 CoreDevice 后端。ScreenCaptureKit + USB Device NCM/HID 实现保留，暂未提供切换开关。先读 `README.md` 和本次改动涉及的源码；项目待办与能力边界在 `docs/PROJECT-TODOS.md`。
 
-默认检索范围：`ios-app/PhoneAgent`、`ios-app/PhoneAgentTests`、`ios-app/PhoneAgentUITests`、`firmware-device/main`、`tests/usb_device`。不要默认递归读取 `.build/`、`archives/`、`ios-app/Vendor/` 或旧 Host `firmware/`、`tests/usb_host_sim/`；当问题涉及相应实现、上游兼容或历史证据时再按需查看。许可证与来源清单保留。
+默认检索范围：`ios-app/PhoneAgent`、`ios-app/PhoneAgentTests`、`ios-app/PhoneAgentUITests`、`coredevice/swift`、`coredevice/rust/src`、`devices/esp32/shared`、`devices/esp32/tests`。不要默认递归读取 `.build/`、`ios-app/Vendor/`、`coredevice/rust/vendor/` 或下载的 `managed_components/`；当问题涉及相应实现、上游兼容或历史证据时再按需查看。许可证与来源清单保留。
 
 默认验证：
 
-- PA3 协议/停止释放：`CC=clang bash tools/test_usb_device.sh`（仅回环网络）。
+- USB 输入协议/停止释放：`CC=clang bash devices/esp32/tools/test_usb.sh`（仅回环网络）。
 - App 改动：`bash ios-app/scripts/test_core.sh <隔离模拟器 UDID>`；加 `RUN_UI_TESTS=1` 跑现行 UI 用例。
 - 最终无签名 iPhoneOS build：参见 `ios-app/README.md`。
 - 核心协议、单次授权、会话隔离、未知结果、不重放、checkpoint 迁移和停止释放测试始终保留在默认 target。不能为缩短验证删除这些覆盖。
 
-归档入口见 `archives/README.md`。非核心 PiP 状态展示和 Siri UI 测试可通过 `INCLUDE_ARCHIVED_TESTS=1 python3 ios-app/scripts/generate_xcode_project.py` 临时加入；结束后不带该变量重新生成默认工程。旧控制调试 UI 用例是历史证据，不代表当前导航验收。固件 Host 测试的原目录和脚本继续保留，按涉及范围显式运行。
+固件构建和验证入口见 `devices/esp32/README.md`，跨语言链路回归为 `bash tools/test_coredevice_chain.sh`。
 
 # 本机日志排查
 

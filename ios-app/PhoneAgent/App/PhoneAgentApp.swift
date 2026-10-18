@@ -13,10 +13,10 @@ import Darwin
         PhoneAgentShortcuts.updateAppShortcutParameters()
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") {
-            _ = PairingFlow.shared.selectRoute(.vpnLoopback)
+            _ = DeviceControlCoordinator.shared.selectRoute(.vpnLoopback)
         }
         #endif
-        PairingFlow.shared.registerBackgroundTask()
+        DeviceControlCoordinator.shared.registerBackgroundTask()
     }
     var body: some Scene {
         WindowGroup {
@@ -24,8 +24,8 @@ import Darwin
                 .overlay {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
-                    else if ProcessInfo.processInfo.arguments.contains("--ncm-video-geometry-probe") { NCMVideoGeometryProbeView(statusPiP: statusPiP) }
-                    else if ProcessInfo.processInfo.arguments.contains("--ncm-tools-probe") { NCMToolsProbeView(statusPiP: statusPiP) }
+                    else if ProcessInfo.processInfo.arguments.contains("--coredevice-video-geometry-probe") { CoreDeviceVideoGeometryProbeView(statusPiP: statusPiP) }
+                    else if ProcessInfo.processInfo.arguments.contains("--coredevice-tools-probe") { CoreDeviceToolsProbeView(statusPiP: statusPiP) }
                     #endif
                 }
                 .onAppIntentExecution(PrepareAgentTaskIntent.self) { _ in
@@ -41,7 +41,7 @@ import Darwin
                 }
                 .task {
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
-                    if !streamProbe { PairingFlow.shared.restoreConnection() }
+                    if !streamProbe { DeviceControlCoordinator.shared.restoreConnection() }
                     model.liveActivities.setBackgroundResident(settings.reservesStandbyActivity)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
@@ -58,7 +58,7 @@ import Darwin
                             }
                             if step == 0 { UIApplication.shared.perform(NSSelectorFromString("suspend")) }
                         }
-                    } else { await PairingFlow.shared.runBackgroundProbeIfRequested() }
+                    } else { await DeviceControlCoordinator.shared.runBackgroundProbeIfRequested() }
                     #endif
                 }
                 .onChange(of: settings.reservesStandbyActivity) { _, enabled in
@@ -77,8 +77,8 @@ import Darwin
                     // Return run leases to foreground before stopping PiP revokes its background receipt.
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     background.setForeground(phase == .active, transitioning: phase == .inactive)
-                    if phase == .background { PairingFlow.shared.background() }
-                    else if phase == .active { PairingFlow.shared.resume() }
+                    if phase == .background { DeviceControlCoordinator.shared.background() }
+                    else if phase == .active { DeviceControlCoordinator.shared.resume() }
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
                     PhoneAgentRuntime.shared.museConnection.setScene(active: phase == .active, background: phase == .background)
                     if phase == .active { PhoneAgentRuntime.shared.commands.resumePendingExecutions() }
@@ -92,12 +92,12 @@ import Darwin
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
                     PhoneAgentRuntime.shared.remoteTools.stop()
-                    PairingFlow.shared.applicationWillTerminate()
+                    DeviceControlCoordinator.shared.applicationWillTerminate()
                     background.shutdown()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
                     PhoneAgentRuntime.shared.remoteTools.stop()
-                    PairingFlow.shared.cancel()
+                    DeviceControlCoordinator.shared.cancel()
                     background.setProtectedData(false)
                     model.setProtectedDataAvailable(false)
                 }
@@ -144,7 +144,7 @@ private struct LocalVPNProbeView: View {
     }
     @MainActor private func run() async {
         guard !started else { return }; started = true
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         let url = URL.documentsDirectory.appending(path: "local-vpn-probe.log")
         var records: [String] = []
         func record(_ line: String) {
@@ -160,9 +160,9 @@ private struct LocalVPNProbeView: View {
         }
         guard flow.ready else { record("connection failed: \(flow.lastFailure ?? flow.message)"); return }
         record("authenticated CoreDevice ready")
-        var control: NCMDeviceBridge?
+        var control: CoreDeviceBridge?
         do {
-            let bridge = try NCMDeviceBridge(flow: flow); control = bridge
+            let bridge = try CoreDeviceBridge(flow: flow); control = bridge
             let frame = try await bridge.screenshot()
             try frame.png.write(to: URL.documentsDirectory.appending(path: "local-vpn-before.jpg"))
             record("screenshot \(frame.width)x\(frame.height) bytes=\(frame.png.count)")
@@ -196,7 +196,7 @@ private func processCPUSecondsForProbe() -> Double {
 }
 
 /// Explicit read-only screenshot probe. Raw media is saved only for this launch flag.
-private struct NCMVideoGeometryProbeView: View {
+private struct CoreDeviceVideoGeometryProbeView: View {
     let statusPiP: StatusPiPController
     @State private var status = String(localized: "Video screenshot diagnostics")
     var body: some View {
@@ -206,16 +206,16 @@ private struct NCMVideoGeometryProbeView: View {
     }
     @MainActor private func run() async {
         let directory = URL.documentsDirectory
-        let log = directory.appending(path: "ncm-video-geometry-probe.log")
+        let log = directory.appending(path: "coredevice-video-geometry-probe.log")
         var lines: [String] = []
         func record(_ value: String) {
             lines.append(Date().ISO8601Format() + " " + value)
             try? lines.joined(separator: "\n").write(to: log, atomically: true, encoding: .utf8)
-            NSLog("NCM video probe %@", value)
+            NSLog("CoreDevice video probe %@", value)
         }
-        let flow = PairingFlow.shared
-        let backgroundProbe = ProcessInfo.processInfo.arguments.contains("--ncm-video-background-probe")
-        let repeatedProbe = backgroundProbe || ProcessInfo.processInfo.arguments.contains("--ncm-video-repeat-probe")
+        let flow = DeviceControlCoordinator.shared
+        let backgroundProbe = ProcessInfo.processInfo.arguments.contains("--coredevice-video-background-probe")
+        let repeatedProbe = backgroundProbe || ProcessInfo.processInfo.arguments.contains("--coredevice-video-repeat-probe")
         if backgroundProbe {
             BackgroundExecutionCoordinator.shared.applySelection([.audio])
             statusPiP.setControlProbeRunning(true)
@@ -226,14 +226,14 @@ private struct NCMVideoGeometryProbeView: View {
         let deadline = ContinuousClock.now.advanced(by: .seconds(120))
         while !flow.ready && flow.running && ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
         guard flow.ready else { status = String(localized: "Connection is not ready"); record(flow.lastFailure ?? flow.statusText); return }
-        var bridge: NCMDeviceBridge?
+        var bridge: CoreDeviceBridge?
         do {
-            let control = try NCMDeviceBridge(flow: flow); bridge = control
+            let control = try CoreDeviceBridge(flow: flow); bridge = control
             for index in 0..<(repeatedProbe ? 7 : 3) {
                 let frame = try await control.screenshot()
-                try frame.png.write(to: directory.appending(path: "ncm-video-probe-\(index).jpg"))
+                try frame.png.write(to: directory.appending(path: "coredevice-video-probe-\(index).jpg"))
                 if let keyframe = await flow.videoDiagnosticKeyframe() {
-                    try keyframe.write(to: directory.appending(path: "ncm-video-probe.hevc"))
+                    try keyframe.write(to: directory.appending(path: "coredevice-video-probe.hevc"))
                 }
                 record("screenshot \(index) \(frame.width)x\(frame.height) appState=\(UIApplication.shared.applicationState.rawValue)")
                 status = String(localized: "Captured \(index+1)/\(repeatedProbe ? 7 : 3): \(frame.width) × \(frame.height)")
@@ -241,7 +241,7 @@ private struct NCMVideoGeometryProbeView: View {
                     try await Task.sleep(for: .seconds(3))
                     UIApplication.shared.perform(NSSelectorFromString("suspend"))
                 }
-                if backgroundProbe && ProcessInfo.processInfo.arguments.contains("--ncm-static-screen-probe") && (index == 1 || index == 5) {
+                if backgroundProbe && ProcessInfo.processInfo.arguments.contains("--coredevice-static-screen-probe") && (index == 1 || index == 5) {
                     let context = try await control.systemActionContext()
                     try await control.authorizeSystemAction(authorizationID: context, taskScoped: false)
                     try await control.systemAction(name: "launch_app", text: index == 1 ? "com.apple.calculator" : "com.apple.Preferences", arguments: [], imageID: context)
@@ -256,7 +256,7 @@ private struct NCMVideoGeometryProbeView: View {
 }
 
 /// Explicit real-device fixture, no provider calls or user conversation writes.
-private struct NCMToolsProbeView: View {
+private struct CoreDeviceToolsProbeView: View {
     let statusPiP: StatusPiPController
     @State private var status = String(localized: "Preparing verification")
     var body: some View {
@@ -267,10 +267,10 @@ private struct NCMToolsProbeView: View {
         .task { await run() }
     }
     @MainActor private func run() async {
-        let url = URL.documentsDirectory.appending(path: "ncm-tools-probe.log")
+        let url = URL.documentsDirectory.appending(path: "coredevice-tools-probe.log")
         var records: [String] = []
         func record(_ value: String) { records.append(Date().ISO8601Format() + " " + value); try? records.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8) }
-        let flow = PairingFlow.shared
+        let flow = DeviceControlCoordinator.shared
         statusPiP.setControlProbeRunning(true)
         let scheduler = CompositeRunScheduler(primary: ContinuedProcessingScheduler(), allowed: { [.audio, .systemTask] })
         let identifier = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".backgroundRun." + UUID().uuidString
@@ -290,7 +290,7 @@ private struct NCMToolsProbeView: View {
         guard flow.ready else { record("connection not ready"); status = String(localized: "Connection is not ready"); return }
         statusPiP.setControlProbeRunning(true)
         do {
-            let bridge = try NCMDeviceBridge(flow: flow)
+            let bridge = try CoreDeviceBridge(flow: flow)
             defer { Task { await bridge.stop() } }
             let data = try await bridge.installedApplications()
             let apps = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
@@ -301,20 +301,20 @@ private struct NCMToolsProbeView: View {
             record("Home delivery acknowledged")
             try await Task.sleep(for: .seconds(1))
             frame = try await bridge.screenshot()
-            try frame.png.write(to: URL.documentsDirectory.appending(path: "ncm-tools-home.png"))
+            try frame.png.write(to: URL.documentsDirectory.appending(path: "coredevice-tools-home.png"))
             guard !expired else { throw AppError.stopped }
             try await bridge.authorizeTaskInput(imageID: frame.id)
             try await bridge.systemAction(name: "launch_app", text: "com.apple.mobilenotes", arguments: [], imageID: frame.id)
             record("Notes launch acknowledged")
             try await Task.sleep(for: .seconds(1))
             frame = try await bridge.screenshot()
-            let screenURL = URL.documentsDirectory.appending(path: "ncm-tools-screen.png")
+            let screenURL = URL.documentsDirectory.appending(path: "coredevice-tools-screen.png")
             try frame.png.write(to: screenURL)
             record("Notes screenshot ready \(frame.width)x\(frame.height)")
             lease?.report(completed: 3, subtitle: String(localized: "Home, app discovery, and Notes launch returned. Waiting for test actions."))
             // Explicit debug-only command fixture. Never read task history,
             // arbitrary typed text, identities or paths from this command file.
-            let commandURL = URL.documentsDirectory.appending(path: "ncm-tools-command.json")
+            let commandURL = URL.documentsDirectory.appending(path: "coredevice-tools-command.json")
             try? FileManager.default.removeItem(at: commandURL)
             var lastID = 0
             let testDeadline = ContinuousClock.now.advanced(by: .seconds(600))

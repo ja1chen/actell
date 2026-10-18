@@ -102,7 +102,7 @@ struct RemoteRPCError: LocalizedError {
     private var draining = false
 
     private let releaseIdleMedia: @MainActor () async -> Bool
-    init(model: AgentViewModel, releaseIdleMedia: @escaping @MainActor () async -> Bool = { await PairingFlow.shared.releaseIdleMuseMediaAndWait() }) {
+    init(model: AgentViewModel, releaseIdleMedia: @escaping @MainActor () async -> Bool = { await DeviceControlCoordinator.shared.releaseIdleMuseMediaAndWait() }) {
         self.model = model; self.releaseIdleMedia = releaseIdleMedia
     }
 
@@ -369,7 +369,7 @@ struct RemoteRPCError: LocalizedError {
         switch op {
         case "companion.release_idle":
             guard p.isEmpty else { throw RemoteRPCError("bad_request", "Unexpected idle release parameters") }
-            // Advisory only: local/remote owners are checked again by PairingFlow.
+            // Advisory only: local/remote owners are checked again by DeviceControlCoordinator.
             guard activeRun == nil, !draining, !model.hasBusySessions else { return ["released": false] }
             return ["released": await releaseIdleMedia()]
         case "capabilities":

@@ -1,0 +1,8 @@
+menu "USB device services"
+config USB_CONTROL_ENABLED
+    bool "Enable the USB input control service"
+    default y
+    help
+        Enable the input command listener in addition to developer-service
+        forwarding. Disable for the diagnostic-only build profile.
+endmenu

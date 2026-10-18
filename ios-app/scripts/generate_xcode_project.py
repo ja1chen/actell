@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate the checked-in project with Python stdlib; no XcodeGen install needed."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import os
@@ -121,12 +122,13 @@ def configs(name, settings):
     return add(name + "Configurations", "XCConfigurationList", buildConfigurations=ids, defaultConfigurationIsVisible=0, defaultConfigurationName="Release")
 
 
-def generate():
-    prefix = os.environ.get("ACTELL_BUNDLE_ID_PREFIX", "").strip()
+def generate(*, ignore_env=False):
+    environment = {} if ignore_env else os.environ
+    prefix = environment.get("ACTELL_BUNDLE_ID_PREFIX", "").strip()
     prefix = prefix.removesuffix(".") if prefix else "com.ja1chen.PhoneAgent"
     if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*", prefix):
         raise ValueError("ACTELL_BUNDLE_ID_PREFIX must contain dot-separated letters, digits or hyphens")
-    team = os.environ.get("ACTELL_DEVELOPMENT_TEAM", "").strip()
+    team = environment.get("ACTELL_DEVELOPMENT_TEAM", "").strip()
     packages = [
         add("SwiftAgentKit", "XCLocalSwiftPackageReference", relativePath="Vendor/SwiftAgentKit"),
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
@@ -144,8 +146,6 @@ def generate():
     ]:
         sources, children = [], []
         paths = list((ROOT / name).rglob("*.swift"))
-        if os.environ.get("INCLUDE_ARCHIVED_TESTS") == "1" and name in ("PhoneAgentTests", "PhoneAgentUITests"):
-            paths += list((ROOT.parent / "archives/tests" / name).glob("*.swift"))
         if name in ("PhoneAgent", "PhoneAgentLiveActivity"):
             paths += list((ROOT / "Shared").rglob("*.swift"))
         for path in sorted(paths):
@@ -154,8 +154,8 @@ def generate():
             children.append(ref)
             sources.append(add((name if relative.startswith("Shared/") else "") + relative + "Build", "PBXBuildFile", fileRef=ref))
         if name == "PhoneAgent":
-            for path in sorted((ROOT.parent / "ncm-dev/PhoneAgentNCM/Sources/PhoneAgentNCM").glob("*.swift")):
-                relative = "../ncm-dev/PhoneAgentNCM/Sources/PhoneAgentNCM/" + path.name
+            for path in sorted((ROOT.parent / "coredevice/swift/Sources/CoreDeviceBackend").glob("*.swift")):
+                relative = "../coredevice/swift/Sources/CoreDeviceBackend/" + path.name
                 ref = add(relative, "PBXFileReference", lastKnownFileType="sourcecode.swift", path=relative, sourceTree="SOURCE_ROOT")
                 children.append(ref)
                 sources.append(add(relative + "Build", "PBXBuildFile", fileRef=ref))
@@ -223,14 +223,14 @@ def generate():
                             INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents="YES",
                             INFOPLIST_KEY_UILaunchScreen_Generation="YES")
             settings.update(ARCHS="arm64", ENABLE_USER_SCRIPT_SANDBOXING="NO",
-                            HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include"],
-                            OTHER_LDFLAGS=["$(inherited)", "-lphoneagent_ncm_backend", "-framework", "Security", "-framework", "SystemConfiguration"],
-                            **{"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release"],
-                               "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": ["$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release"]})
-            phases.insert(0, add("NCMBackendBuild", "PBXShellScriptBuildPhase", buildActionMask=2147483647,
+                            HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include"],
+                            OTHER_LDFLAGS=["$(inherited)", "-lcoredevice_backend", "-framework", "Security", "-framework", "SystemConfiguration"],
+                            **{"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios/release"],
+                               "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": ["$(inherited)", "$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios-sim/release"]})
+            phases.insert(0, add("CoreDeviceBackendBuild", "PBXShellScriptBuildPhase", buildActionMask=2147483647,
                                  files=[], inputPaths=[], outputPaths=[], runOnlyForDeploymentPostprocessing=0,
-                                 alwaysOutOfDate=1, name="Build NCM backend", shellPath="/bin/bash",
-                                 shellScript='case "$PLATFORM_NAME" in\n iphoneos) mode=device ;;\n iphonesimulator) mode=simulator ;;\n *) exit 1 ;;\nesac\nbash "$SRCROOT/../tools/build_ncm_rust.sh" "$mode"\n'))
+                                 alwaysOutOfDate=1, name="Build CoreDevice backend", shellPath="/bin/bash",
+                                 shellScript='case "$PLATFORM_NAME" in\n iphoneos) mode=device ;;\n iphonesimulator) mode=simulator ;;\n *) exit 1 ;;\nesac\nbash "$SRCROOT/../tools/build_coredevice_rust.sh" "$mode"\n'))
             widget = "PhoneAgentLiveActivity"
             embedded = add("EmbedLiveActivityBuild", "PBXBuildFile", fileRef=uid(widget + "Product"), settings=dict(ATTRIBUTES=["RemoveHeadersOnCopy"]))
             phases.append(add("EmbedLiveActivity", "PBXCopyFilesBuildPhase", buildActionMask=2147483647, dstPath="", dstSubfolderSpec=13,
@@ -246,7 +246,7 @@ def generate():
                 settings.update(TEST_TARGET_NAME="PhoneAgent")
             else:
                 settings.update(TEST_HOST="$(BUILT_PRODUCTS_DIR)/PhoneAgent.app/PhoneAgent", BUNDLE_LOADER="$(TEST_HOST)",
-                                HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include"])
+                                HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include"])
             proxy = add(name + "AppProxy", "PBXContainerItemProxy", containerPortal=uid("Project"), proxyType=1, remoteGlobalIDString=uid("PhoneAgentTarget"), remoteInfo="PhoneAgent")
             dependencies.append(add(name + "AppDependency", "PBXTargetDependency", target=uid("PhoneAgentTarget"), targetProxy=proxy))
         targets.append(add(name + "Target", "PBXNativeTarget", name=name, productName=name, productReference=product,
@@ -285,5 +285,13 @@ def generate():
     print(path)
 
 
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("-d", "--defaults", action="store_true",
+                        help="Ignore environment overrides and generate the project with default settings.")
+    args = parser.parse_args(argv)
+    generate(ignore_env=args.defaults)
+
+
 if __name__ == "__main__":
-    generate()
+    main()

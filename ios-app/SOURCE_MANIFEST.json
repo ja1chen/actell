@@ -1,6 +1,4 @@
 {
-  "status": "source-candidate-uncompiled",
-  "source_date": "2026-10-02",
   "files": [
     {
       "path": ".gitignore",
@@ -152,5 +150,6 @@
       "bytes": 4902,
       "sha256": "0cd72dfc6380e1473bec3d33cbf24ad6f98e9c168f12b8f0b7d97d858a801b06"
     }
-  ]
+  ],
+  "scope": "Original imported App source hashes, including retired files; not a current build inventory."
 }
