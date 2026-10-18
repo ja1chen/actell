@@ -16163,19 +16163,19 @@
         }
       }
     },
-    "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby.": {
+    "Turn on audio, picture-in-picture, or location first.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby."
+            "value": "Turn on audio, picture-in-picture, or location first."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请先开启音频、画中画或定位。仅开启系统后台任务无法保持待命。"
+            "value": "请先开启音频、画中画或定位。"
           }
         }
       }

@@ -20,7 +20,7 @@ The ESP32-S3 currently provides USB NCM networking, discovery, and restricted bi
 - Imports Markdown/TXT skill packages and reads their text on demand; importing does not execute scripts. Supports conversation history, image attachments, tool approval, and manual stopping. Control tasks for the same phone are queued by whole agent turn, and actions with uncertain outcomes are not automatically replayed.
 - Control sessions continuously receive a display stream, decode it with VideoToolbox, and cache the latest complete frame. The screenshot tool takes an image from that stream, removes padding, and encodes it as JPEG; it does not call the system's separate screenshot service for each request by default. Each call still waits for a newly decoded frame or a sender progress report received after the request begins to confirm that the cached image is complete. The wait can take up to eight seconds; this does not mean immediately returning any old cached frame. The standalone PNG screenshot implementation remains available in the source, but is not an automatic fallback.
 - The ESP32 route has recorded real screenshots and increases in a test button's tap counter. In an iPhone 15 Pro test on 2026-10-09, the VPN loopback route reused the pairing identity, produced a 1179 × 2556 screenshot, increased the actual tap counter from 0 to 1, and confirmed media release. Complete model-driven tasks, dragging, and sustained background execution over VPN loopback still require separate acceptance testing.
-- Background execution supports audio, picture-in-picture, system tasks, and location in Settings → Background execution. Audio and background standby are enabled by default; location is off, and saved choices are preserved. Location requires system permission; coordinates are not saved or uploaded. Background operation may increase battery use and remains subject to system and connection limits.
+- Background execution supports audio, picture-in-picture, and location in Settings → Background execution. The system background task option is hidden and treated as off, including saved selections. Audio and background standby are enabled by default; location is off, and saved choices are preserved. Location requires system permission; coordinates are not saved or uploaded. Background operation may increase battery use and remains subject to system and connection limits.
 
 Enabling idle residency retains only selected continuous sources; system-task-only residency no longer implicitly plays audio. Removing an option stops its contribution immediately and vetoes it for current runs; added options apply to the next run. A system continued-task cancellation/expiration pauses that run even if another source is available. This is an experimental execution mechanism, not a promise of indefinite background operation or App Store eligibility. Physical-device location, Personal Team signing, stationary behavior, audio interruptions, and CoreDevice background reliability have not been verified for this change. See the [implementation and validation record](docs/background-execution/IMPLEMENTATION.md).
 
@@ -70,6 +70,12 @@ The example produces `org.example.Actell` and `org.example.Actell.LiveActivity`;
 test targets and both build configurations use the same base ID and team.
 Unset or empty values default to `com.ja1chen.PhoneAgent` and an empty team.
 Keep both variables exported for subsequent project generations.
+
+Enable the commit hook to keep local Bundle ID and signing team overrides out of commits:
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ```sh
 # Unsigned iPhoneOS build; does not install or change signing

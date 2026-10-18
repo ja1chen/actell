@@ -38,14 +38,15 @@ import XCTest
             }
             let restored = BackgroundSettingsStore(defaults: defaults, domain: name)
             XCTAssertEqual(restored.selection, settings.selection)
-            XCTAssertEqual(restored.selection.count, mask.nonzeroBitCount)
+            XCTAssertEqual(restored.configuration.knownSelection.count, mask.nonzeroBitCount)
+            XCTAssertEqual(restored.selection, restored.configuration.knownSelection.subtracting([.systemTask]))
         }
     }
     func testNewInstallAndLegacyMigration() {
         for (values, expected) in [([String: Any](), Set<BackgroundMechanism>([.audio])),
                                    (["backgroundPlaybackMode": "audio"], [.audio]),
                                    (["backgroundPlaybackMode": "pictureInPicture"], [.pictureInPicture]),
-                                   (["backgroundPlaybackMode": "systemTask"], [.systemTask]),
+                                   (["backgroundPlaybackMode": "systemTask"], []),
                                    (["backgroundPlaybackMode": "future"], []),
                                    (["backgroundPlaybackMode": ""], []),
                                    (["backgroundPlaybackMode": 42], []),

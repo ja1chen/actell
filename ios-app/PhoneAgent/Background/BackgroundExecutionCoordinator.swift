@@ -41,7 +41,7 @@ import Combine
         if locationDriver != nil { permissionDisabled = false }
         location?.permissionAllowed = !permissionDisabled
         media?.setForeground(false) // A cold process is not an activated scene.
-        settings.$configuration.sink { [weak self] in self?.applySelection($0.knownSelection) }.store(in: &subscriptions)
+        settings.$configuration.sink { [weak self] in self?.applySelection($0.effectiveSelection) }.store(in: &subscriptions)
         settings.$residentEnabled.sink { [weak self] in self?.setResident($0) }.store(in: &subscriptions)
         media?.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
         location?.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)

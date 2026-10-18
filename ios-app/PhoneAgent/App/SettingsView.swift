@@ -73,7 +73,7 @@ private struct BackgroundSettingsView: View {
 
     var body: some View {
         Form {
-            ForEach(BackgroundMechanism.allCases) { mechanism in
+            ForEach(BackgroundMechanism.selectableCases) { mechanism in
                 Section {
                     Toggle(mechanism.title, isOn: Binding(
                         get: { settings.selection.contains(mechanism) },
@@ -108,7 +108,7 @@ private struct BackgroundSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "Keep the selected audio, picture-in-picture, or location options active after a task ends so later tasks can start in the background. Uses more battery; turn off when not needed."))
                     if settings.residentEnabled && settings.selection.intersection(BackgroundMechanism.continuous).isEmpty {
-                        Text(String(localized: "Turn on audio, picture-in-picture, or location first. System background tasks alone cannot keep the app on standby."))
+                        Text(String(localized: "Turn on audio, picture-in-picture, or location first."))
                             .accessibilityIdentifier("backgroundNoIdleSource")
                     }
                 }

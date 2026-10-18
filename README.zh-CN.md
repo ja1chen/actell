@@ -20,7 +20,7 @@ App 使用 [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)、[MacPaw
 - 可导入 Markdown/TXT 技能包，按需读取文本；导入不执行脚本。支持会话历史、图片附件、工具审批与手动停止。同一手机的控制任务按整轮排队，结果不确定的动作不自动重放。
 - 控制会话持续接收显示流，用 VideoToolbox 解码并缓存最近完整帧。截图工具从该流取得画面、裁去填充区域并编码 JPEG，默认不逐次调用系统独立截图服务。调用时仍会等待新解码帧，或请求开始后的发送端进度报告确认缓存画面完整；最长等待八秒，不能理解为立即返回任意旧缓存。独立 PNG 截图实现保留，但不会自动回退。
 - ESP32 路线已有真实截图与测试按钮计数增加的记录；VPN 回环路线在 2026-10-09 的 iPhone 15 Pro 测试中复用配对身份，得到 1179 × 2556 截图、实际点击计数 0 → 1，并确认媒体释放。完整模型任务、拖动及 VPN 回环后台持续执行仍待单独验收。
-- 可在“设置 → 后台执行”选择音频、画中画、系统后台任务和定位。音频和后台常驻默认开启，定位默认关闭，已保存的选择保持不变。定位需系统授权，坐标不保存或上传。后台运行可能增加耗电，仍受系统和连接状态限制。
+- 可在“设置 → 后台执行”选择音频、画中画和定位。系统后台任务入口隐藏，已保存的开启状态也按关闭处理。音频和后台常驻默认开启，定位默认关闭，已保存的选择保持不变。定位需系统授权，坐标不保存或上传。后台运行可能增加耗电，仍受系统和连接状态限制。
 
 以上依据当前源码与项目内已有验证记录；不同路线、设备和历史阶段的结果不能互相替代。详见 [项目待办与验证](docs/PROJECT-TODOS.md)、[视频几何与帧完整性](docs/ncm-coredevice/VIDEO-GEOMETRY.md)、[VPN 回环使用与验证](docs/ncm-coredevice/LOCALDEVVPN.md)。
 
@@ -67,6 +67,12 @@ python3 ios-app/scripts/generate_xcode_project.py
 示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，测试 target 和 Debug/Release
 也使用同一基础标识及团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。
 保持两个变量的 `export` 配置，后续生成工程时会继续使用。
+
+启用提交 hook，禁止将本地 Bundle ID 和签名团队改动提交到 Xcode 工程：
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ```sh
 # iPhoneOS 无签名构建；不会安装或修改签名
