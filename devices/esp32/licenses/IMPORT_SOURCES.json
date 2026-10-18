@@ -1,0 +1,1162 @@
+{
+  "archives": [
+    {
+      "path": "archives/PhoneAgent-iOS-source.zip",
+      "removed_from_repository": true,
+      "library_file_id": "libfile_41f5d3e188988191a0712d42c21da5a8",
+      "version": 2,
+      "bytes": 54367,
+      "sha256": "57922ed3703d6a0288e5a9dfb014440959d356fd16853faae68b3b9ce138e434"
+    },
+    {
+      "path": "archives/esp32-iphone-coredevice-protocol-v0.3.tar.gz",
+      "removed_from_repository": true,
+      "library_file_id": "libfile_7db76be09f0c8191886db04b4e553b4e",
+      "version": 2,
+      "bytes": 362648,
+      "sha256": "79702eba413323c38610d1b714e99b85137cfe5a0a13446790af50f643637420"
+    }
+  ],
+  "source_files": [
+    {
+      "source": "esp32-iphone-bridge/.gitignore",
+      "path": ".gitignore",
+      "sha256": "243286530cbf8e021b8c8f908783fabf93ffc02345657b39fe5e3429bb966eb0",
+      "bytes": 149
+    },
+    {
+      "source": "esp32-iphone-bridge/LICENSE",
+      "path": "LICENSE",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "bytes": 35147
+    },
+    {
+      "source": "esp32-iphone-bridge/README.md",
+      "path": "README.firmware.md",
+      "sha256": "6ee00633040620d1ac8fe450b3a7d5b9f18d6e884eb606b822fc4e52005ac548",
+      "bytes": 5634
+    },
+    {
+      "source": "esp32-iphone-bridge/SOURCE_MANIFEST.json",
+      "path": "SOURCE_MANIFEST.firmware.json",
+      "sha256": "4fd25b42fb3c836f96d69b95d9cb7271f39f31538f1cc6fd0634821d7b48ac2e",
+      "bytes": 19028
+    },
+    {
+      "source": "esp32-iphone-bridge/THIRD_PARTY.md",
+      "path": "THIRD_PARTY.md",
+      "sha256": "e8a392b9d246b5102b003c2120e87f0cb58a32c8cf818627adb82a35b88d1611",
+      "bytes": 4499
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/app-interface-status.md",
+      "path": "docs/app-interface-status.md",
+      "sha256": "67c8c449be27ada7222b3f8e2f62c93832af13f82f3a96c3e5b9201ec710f37c",
+      "bytes": 1800
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/build-results.txt",
+      "path": "docs/build-results.txt",
+      "sha256": "32c8a015717ea48d744a2b4a5c3595ce841e634a52b1c14931a5a58ea392d319",
+      "bytes": 762
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/cdtunnel-transport.md",
+      "path": "docs/cdtunnel-transport.md",
+      "sha256": "c543278e2bce77e629b0d6b4e18bd4ae3ae98a94514fcabd120fb786c7be10e2",
+      "bytes": 7825
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/lwip-tunnel.md",
+      "path": "docs/lwip-tunnel.md",
+      "sha256": "b1d421a30286fba7774ae05cb94d081518ca84667f37ed4f554c4c28115ea60f",
+      "bytes": 14841
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/memory-budget.md",
+      "path": "docs/memory-budget.md",
+      "sha256": "c939e8d9857f0839151ff18bb2cfce76601771c344a218e248f80b99814dab3f",
+      "bytes": 6432
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/network-operations.md",
+      "path": "docs/network-operations.md",
+      "sha256": "17f39cce60f017ca937f433e6f0fdd14a041ed68733687a0a25efa4cb9b158c8",
+      "bytes": 4844
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/next-validation.md",
+      "path": "docs/next-validation.md",
+      "sha256": "9fa08d6d5e32c623439904f8c36ac69f8e54ab13e8c6b1e1c737a1d839ee2571",
+      "bytes": 1620
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/protocol-audit.md",
+      "path": "docs/protocol-audit.md",
+      "sha256": "e5a8261593cfe4be6585cfb53ce0227d3c9cde3cb49252d9ebc20ffe4896f7cb",
+      "bytes": 9060
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/remotexpc-session.md",
+      "path": "docs/remotexpc-session.md",
+      "sha256": "f4752c9a2c16e3ed55d73daeac944c1524302ba358a0c39303ceb0688053d7ed",
+      "bytes": 8696
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/rsd-discovery.md",
+      "path": "docs/rsd-discovery.md",
+      "sha256": "07193f9b5e00b7224057e4a5dc923a82f17bfd50129fbe3a48cfc66ca62b1443",
+      "bytes": 10626
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/test-results.txt",
+      "path": "docs/test-results.txt",
+      "sha256": "2eae69ec4a4c4ba6c1d5378acda23fcca7ccf2aac0e87c17ef414a24770c4982",
+      "bytes": 8783
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/usb-transport.md",
+      "path": "docs/usb-transport.md",
+      "sha256": "d1215a88a0db6dec3c46d951f2b25dc0e0d2e7a6635f95b294a62246ec256a7f",
+      "bytes": 5712
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/validation.md",
+      "path": "docs/validation.md",
+      "sha256": "78e04ba83d2f0f818946b578c1c68aac0a51074d2941062f2fdef2084547326e",
+      "bytes": 4561
+    },
+    {
+      "source": "esp32-iphone-bridge/docs/zlib-compressor.md",
+      "path": "docs/zlib-compressor.md",
+      "sha256": "c4b37b2480923eb4156ff40d0ec4c183175b6e0b96701a9748ce3fe69efe38cd",
+      "bytes": 8018
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/CMakeLists.txt",
+      "path": "firmware/CMakeLists.txt",
+      "sha256": "28ba4bd59654b8ae44852dc112101dace1e790c738fa0601d153b7fdca48063e",
+      "bytes": 142
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/CMakeLists.txt",
+      "path": "firmware/components/bridge_core/CMakeLists.txt",
+      "sha256": "431ffaccc04531de414e38f74a9b7efb0f89e4d4f81122ada8b44b582ceabddc",
+      "bytes": 456
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_bplist.c",
+      "path": "firmware/components/bridge_core/bridge_bplist.c",
+      "sha256": "472d0eafa2acfb08da731fc69a04e3c92edaf16715833592a8880eab821e5148",
+      "bytes": 5165
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_cdtunnel.c",
+      "path": "firmware/components/bridge_core/bridge_cdtunnel.c",
+      "sha256": "6f1733a7d880e13031e1e695007d7e678bdfeaad9bf524c56540ef416abca7b0",
+      "bytes": 16145
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_hid.c",
+      "path": "firmware/components/bridge_core/bridge_hid.c",
+      "sha256": "3845770c6e96ff4780fb632ed1ea246255913917961686b3633261b0e50d343a",
+      "bytes": 1955
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_io.c",
+      "path": "firmware/components/bridge_core/bridge_io.c",
+      "sha256": "15fab049c2ae4e5ce15096173aea7c173e8f83576fdc39ed9b090e2f3e33f3e9",
+      "bytes": 3553
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_lockdown_probe.c",
+      "path": "firmware/components/bridge_core/bridge_lockdown_probe.c",
+      "sha256": "6fc05a8961bab0a94b33d3e25a06b603b8293ae86962e8d6086095d98ef7dceb",
+      "bytes": 15969
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_lockdown_session.c",
+      "path": "firmware/components/bridge_core/bridge_lockdown_session.c",
+      "sha256": "22589fc57f211d901c1816cf6ebcbcb51b182101cd883b78c57ce134e9f5ac99",
+      "bytes": 31377
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_media_offer.c",
+      "path": "firmware/components/bridge_core/bridge_media_offer.c",
+      "sha256": "7f89f094ed713cd12035a65ee02c3e067376200976069707eb4a7fa1e5246a44",
+      "bytes": 6906
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_operations.c",
+      "path": "firmware/components/bridge_core/bridge_operations.c",
+      "sha256": "5b036eeb31a31fa1fc063d8a64f10fdf71b70ae4b320efefd4156d1832e989d0",
+      "bytes": 3941
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_remotexpc.c",
+      "path": "firmware/components/bridge_core/bridge_remotexpc.c",
+      "sha256": "1098bea578c757261f3b15619299b9d862c6e5da8d13bb1b91e6ca306d819edd",
+      "bytes": 20542
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_requests.c",
+      "path": "firmware/components/bridge_core/bridge_requests.c",
+      "sha256": "564872cebd65b1f3afc9549589d09a87d6e8fe976e927838db68c03ee7c7ff95",
+      "bytes": 7763
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_rsd.c",
+      "path": "firmware/components/bridge_core/bridge_rsd.c",
+      "sha256": "1f575d7b2506cab907907cae375de2fb7b80a222e94a1cd246d3c2727e46ddf3",
+      "bytes": 14820
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_screenshot_stream.c",
+      "path": "firmware/components/bridge_core/bridge_screenshot_stream.c",
+      "sha256": "b2076945324bc18b6ca430b2aa1300e8119f452bfecb2fe6f68428cbbda20c07",
+      "bytes": 6874
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_usb_descriptors.c",
+      "path": "firmware/components/bridge_core/bridge_usb_descriptors.c",
+      "sha256": "0c69de2fa1cac74f344a3306a774964fca72511210c5c72bf1e57eeb0e96d297",
+      "bytes": 2773
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_usbmux.c",
+      "path": "firmware/components/bridge_core/bridge_usbmux.c",
+      "sha256": "e021bb699f24d91508e9da9860793d50f84674090f889f53ed76b95b47f83a48",
+      "bytes": 22390
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/bridge_xpc.c",
+      "path": "firmware/components/bridge_core/bridge_xpc.c",
+      "sha256": "a013b56dcff066c75ffcea26a23e6418a9f130e8663945f61ab91e8f4bd8a7e4",
+      "bytes": 13631
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_bplist.h",
+      "path": "firmware/components/bridge_core/include/bridge_bplist.h",
+      "sha256": "3e80826881cfd2346ae2545b0112bf0a456050c1fb6c4f5c8efc3a7fdf51e082",
+      "bytes": 1541
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_cdtunnel.h",
+      "path": "firmware/components/bridge_core/include/bridge_cdtunnel.h",
+      "sha256": "dfd073d45ccf067a280e148f6c0b4407acf6ae67d72b70e71ca3059d17870a45",
+      "bytes": 4079
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_core.h",
+      "path": "firmware/components/bridge_core/include/bridge_core.h",
+      "sha256": "0f65e4c6de82dbfa66852ba953d6bf7adc489c8924ad01dd430d332eb03ab3ce",
+      "bytes": 1897
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_hid.h",
+      "path": "firmware/components/bridge_core/include/bridge_hid.h",
+      "sha256": "cd7757fe863d57ba8fd05761d7b5be541a06e4b91adb5b490373f7440976567e",
+      "bytes": 1374
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_lockdown_probe.h",
+      "path": "firmware/components/bridge_core/include/bridge_lockdown_probe.h",
+      "sha256": "050afd7fb6abc881f46e666a4abbc5ec6eb509c45511e32cc0bd969b3a7c1016",
+      "bytes": 2658
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_lockdown_session.h",
+      "path": "firmware/components/bridge_core/include/bridge_lockdown_session.h",
+      "sha256": "25c8a95de435ee03b5a482ef0618fd3c7421c6843b9a05bb3337315f7e48b201",
+      "bytes": 6439
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_media_offer.h",
+      "path": "firmware/components/bridge_core/include/bridge_media_offer.h",
+      "sha256": "7fa3b8a9f03451dfc7141ccaecadc51bb38d095bac55ddf08ff60883c3a16874",
+      "bytes": 2279
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_operations.h",
+      "path": "firmware/components/bridge_core/include/bridge_operations.h",
+      "sha256": "b0e3581e8c0638d785e795bd5c6d32c12d792ada426b6ea331ba950908e26496",
+      "bytes": 2018
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_packet_link.h",
+      "path": "firmware/components/bridge_core/include/bridge_packet_link.h",
+      "sha256": "878ff5da28a7b78b2db2e7693419ae5d49048dd59cdd02f4148a0c3ad21657aa",
+      "bytes": 736
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_remotexpc.h",
+      "path": "firmware/components/bridge_core/include/bridge_remotexpc.h",
+      "sha256": "06a6d7120b9354a8662023804f887d595f86243d27857f8e0b5d1d6936c574f6",
+      "bytes": 5893
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_requests.h",
+      "path": "firmware/components/bridge_core/include/bridge_requests.h",
+      "sha256": "6733e2b99c6328a2d701616bdd0b0932b6844e388c6e6a0dc658b95ed669c0fb",
+      "bytes": 2314
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_rsd.h",
+      "path": "firmware/components/bridge_core/include/bridge_rsd.h",
+      "sha256": "59d5e626d4036fea0e69ebed269ae22851662615873664cd80a10240eb975322",
+      "bytes": 5901
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_screenshot_stream.h",
+      "path": "firmware/components/bridge_core/include/bridge_screenshot_stream.h",
+      "sha256": "08735b594aac95345a5a53ca4865ed3f65d907d1ef0dcdacb147377d1cc28489",
+      "bytes": 1264
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_usb_descriptors.h",
+      "path": "firmware/components/bridge_core/include/bridge_usb_descriptors.h",
+      "sha256": "7cb5e9233fd58214b81fdb647f2866d521afcd361924fd5a66237d277150991d",
+      "bytes": 926
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_usbmux.h",
+      "path": "firmware/components/bridge_core/include/bridge_usbmux.h",
+      "sha256": "2ab9e9901dca8870bd6eea3f5d385724f931172fd6712127d0744cb0070f9b06",
+      "bytes": 6574
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_core/include/bridge_xpc.h",
+      "path": "firmware/components/bridge_core/include/bridge_xpc.h",
+      "sha256": "f240b6214c25f6723b40612649b3a9e1532be0dd3585c50b2a435655e3480bab",
+      "bytes": 3983
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_coredevice_usb/CMakeLists.txt",
+      "path": "firmware/components/bridge_coredevice_usb/CMakeLists.txt",
+      "sha256": "930bf2baa529ac544e69826159cbeb72e024a71c4aa04574ef5dcc312e5a97b4",
+      "bytes": 228
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_coredevice_usb/bridge_coredevice_usb.c",
+      "path": "firmware/components/bridge_coredevice_usb/bridge_coredevice_usb.c",
+      "sha256": "f820050a347db55ae29f74c88f22d679eea3163d62b17500d0bb534a201cae2e",
+      "bytes": 6706
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_coredevice_usb/include/bridge_coredevice_usb.h",
+      "path": "firmware/components/bridge_coredevice_usb/include/bridge_coredevice_usb.h",
+      "sha256": "03e2f7886a2ecf006bb619c829e2ecd732e475d8948065d0748b60279494fe0f",
+      "bytes": 2564
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_lwip/CMakeLists.txt",
+      "path": "firmware/components/bridge_lwip/CMakeLists.txt",
+      "sha256": "59fc8f3bc0ccc4c3a832043707dc0b263117dd07bdf49bd2ab65083bc54bc2d6",
+      "bytes": 274
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_lwip/bridge_lwip.c",
+      "path": "firmware/components/bridge_lwip/bridge_lwip.c",
+      "sha256": "759d0b857ee709a604fb345ab9f1f80c7d1ee0a66cbd8a1f42839b3f29f147cd",
+      "bytes": 34467
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_lwip/include/bridge_lwip.h",
+      "path": "firmware/components/bridge_lwip/include/bridge_lwip.h",
+      "sha256": "a6fef12b0bc66ed26246b67f27fa67682fe5ebb8f4290d713908bd600af1e11b",
+      "bytes": 4256
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_network/CMakeLists.txt",
+      "path": "firmware/components/bridge_network/CMakeLists.txt",
+      "sha256": "67e1edf89ae8bf9ff89e6ee897732ebc024b71aeb105426835947e93a9cf7d32",
+      "bytes": 206
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_network/bridge_network.c",
+      "path": "firmware/components/bridge_network/bridge_network.c",
+      "sha256": "edd6ab484911caa2429ca9ec63acb1599fa8ce45139abf0bc9437ccd8aa03f64",
+      "bytes": 4747
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_network/include/bridge_network.h",
+      "path": "firmware/components/bridge_network/include/bridge_network.h",
+      "sha256": "287f3b9a9b2aa0c92525880beea8f02d95fcda551e5d5522e4bfc751fb76b591",
+      "bytes": 1965
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_tls/CMakeLists.txt",
+      "path": "firmware/components/bridge_tls/CMakeLists.txt",
+      "sha256": "7c3df8acb098fbb608db9fa77d8e15bf3d74225eb6b9753d31dea3c9cb5c9185",
+      "bytes": 256
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_tls/bridge_tls.c",
+      "path": "firmware/components/bridge_tls/bridge_tls.c",
+      "sha256": "9ef634aa4e67022511579c8680b25bf2f20b096090ef9470ab650284043ec153",
+      "bytes": 16972
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_tls/include/bridge_tls.h",
+      "path": "firmware/components/bridge_tls/include/bridge_tls.h",
+      "sha256": "024367bc01aa904cbafacdaafd0366ffe0a8935ab73d9cf3db65beb1b419cdbc",
+      "bytes": 3529
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_usb_host/CMakeLists.txt",
+      "path": "firmware/components/bridge_usb_host/CMakeLists.txt",
+      "sha256": "7576487f1c69d0c4f9e109b1110b792242e4de6ac0fb795650e347ff290582cf",
+      "bytes": 218
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_usb_host/bridge_usb_host.c",
+      "path": "firmware/components/bridge_usb_host/bridge_usb_host.c",
+      "sha256": "fc07b987ade8261b8534147e13d653cb12f7d3cc20c72a334720c227f09b4697",
+      "bytes": 20309
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_usb_host/include/bridge_usb_host.h",
+      "path": "firmware/components/bridge_usb_host/include/bridge_usb_host.h",
+      "sha256": "e20753fb4ee3b984bcaa5bfbda29ac13adf3e4dff957582d1ad83ff32a254573",
+      "bytes": 3531
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/CMakeLists.txt",
+      "path": "firmware/components/bridge_zlib/CMakeLists.txt",
+      "sha256": "51c5aff019b461b7211dd0850fb789e0b9d19864f57eae8a64c30e5ce9d2ca97",
+      "bytes": 863
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/bridge_zlib.c",
+      "path": "firmware/components/bridge_zlib/bridge_zlib.c",
+      "sha256": "4e4c733dc8d7b51c7679b45556bcfb6c280516d39c0fdc0425684b34c065e2cb",
+      "bytes": 6206
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/include/bridge_zlib.h",
+      "path": "firmware/components/bridge_zlib/include/bridge_zlib.h",
+      "sha256": "e5370c0a426065f95423df3705fcf6c18f2324ad804aaf81ad932f7fefd3b469",
+      "bytes": 3067
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/SOURCE_MANIFEST.json",
+      "path": "firmware/components/bridge_zlib/vendor/SOURCE_MANIFEST.json",
+      "sha256": "b02c63b91a764f8fc325b82b3da0d94e30e443a4f8c378581ab5af6015a97a1e",
+      "bytes": 2119
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/LICENSE",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/LICENSE",
+      "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2",
+      "bytes": 1002
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/README",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/README",
+      "sha256": "4026d921213bb2e311d8d42b44ef53361c102d5d45ae32f93f8e52eaee8d068f",
+      "bytes": 5291
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/adler32.c",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/adler32.c",
+      "sha256": "9cd1443a24ff2a3053961695bd432035c58347386a420d3388232376ebabe211",
+      "bytes": 4964
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/deflate.c",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/deflate.c",
+      "sha256": "ea9ca4eb51b1a71aaf214b99f4a9fab177253d6268cae8e4c26d44d1812e52c2",
+      "bytes": 83286
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/deflate.h",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/deflate.h",
+      "sha256": "21f4ea0973dab272fb26e93305ccf8628c8dc07e6c5df09a9861825b1920ba5d",
+      "bytes": 14213
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/trees.c",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/trees.c",
+      "sha256": "a16217d5ea6d8342ff08afe5207b1dab620f05610e121dda55b4f9aae9de4f68",
+      "bytes": 41030
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/trees.h",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/trees.h",
+      "sha256": "bb0a9d3ca88ee00c81adb7c636e73b97085f6ef1b52d6d58edbe2b6dc3adeb4d",
+      "bytes": 8472
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/zconf.h",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/zconf.h",
+      "sha256": "cb7c2c84211473b4699223edd363d3207b43b9578e739b5bf638f42204ea6e0f",
+      "bytes": 16955
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/zlib.h",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/zlib.h",
+      "sha256": "818667d6ab6a37fe7469cb06a7f0cb2c2cb2f2c948a03e5accf1a4a74bf3020a",
+      "bytes": 103848
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/zutil.c",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/zutil.c",
+      "sha256": "1279908a15580224a2c1f377555ffdd150327fed71801aa77fc35978dcb741c8",
+      "bytes": 7454
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/components/bridge_zlib/vendor/zlib/zutil.h",
+      "path": "firmware/components/bridge_zlib/vendor/zlib/zutil.h",
+      "sha256": "a12243cc6d338ffad0c8e3500fbc05bc7fdcdc25a469393b1c2f7e5df307fff3",
+      "bytes": 8512
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/main/CMakeLists.txt",
+      "path": "firmware/main/CMakeLists.txt",
+      "sha256": "62e4451f468414a9054fbd9dbc6a001e7bc03b741658d9478c7bc57732112f59",
+      "bytes": 176
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/main/Kconfig.projbuild",
+      "path": "firmware/main/Kconfig.projbuild",
+      "sha256": "35668545a329be88fdd91be61e3b39a5efda9f3a3bfe405046cc6d10a0176467",
+      "bytes": 1541
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/main/main.c",
+      "path": "firmware/main/main.c",
+      "sha256": "e1915b2034695b6c1409b5a4c340ef08025d9e74da673f504f945360a680b148",
+      "bytes": 6788
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/partitions.csv",
+      "path": "firmware/partitions.csv",
+      "sha256": "345bdc57b0f49773e718ef6f3f91a8ad27f5b46cbe462374f131c6d64e1ea5a0",
+      "bytes": 223
+    },
+    {
+      "source": "esp32-iphone-bridge/firmware/sdkconfig.defaults",
+      "path": "firmware/sdkconfig.defaults",
+      "sha256": "badd3c6db7a2b32329b3a46939d4c0c3ff1c2408a1e383877540e7c5bd9c00e7",
+      "bytes": 964
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/generate_fixtures.py",
+      "path": "tests/generate_fixtures.py",
+      "sha256": "bf8d76120b97c3e4efc3bcef89ccad57150c27dc65061ed608566616ad9fae6c",
+      "bytes": 1074
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/network_sim_include/lwip/sys.h",
+      "path": "tests/network_sim_include/lwip/sys.h",
+      "sha256": "b0a5984492c27fe308aeb6dfebde05ae909ad70af7efffe25b5188dab141a030",
+      "bytes": 105
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/reference_source.py",
+      "path": "tests/reference_source.py",
+      "sha256": "8746532f1784a46812d5f07c7bb8741f87707412fbf93829469229b8786d6773",
+      "bytes": 588
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_cdtunnel.c",
+      "path": "tests/test_cdtunnel.c",
+      "sha256": "45aa48e19435f4b833ddae280b6fc7f56e727ada4760e561912cfdf6730d38aa",
+      "bytes": 19375
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_core.c",
+      "path": "tests/test_core.c",
+      "sha256": "8ba5e6125026e2bc04d24bbc8c1e7058590cc6f37cb956c12770f2bc67afe949",
+      "bytes": 7608
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_coredevice_usb.c",
+      "path": "tests/test_coredevice_usb.c",
+      "sha256": "1e3ffc18408c0297b92ab18989582fdda1ec89e11c453a6d871fdd3232f2e8b6",
+      "bytes": 9995
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_hid.py",
+      "path": "tests/test_hid.py",
+      "sha256": "95a325981fe008689c54d9a94841e9d629123e73e2257c4bf9e423c8bd252064",
+      "bytes": 3062
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lockdown_probe.c",
+      "path": "tests/test_lockdown_probe.c",
+      "sha256": "a0952a27d713a3057c6000961d37b7820d5ae1dab45692d14055cc27462b4db5",
+      "bytes": 19606
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lockdown_session.c",
+      "path": "tests/test_lockdown_session.c",
+      "sha256": "51b7ab01714021281cfb80164e185d05393f9ccf37b8296465b3cf296e30a573",
+      "bytes": 26486
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lwip/README.md",
+      "path": "tests/test_lwip/README.md",
+      "sha256": "61ed2a927053e82f54ab39d3e049c1071ee64268ef06073dd264b1015d1bdf47",
+      "bytes": 6217
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lwip/host_protect.c",
+      "path": "tests/test_lwip/host_protect.c",
+      "sha256": "e412f030292acb355b7211efe4a8be3c84e4ba93fb0e724b6aab0de525b08e02",
+      "bytes": 1213
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lwip/lwipopts.h",
+      "path": "tests/test_lwip/lwipopts.h",
+      "sha256": "23ac2c0a1b2339e47bcbb62e89b1bdb7fc08e96416b14d3e80a73a92290b9793",
+      "bytes": 2539
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lwip/port_smoke.c",
+      "path": "tests/test_lwip/port_smoke.c",
+      "sha256": "49e99b6840fafdec39dacc1aa796322bb66f68f78b0c663fa2d3dff877741d75",
+      "bytes": 406
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_lwip/test_lwip.c",
+      "path": "tests/test_lwip/test_lwip.c",
+      "sha256": "65aa09beba789d14b0dbb83ae9c3039226e69a84958abdf8e2d59de1128da9c9",
+      "bytes": 36410
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_media_offer.py",
+      "path": "tests/test_media_offer.py",
+      "sha256": "ed0ea78e42c7a64da856a18f35972988e31199b51c32663d2879e69bd92678d9",
+      "bytes": 6389
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_network.c",
+      "path": "tests/test_network.c",
+      "sha256": "0d3dd09d0080e72d272ff6cffb90a818e8016af5bf83524df77eab74e418b1dd",
+      "bytes": 6203
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_operations.c",
+      "path": "tests/test_operations.c",
+      "sha256": "c27f2c5d94c336fa514d6af4f57b5029b3ae77176bfbea94e3a745b7e6c9d63b",
+      "bytes": 7056
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_remotexpc.c",
+      "path": "tests/test_remotexpc.c",
+      "sha256": "0897f43875ca0671820c8495312d3f2151276e880ea80e496bbeb7d40b67a94d",
+      "bytes": 18605
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_requests.py",
+      "path": "tests/test_requests.py",
+      "sha256": "b19a615ab8e9313407f987a63f047e97ffa60e07294903b34cd1bc69854a6206",
+      "bytes": 9216
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_rsd.c",
+      "path": "tests/test_rsd.c",
+      "sha256": "d0e0999fed56fe8adc7db001eb95b0a0660b21bf85d1770d4ae6065622151282",
+      "bytes": 18237
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_rsd_reference.py",
+      "path": "tests/test_rsd_reference.py",
+      "sha256": "21d788b9950d572366efa74a5f0ae9eef57134f201705af3285e86489fd6613c",
+      "bytes": 8213
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_README.md",
+      "path": "tests/test_tls_README.md",
+      "sha256": "af83584ea3297e86b62066f759d10eeb0f86cd6d732862a29db99352436f529e",
+      "bytes": 6174
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_client.c",
+      "path": "tests/test_tls_client.c",
+      "sha256": "8338fe67d11fdf50909a631329ac9b22f1c69b525d17f9173e413944b1a2b173",
+      "bytes": 12003
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_lockdown.c",
+      "path": "tests/test_tls_lockdown.c",
+      "sha256": "8bd63322795e09329e07f4d392322347ed22a5a7076fc10ca592e828e02ae323",
+      "bytes": 5240
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_lockdown_peer.py",
+      "path": "tests/test_tls_lockdown_peer.py",
+      "sha256": "53e4f530fcef6b4563e99c2855b86c3aa56238cc4381499db3804aa1d1cfa0d1",
+      "bytes": 5192
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_peer.py",
+      "path": "tests/test_tls_peer.py",
+      "sha256": "dbc6d5b3f6cf4a5d97fbc9ce6c31658ffb26f5190a558f5ca49c927ddfd28ecf",
+      "bytes": 6012
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_tls_support.h",
+      "path": "tests/test_tls_support.h",
+      "sha256": "7b22fc272f2f32d693746b285aa142f41c728dcaa163270d65a7510026e6d051",
+      "bytes": 3525
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_usb_descriptors.c",
+      "path": "tests/test_usb_descriptors.c",
+      "sha256": "5fff8d7c091788a89164e2982b7f19d0a9b27edce5633d2acc68495ee925c964",
+      "bytes": 2006
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_usbmux.c",
+      "path": "tests/test_usbmux.c",
+      "sha256": "9a31bcce28c0a83fa7711babb13f1883c8641165318ed08f99177b7e91487f70",
+      "bytes": 26441
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_xpc.c",
+      "path": "tests/test_xpc.c",
+      "sha256": "1a99b925bfd88c7d1cf5e8afe92a604cf2b8f340999abdbff9bb90dc38136c47",
+      "bytes": 14647
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_zlib.c",
+      "path": "tests/test_zlib.c",
+      "sha256": "ca3776067e4b8a2e2da0225da808cb2c61a16fdc7ceed20f4cbe71557259f75c",
+      "bytes": 11101
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_zlib.py",
+      "path": "tests/test_zlib.py",
+      "sha256": "ec4eb7499de9f6bda612400a5029511d6ca8134d900fb5635d8d744e98bbc00e",
+      "bytes": 3684
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_zlib_esp/esp_heap_caps.h",
+      "path": "tests/test_zlib_esp/esp_heap_caps.h",
+      "sha256": "bff0cb9815bb591c371cb4e062239eb3c05b98991f78bffec9ab7977ee0ef05b",
+      "bytes": 484
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/test_zlib_esp.c",
+      "path": "tests/test_zlib_esp.c",
+      "sha256": "c2b06260201ea8d613fbe6fd4ce3b513db98fa4ddb83c2179086f12a14de769d",
+      "bytes": 1637
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/README.md",
+      "path": "tests/upstream_reference/README.md",
+      "sha256": "6a1240d2e6d78e559108cff1c36b3b7dc45d83d646b347cee2105ab36b64bf97",
+      "bytes": 921
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/hid_service.py",
+      "path": "tests/upstream_reference/hid_service.py",
+      "sha256": "33cf97ead6c641a3792769379aba9437037d576f678595928f3704b97bef909b",
+      "bytes": 26485
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/manifest.json",
+      "path": "tests/upstream_reference/manifest.json",
+      "sha256": "b1682db250f38ba319e06881998e94d75fb3f230b55a0f816a89770d6848b255",
+      "bytes": 537
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/media_stream_offer.py",
+      "path": "tests/upstream_reference/media_stream_offer.py",
+      "sha256": "e848f58d9ebf8be010de7d7e37a9bf22fff01fbe0d8d2d8202af61706754f9e7",
+      "bytes": 20727
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/remotexpc.py",
+      "path": "tests/upstream_reference/remotexpc.py",
+      "sha256": "315c118a6846807de1125d3fe61829792b5c07edb8814d0a7d142f610ff37ad8",
+      "bytes": 28295
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/upstream_reference/xpc_message.py",
+      "path": "tests/upstream_reference/xpc_message.py",
+      "sha256": "37fec195c212cca1887074a589de571875ccf1e35ede25c24b2bc0080dbcebb1",
+      "bytes": 10247
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/README.md",
+      "path": "tests/usb_host_sim/README.md",
+      "sha256": "bbd84c8cb23803be7fd89cedb58d8bfcfb8040a50eca10a26be22b622502b7be",
+      "bytes": 3022
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/esp_err.h",
+      "path": "tests/usb_host_sim/include/esp_err.h",
+      "sha256": "d0b57a9b8df1ffa9e387248fa47a7c92a080df7013ee564eb510c3664aff7ef5",
+      "bytes": 515
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/esp_heap_caps.h",
+      "path": "tests/usb_host_sim/include/esp_heap_caps.h",
+      "sha256": "d03ba250dd80b5fce107b528b609d380aa67ba44e96ba255fc1b8a1c5b0976c4",
+      "bytes": 242
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/esp_timer.h",
+      "path": "tests/usb_host_sim/include/esp_timer.h",
+      "sha256": "7e37c5a43954eb43828b307ee2e2231d98b7caf28a841e89e557cb98d9dc0add",
+      "bytes": 101
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/freertos/FreeRTOS.h",
+      "path": "tests/usb_host_sim/include/freertos/FreeRTOS.h",
+      "sha256": "873ac8871d68c6405a5c66fdaef69b37d1b639fde32321a5a12732a40e9ef872",
+      "bytes": 256
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/freertos/task.h",
+      "path": "tests/usb_host_sim/include/freertos/task.h",
+      "sha256": "827300162af29a7d7170c935497600ee18a080c02c8e875f8208e204a7db7e8b",
+      "bytes": 172
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/include/usb/usb_host.h",
+      "path": "tests/usb_host_sim/include/usb/usb_host.h",
+      "sha256": "9964b8a5775dc2791185c3f8a883b226b91f371f10e91dfe237e3fc91a428767",
+      "bytes": 3498
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/test_lifecycle.c",
+      "path": "tests/usb_host_sim/test_lifecycle.c",
+      "sha256": "6c8187d8ecbe85a9a4aef86d265ba9e6ea35a8d958b42f9c1d92a9faca0f038c",
+      "bytes": 22419
+    },
+    {
+      "source": "esp32-iphone-bridge/tests/usb_host_sim/test_protocol_integration.c",
+      "path": "tests/usb_host_sim/test_protocol_integration.c",
+      "sha256": "ce2e77fba724b699489bf8fae9ce02e39acd7601da57376ba7a603a84bd4b7f0",
+      "bytes": 7240
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/build_firmware.sh",
+      "path": "tools/build_firmware.sh",
+      "sha256": "512534096793be2075fdaa13c182d41a456a9e4465fc18991e4c6e97ef56936e",
+      "bytes": 438
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/build_usb_compile_only.sh",
+      "path": "tools/build_usb_compile_only.sh",
+      "sha256": "372d8d9d3847c86be331df32e597efaccb4a5e05cd06760d90c626c61610d3d1",
+      "bytes": 858
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/fetch_reference.sh",
+      "path": "tools/fetch_reference.sh",
+      "sha256": "b1f1a4f3d5bad25d9a3827dacd31a7da96dd4be4f7df68b99ed2abe133caf104",
+      "bytes": 711
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_all.sh",
+      "path": "tools/test_all.sh",
+      "sha256": "439cbff8ca1c1e7e2fc6d252853692417f071cfb9b6a13826ee536fcff1bc403",
+      "bytes": 647
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_cdtunnel.sh",
+      "path": "tools/test_cdtunnel.sh",
+      "sha256": "811fe2eb87da7ec29b31bd2713654520c851f0cd3faf6feab27d17449c0fe1a5",
+      "bytes": 8662
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_coredevice_usb.sh",
+      "path": "tools/test_coredevice_usb.sh",
+      "sha256": "5b4a11da1e833ff896fd51adfbbbddf21e4f906a896dcd3236e7532527ba95e9",
+      "bytes": 756
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_hid.sh",
+      "path": "tools/test_hid.sh",
+      "sha256": "d0684f57b30d7608cd62f5b96990bdaa25db2b77931cb0991e2bad155e3bcc2a",
+      "bytes": 331
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_host.sh",
+      "path": "tools/test_host.sh",
+      "sha256": "190b65706d53534545da9b13945f0019f3ca73255a2aeafabee56812b5d3a965",
+      "bytes": 524
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_lockdown_probe.sh",
+      "path": "tools/test_lockdown_probe.sh",
+      "sha256": "20b78c9e61ff21c20b91eee6a89836716eb7dc8b24a2727d4241037ece8a5184",
+      "bytes": 6332
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_lockdown_session.sh",
+      "path": "tools/test_lockdown_session.sh",
+      "sha256": "d6876aa4a78d98211f359c201afa337b572429fa0e532442ea72a8607b044714",
+      "bytes": 6960
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_lwip.sh",
+      "path": "tools/test_lwip.sh",
+      "sha256": "f6cf90a4e5f0909cc3414c4c09f1ff0cd0780463d3b73b978d5afcc5d4d492b3",
+      "bytes": 2339
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_media_offer.sh",
+      "path": "tools/test_media_offer.sh",
+      "sha256": "8a9756076b8fb641808b65417ab588b34b2735e71b44a7531cd8d8d721e8a574",
+      "bytes": 2376
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_network.sh",
+      "path": "tools/test_network.sh",
+      "sha256": "4bb8a71a84d9dec5ea3150ef4527095da586336b50d2ec3c7fedd1ae3c1a1f09",
+      "bytes": 536
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_operations.sh",
+      "path": "tools/test_operations.sh",
+      "sha256": "c7e76956673201ef3f700294e958f9add9625f4e68e3f5b7453544e878e0642b",
+      "bytes": 1472
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_remotexpc.sh",
+      "path": "tools/test_remotexpc.sh",
+      "sha256": "f004d620708514263a8eac7bb2b879be0262c4f772ef3de89854b18ce9324e68",
+      "bytes": 6003
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_requests.sh",
+      "path": "tools/test_requests.sh",
+      "sha256": "4176a49cb93634c43b389edb507c871320c0959cc94e7ea8b5add8ca5ef7a128",
+      "bytes": 812
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_rsd.sh",
+      "path": "tools/test_rsd.sh",
+      "sha256": "6ec8e0a599749641676a7c5f36c34bb6c29f3269e5a7416ad796166ca22eaf83",
+      "bytes": 646
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_tls.sh",
+      "path": "tools/test_tls.sh",
+      "sha256": "59618e9b0b19a912290aada5fc26a87ebd13bb8d7a0c6d1f272f964bb574eb57",
+      "bytes": 2508
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_usb_descriptors.sh",
+      "path": "tools/test_usb_descriptors.sh",
+      "sha256": "b4b39a493b198ea2b4a4006949e2960b0ad0abd8a905e6b9647b65794206040d",
+      "bytes": 400
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_usb_host_sim.sh",
+      "path": "tools/test_usb_host_sim.sh",
+      "sha256": "f108d80d837b85d2a74c183e3c7159a6ec736c82079834769b08fe61b2f8c7e8",
+      "bytes": 1072
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_usbmux.sh",
+      "path": "tools/test_usbmux.sh",
+      "sha256": "6aa44e4f8f474500e49478388e1bf870e04e641373c1fcf9ff572adfe952ddcb",
+      "bytes": 480
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_xpc.sh",
+      "path": "tools/test_xpc.sh",
+      "sha256": "25ca58075a887f5e1bcff2534e5f5a5d56491522f518defe45f249841875a828",
+      "bytes": 6259
+    },
+    {
+      "source": "esp32-iphone-bridge/tools/test_zlib.sh",
+      "path": "tools/test_zlib.sh",
+      "sha256": "43a383b258683420d5edeb551a0f78c11dbde6ebfa3abd8fc526847ab927bf19",
+      "bytes": 2511
+    },
+    {
+      "source": "ios-agent-app/.gitignore",
+      "path": "ios-app/.gitignore",
+      "sha256": "8d776b63c253d1852ed53f0d7c9bfbed845f31393d0e9f88c4004ef6665879f5",
+      "bytes": 99
+    },
+    {
+      "source": "ios-agent-app/Licenses/LLMProviderKit-MIT.txt",
+      "path": "ios-app/Licenses/LLMProviderKit-MIT.txt",
+      "sha256": "85008e58e16e7df7502c39aa37ce7cca25cba3ddbe2096eedd6970652a546205",
+      "bytes": 1067
+    },
+    {
+      "source": "ios-agent-app/Licenses/SwiftAgentKit-MIT.txt",
+      "path": "ios-app/Licenses/SwiftAgentKit-MIT.txt",
+      "sha256": "85008e58e16e7df7502c39aa37ce7cca25cba3ddbe2096eedd6970652a546205",
+      "bytes": 1067
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Agent/AgentViewModel.swift",
+      "path": "ios-app/PhoneAgent/Agent/AgentViewModel.swift",
+      "sha256": "e22fe23f64ed524d6303fb9fa97b052ae56ee9f7567fb3aabfba31934c6f3599",
+      "bytes": 17024
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Agent/DeviceTools.swift",
+      "path": "ios-app/PhoneAgent/Agent/DeviceTools.swift",
+      "sha256": "8afb4030287e646108e5beaf54389d872f11e05e92c95df2208d3f4e99a11b4c",
+      "bytes": 9344
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Agent/Providers.swift",
+      "path": "ios-app/PhoneAgent/Agent/Providers.swift",
+      "sha256": "fc191df1bfb0411b4c34f7985d497d4ebdfdcc04f3302b3fde9f8eded3cc9120",
+      "bytes": 7845
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/App/ContentView.swift",
+      "path": "ios-app/PhoneAgent/App/ContentView.swift",
+      "sha256": "5f5d5db688c79f67d6dab246815934585215bd509611f15d2afc0e94435b0b06",
+      "bytes": 8100
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/App/PhoneAgentApp.swift",
+      "path": "ios-app/PhoneAgent/App/PhoneAgentApp.swift",
+      "sha256": "60937be2ca4a1355c957bf4a3f8385aa9589cb18d6eb60ba52fd8d3366d3c4bb",
+      "bytes": 575
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/App/SettingsView.swift",
+      "path": "ios-app/PhoneAgent/App/SettingsView.swift",
+      "sha256": "bbb8319bce7e840bbe9cd34c137df3ff79530c3b8cc4449f7564f5e69c5ba371",
+      "bytes": 3479
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Bridge/Bridge.swift",
+      "path": "ios-app/PhoneAgent/Bridge/Bridge.swift",
+      "sha256": "ac373ead2c3ec7bc9c661106f53ce7288776a10b1b1a9d118f421ad8cda57451",
+      "bytes": 290
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Bridge/DemoBridge.swift",
+      "path": "ios-app/PhoneAgent/Bridge/DemoBridge.swift",
+      "sha256": "0977c0678f66364afb7f02f310a84cacaefd7604d63e286fc8cf77a1990137bb",
+      "bytes": 2451
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Bridge/TLSBridge.swift",
+      "path": "ios-app/PhoneAgent/Bridge/TLSBridge.swift",
+      "sha256": "edbcfdcc685aeea0f4d621eae9a74f80f1de1174020e69d01b0a4d65603a31d4",
+      "bytes": 14699
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Bridge/Wire.swift",
+      "path": "ios-app/PhoneAgent/Bridge/Wire.swift",
+      "sha256": "eb91da009e7f7358d30b0c09328467f2abf1579d47c02405c6807eb7490f7535",
+      "bytes": 5702
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Models/Models.swift",
+      "path": "ios-app/PhoneAgent/Models/Models.swift",
+      "sha256": "646b813e1cf1248affcf2b7e87be4c787ec79dc098c5b6280885077260ca9609",
+      "bytes": 2977
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/PrivacyInfo.xcprivacy",
+      "path": "ios-app/PhoneAgent/PrivacyInfo.xcprivacy",
+      "sha256": "adbca54337be30788412a1f1b2dd8084591e7e876cc7dfeb10904b58e578a51e",
+      "bytes": 510
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Security/SecretStore.swift",
+      "path": "ios-app/PhoneAgent/Security/SecretStore.swift",
+      "sha256": "0702d14580a628524801731819608c3f5e325dcce9c7165396fd0ef13ffcfdd2",
+      "bytes": 1878
+    },
+    {
+      "source": "ios-agent-app/PhoneAgent/Storage/TaskStore.swift",
+      "path": "ios-app/PhoneAgent/Storage/TaskStore.swift",
+      "sha256": "680cc3517b5871e0e00d085b73096194ec04d79b977a99bded4da2c5b53fc1fb",
+      "bytes": 1300
+    },
+    {
+      "source": "ios-agent-app/PhoneAgentTests/ProtocolTests.swift",
+      "path": "ios-app/PhoneAgentTests/ProtocolTests.swift",
+      "sha256": "cd55df9f0d77a32b6f57ae06298da19b0ad644a3579c833c246e4b3a0e42d631",
+      "bytes": 3442
+    },
+    {
+      "source": "ios-agent-app/PhoneAgentTests/SafetyTests.swift",
+      "path": "ios-app/PhoneAgentTests/SafetyTests.swift",
+      "sha256": "be75bf64f78e7178708375ab191c6b2f3f0b4f5ed4fc8d9b885dfc9823e87b43",
+      "bytes": 4481
+    },
+    {
+      "source": "ios-agent-app/README.md",
+      "path": "ios-app/README.md",
+      "sha256": "f8b763132357031de269597eb045be24fc5dfd01ba75b7cb3f9c986086697cb1",
+      "bytes": 6308
+    },
+    {
+      "source": "ios-agent-app/SOURCE_MANIFEST.json",
+      "path": "ios-app/SOURCE_MANIFEST.json",
+      "sha256": "657e1fe8636bbf33cc38c966694575919d7f9ec4b59544dc652b8ff5f480ab17",
+      "bytes": 4982
+    },
+    {
+      "source": "ios-agent-app/docs/ARCHITECTURE.md",
+      "path": "ios-app/docs/ARCHITECTURE.md",
+      "sha256": "9b6568bdfa29b2c1ae002487ee6db4a9eb2f7b44a998c70b3328055e896dc731",
+      "bytes": 3340
+    },
+    {
+      "source": "ios-agent-app/docs/BRIDGE_PROTOCOL_V1.md",
+      "path": "ios-app/docs/BRIDGE_PROTOCOL_V1.md",
+      "sha256": "f4e49ca48751a1e20e9ed69e8e06b8ba3fbc74f8d24dbfb9cd89329f238ed6df",
+      "bytes": 7683
+    },
+    {
+      "source": "ios-agent-app/docs/VERIFICATION.md",
+      "path": "ios-app/docs/VERIFICATION.md",
+      "sha256": "bf81f92f3d01256c2c87b4947a333e2c82ace77d775071b7d20c0130370e8270",
+      "bytes": 4422
+    },
+    {
+      "source": "ios-agent-app/fixtures/screenshot-transcript.json",
+      "path": "ios-app/fixtures/screenshot-transcript.json",
+      "sha256": "c1d57ca040c9009a3b8031f5afa5fb86288ea686569ba9ca64ed40a7ff14a395",
+      "bytes": 1300
+    },
+    {
+      "source": "ios-agent-app/fixtures/synthetic-2x2.png",
+      "path": "ios-app/fixtures/synthetic-2x2.png",
+      "sha256": "e3d7ab7c85e9d705046695150bc2959888cc0f72105498b6d210b128b5911610",
+      "bytes": 73
+    },
+    {
+      "source": "ios-agent-app/project.yml",
+      "path": "ios-app/project.yml",
+      "sha256": "88d8ec7281e65e4cf43180d5e0d037107c0c022050b938d22b93dbade7d2b07b",
+      "bytes": 1838
+    },
+    {
+      "source": "ios-agent-app/scripts/check_source.py",
+      "path": "ios-app/scripts/check_source.py",
+      "sha256": "65e19adb667691a9374e628faa9a5759bc19500e02ec258a22a3dabcc6f59a4f",
+      "bytes": 2613
+    },
+    {
+      "source": "ios-agent-app/scripts/package_source.py",
+      "path": "ios-app/scripts/package_source.py",
+      "sha256": "c4d7a0fce4f9f0d4c39d8ff4b1b357042236564817536fffbc321e498ffd009c",
+      "bytes": 1568
+    },
+    {
+      "source": "ios-agent-app/scripts/requirements-qa.txt",
+      "path": "ios-app/scripts/requirements-qa.txt",
+      "sha256": "0c2079693f508d7e0c73c9447e32d7f4e2aee7da60b9c1073198ff5f1f5cfb75",
+      "bytes": 59
+    },
+    {
+      "source": "ios-agent-app/scripts/test_contract.py",
+      "path": "ios-app/scripts/test_contract.py",
+      "sha256": "0cd72dfc6380e1473bec3d33cbf24ad6f98e9c168f12b8f0b7d97d858a801b06",
+      "bytes": 4902
+    }
+  ]
+}

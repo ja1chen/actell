@@ -1,9 +1,6 @@
 research/
 .build/
 device-backups/
-firmware/build/
-firmware/sdkconfig
-firmware/sdkconfig.old
 __pycache__/
 *.pem
 *.key
@@ -14,10 +11,6 @@ __pycache__/
 .env
 .DS_Store
 
-firmware-device/managed_components/
-firmware-device/sdkconfig
-firmware-device/sdkconfig.old
-firmware-device/build/
 
 # Local diagnostics can include device identifiers, network details and host paths.
 # Keep reviewed conclusions in Markdown; retain raw output locally, outside Git.
@@ -37,23 +30,18 @@ firmware-device/build/
 /docs/local-validation/*
 !/docs/local-validation/*.md
 /docs/integration/*.json
-/docs/usb-device/baseline.json
 /ios-app/docs/xcode-validation/
 /ios-app/docs/background-runs/validation.txt
 /ios-app/docs/siri-validation/*.json
 
-# Isolated NCM/CoreDevice experiment; diagnostic bytes and build outputs stay local.
-/ncm-dev/firmware/managed_components/
-/ncm-dev/firmware/sdkconfig*
-!/ncm-dev/firmware/sdkconfig.defaults
-/ncm-dev/firmware/build/
-/ncm-dev/PhoneAgentNCM/.build/
-/ncm-dev/PhoneAgentNCM/.swiftpm/
-/ncm-dev/**/pairing*.plist
-/ncm-dev/**/identity*.plist
-/ncm-dev/**/screen*.png
-/ncm-dev/**/screen*.hevc
-/ncm-dev/rust/target/
+# CoreDevice diagnostics, identities and build outputs stay local.
+/coredevice/swift/.build/
+/coredevice/swift/.swiftpm/
+/coredevice/**/pairing*.plist
+/coredevice/**/identity*.plist
+/coredevice/**/screen*.png
+/coredevice/**/screen*.hevc
+/coredevice/rust/target/
 
 # Keep captured screens and their manifests local; retain app assets and test fixtures.
 /docs/**/*.png
@@ -61,11 +49,11 @@ firmware-device/build/
 /docs/**/*.jpeg
 /ios-app/docs/**/*.png
 /ios-app/docs/**/*.jpg
-/archives/history/**/*.png
-/archives/history/**/*.jpg
-/archives/history/**/*.jpeg
 
-# Removed source bundles and local handoff snapshots.
-/archives/PhoneAgent-iOS-source.zip
-/archives/esp32-iphone-coredevice-protocol-v0.3.tar.gz
+# Local handoff snapshots.
 **/handoffs/
+
+# Device build configuration and downloaded SDK components.
+/devices/esp32/firmware/managed_components/
+/devices/esp32/firmware/sdkconfig*
+/devices/esp32/firmware/build/

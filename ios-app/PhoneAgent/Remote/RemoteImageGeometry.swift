@@ -38,7 +38,7 @@ struct RemoteImageGeometry: Equatable, Sendable, Codable {
             throw RemoteRPCError("coordinate_out_of_bounds", "Coordinates must be integer pixels inside the delivered image")
         }
         // Integer arithmetic, nearest with positive half-ties up. Endpoints stay
-        // endpoints through the existing Wire.normalized dimension-1 mapping.
+        // endpoints through the existing InputCoordinates.normalized dimension-1 mapping.
         func map(_ p: Int, _ original: Int, _ delivered: Int) -> Int {
             (2 * p * (original - 1) + delivered - 1) / (2 * (delivered - 1))
         }

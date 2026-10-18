@@ -1,2 +1,0 @@
-idf_component_register(SRCS "bridge_io.c" "bridge_bplist.c" "bridge_hid.c" "bridge_xpc.c" "bridge_requests.c" "bridge_screenshot_stream.c" "bridge_media_offer.c" "bridge_usbmux.c" "bridge_usb_descriptors.c" "bridge_lockdown_probe.c" "bridge_lockdown_session.c" "bridge_cdtunnel.c" "bridge_remotexpc.c" "bridge_rsd.c" "bridge_operations.c" INCLUDE_DIRS "include")
-target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror -Wconversion -Wshadow)

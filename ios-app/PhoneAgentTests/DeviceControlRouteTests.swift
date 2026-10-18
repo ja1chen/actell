@@ -30,7 +30,7 @@ import XCTest
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(DeviceControlRoute.ncmDeveloper.rawValue, forKey: DeviceControlRoute.defaultsKey)
         let flow = PairingFlow(store: RemotePairRecordStore(url: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)), defaults: defaults)
-        let bridge = try NCMDeviceBridge(flow: flow)
+        let bridge = try CoreDeviceBridge(flow: flow)
         XCTAssertFalse(flow.selectRoute(.vpnLoopback))
         XCTAssertEqual(flow.route, .ncmDeveloper)
         await bridge.stop()
@@ -60,7 +60,7 @@ import XCTest
         XCTAssertFalse(flow.ready); XCTAssertNotEqual(flow.controlSessionID, session)
         XCTAssertEqual(try Data(contentsOf: url), bytes)
         XCTAssertEqual(PairingFlow(store: store, defaults: defaults).vpnConfiguration, flow.vpnConfiguration)
-        let bridge = try NCMDeviceBridge(flow: flow)
+        let bridge = try CoreDeviceBridge(flow: flow)
         XCTAssertThrowsError(try flow.saveVPNConfiguration(localAddress: "10.9.1.1", peerAddress: "10.9.0.1"))
         XCTAssertEqual(flow.vpnConfiguration.localAddress, "10.8.1.1")
         await bridge.stop()

@@ -142,7 +142,6 @@ struct AgentRunServices {
     }
     private let makeRemoteBridge: (@MainActor () throws -> any DeviceBridge)?
     private var bridge: (any DeviceBridge)?
-    private var liveBridge: TLSBridge?
     private var approvalContinuation: CheckedContinuation<Bool, Never>?
     private let limits = AgentLimits()
     private let runServices: AgentRunServices?
@@ -331,15 +330,6 @@ struct AgentRunServices {
         let value = try providers.prepared(draft)
         return try SecretStore.load(value.keyAccount) ?? ""
     }
-    func saveBridgePSK(_ psk: String) {
-        guard !running, !stopping else { return }
-        do {
-            guard psk.count == 64, psk.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) || (65...70).contains($0) }) else { throw AppError.invalid(String(localized: "The legacy Host PSK must be a random 64-character hexadecimal key")) }
-            try SecretStore.save(psk.lowercased(), account: "bridge-psk-v1")
-            status = String(localized: "The legacy Host PSK is saved in the local keychain. USB NCM does not use this key.")
-        } catch { errorMessage = Self.safeError(error) }
-    }
-    func deleteBridgeKey() { stop(); do { try SecretStore.delete("bridge-psk-v1"); status = String(localized: "Bridge key deleted") } catch { errorMessage = error.localizedDescription } }
     func setForeground(_ active: Bool) {
         setScene(active ? .active : .background)
     }
@@ -371,15 +361,15 @@ struct AgentRunServices {
         screenExecutionContext?.setScene(scene)
         lifecycle.setForeground(scene != .background)
         if active { sessions.saveNow(); persist() }
-        // System CPU/network time does not authorize the legacy TLS tools.
-        if !active, screenExecutionContext == nil, !(bridge is NCMDeviceBridge) { bridge?.cancelTransport(); liveBridge?.cancelTransport() }
+        // System CPU/network time does not authorize foreground-only control routes.
+        if !active, screenExecutionContext == nil, !(bridge is CoreDeviceBridge) { bridge?.cancelTransport() }
         // An established USB connection belongs to the App, not the current
         // task or view. Background/lock can revoke input without closing TCP.
         if !active, usbClient != nil, usbConnectionStatus.isReady {
             usbDiagnostics.record("idleUSB.preserved reason=scene_\(scene) inputPermission=\(running)", attempt: usbGeneration)
         }
-        let preserveUSBSetup = !active && canContinueUSBSetup && bridge == nil && liveBridge == nil
-        if !active, !stopping, !running, !preserveUSBSetup, listenerTask != nil || liveBridge != nil {
+        let preserveUSBSetup = !active && canContinueUSBSetup && bridge == nil
+        if !active, !stopping, !running, !preserveUSBSetup, listenerTask != nil {
             stop(message: String(localized: "Foreground connection setup was cancelled. Established USB connections are kept."), interrupted: true)
         }
         if !active, running, approval != nil, !lifecycle.canAwaitApprovalInBackground {
@@ -398,26 +388,6 @@ struct AgentRunServices {
             cancelPreview()
             screenExecutionContext?.revoke()
             if running || usbClient != nil { stop(message: String(localized: "The device is locked or protected data is unavailable. Input has stopped."), interrupted: true) }
-        }
-    }
-    func listen() {
-        guard appOwner.remoteLeaseID == nil else { return }
-        guard !running, !stopping, foreground, listenerTask == nil else { return }
-        let operation = UUID(); listenerGeneration = operation
-        listenerTask = Task { [weak self] in
-            guard let self else { return }
-            defer { if self.listenerGeneration == operation { self.listenerTask = nil } }
-            guard !Task.isCancelled, self.listenerGeneration == operation, self.foreground, !self.running, !self.stopping else { return }
-            do {
-                guard let secret = try SecretStore.load("bridge-psk-v1") else { throw AppError.invalid(String(localized: "Save a separate bridge PSK in Settings first. This is not an iPhone pairing certificate.")) }
-                if self.liveBridge == nil { self.liveBridge = TLSBridge { [weak self] text in Task { @MainActor in self?.bridgeStatus = text } } }
-                guard let selected = self.liveBridge, !Task.isCancelled, self.listenerGeneration == operation, self.foreground else { return }
-                try await selected.listen(pskHex: secret)
-                // stop/background can win while the actor hop is suspended.
-                if Task.isCancelled || self.listenerGeneration != operation || !self.foreground { await selected.stop() }
-            } catch {
-                if self.listenerGeneration == operation, self.foreground, !Task.isCancelled { self.errorMessage = error.localizedDescription }
-            }
         }
     }
     func disconnect() {
@@ -624,11 +594,11 @@ struct AgentRunServices {
                 }
                 switch DeviceControlRoute.current {
                 case .ncmDeveloper, .vpnLoopback:
-                    selectedBridge = try NCMDeviceBridge()
+                    selectedBridge = try CoreDeviceBridge()
                 case .localCaptureUSB:
                     selectedBridge = try LiveDeviceBridgeRouter.make(frames: capture.frames, captureActive: capture.active,
                     usb: usbInput, backgroundEnabled: true,
-                    legacy: liveBridge, usbStatus: appOwner.usbConnectionStatus, diagnostics: usbDiagnostics) { [weak self] reason in
+                    usbStatus: appOwner.usbConnectionStatus, diagnostics: usbDiagnostics) { [weak self] reason in
                         Task { @MainActor in
                             guard self?.generation == token, self?.finishingRun == false else { return }
                             let message = reason == .sessionInvalid ? (self?.screenExecutionContext?.failureMessage ?? reason.message) : reason.message
@@ -660,7 +630,7 @@ struct AgentRunServices {
             errorMessage = String(localized: "The execution checkpoint could not be saved. Execution has not started."); return false
         }
         runIdentity = identity; generation = token; mode = selectedMode; finishingRun = false
-        inputAuthorizationMode = selectedMode == .live && (selectedBridge is USBDeviceBridge || selectedBridge is NCMDeviceBridge) ? .task : .perAction
+        inputAuthorizationMode = selectedMode == .live && (selectedBridge is USBDeviceBridge || selectedBridge is CoreDeviceBridge) ? .task : .perAction
         usbDiagnostics.record("run.authorization mode=\(inputAuthorizationMode.rawValue) fixedDurationLimit=false")
         completedToolIDs = []; pendingScreenshotAssets = [:]; activeActionCallID = nil; activityNavigation = nil; activityHandoffRun = nil
         var record = TaskRecord(goal: query, mode: selectedMode); record.phase = .running
@@ -846,7 +816,6 @@ struct AgentRunServices {
         lifecycle.stop(message: message) // Durable cancel fence before network cancellation.
         runTask?.cancel(); agent?.requestCancel(); provider?.cancel()
         bridge?.cancelTransport()
-        if let liveBridge, (bridge as? TLSBridge) !== liveBridge { liveBridge.cancelTransport() }
         publishActivity(phase == .interrupted ? .interrupted : (phase == .blocked ? .blocked : .stopped))
         if let identity = runIdentity { invalidateApprovals(identity) }
         approvalTimeout?.cancel(); approvalTimeout = nil
@@ -855,7 +824,7 @@ struct AgentRunServices {
         listenerGeneration = UUID(); listenerTask?.cancel()
         let oldListenerTask = listenerTask; listenerTask = nil
         approvalContinuation?.resume(returning: false); approvalContinuation = nil; approval = nil
-        let old = coordinator, oldBridge = bridge, oldLive = liveBridge, oldTask = runTask
+        let old = coordinator, oldBridge = bridge, oldTask = runTask
         let closingUSB = disconnectUSB || usbConnectionStatus.isConnecting ? usbClient : nil
         if closingUSB != nil || usbConnectionStatus.isConnecting {
             usbGeneration = UUID(); usbClient = nil; usbConnectionStatus = .disconnected(message)
@@ -863,7 +832,6 @@ struct AgentRunServices {
         stopping = true
         Task {
             if let old { await old.stop() } else { await oldBridge?.stop() }
-            if let oldLive, (oldBridge as? TLSBridge) !== oldLive { await oldLive.stop() }
             await closingUSB?.disconnect()
             await oldListenerTask?.value
             await oldTask?.value
@@ -871,7 +839,6 @@ struct AgentRunServices {
         }
         if running { mutate { $0.phase = phase; $0.log(message) } }
         running = false; status = message; latestFrame = nil; agent = nil; provider = nil; coordinator = nil; bridge = nil
-        // The listener is also foreground-only, even if no agent run is active.
 
     }
     func approve(_ approved: Bool) {
@@ -1244,11 +1211,11 @@ extension AgentViewModel {
             else {
                 switch DeviceControlRoute.current {
                 case .ncmDeveloper, .vpnLoopback:
-                    do { selectedBridge = try NCMDeviceBridge(remoteExclusive: true, connectionDiagnostic: { [weak self] stage in
+                    do { selectedBridge = try CoreDeviceBridge(remoteExclusive: true, connectionDiagnostic: { [weak self] stage in
                         guard let self else { return }
                         self.museDiagnostics.record(stage, run: remoteID, state: self.remoteAdmissionSnapshot)
                     }) }
-                    catch let error as NCMRemoteAdmissionError { throw RemoteRPCError(error.code, error.localizedDescription) }
+                    catch let error as CoreDeviceAdmissionError { throw RemoteRPCError(error.code, error.localizedDescription) }
                 case .localCaptureUSB:
                     throw RemoteRPCError("unsupported_route", String(localized: "Muse control requires VPN loopback or ESP32 NCM."))
                 }

@@ -3,21 +3,21 @@ import SwiftUI
 import BackgroundTasks
 import Observation
 
-enum NCMControlError: Error { case unavailable(String), stopped }
+enum CoreDeviceControlError: Error { case unavailable(String), stopped }
 
 @MainActor @Observable final class PairingFlow: NSObject, @preconcurrency NetServiceDelegate {
     static let shared = PairingFlow()
-    static let taskID = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent.NCMProbe") + ".pairing"
+    static let taskID = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".pairing"
     private let pairing = RemotePairingSession()
     private let backend = NativeDeveloperServices()
-    private let client = NCMProbeClient()
+    private let client = NCMDiagnosticClient()
     private let localDiscovery = LocalVPNDiscovery()
     private(set) var route: DeviceControlRoute
     private let defaults: UserDefaults
     private static let vpnConfigurationKey = "vpnLoopbackConfiguration"
     private(set) var vpnConfiguration: VPNLoopbackConfiguration
     func saveVPNConfiguration(localAddress: String, peerAddress: String) throws {
-        guard canChangeRoute else { throw NCMControlError.unavailable(String(localized: "Stop the current control task before changing the connection settings")) }
+        guard canChangeRoute else { throw CoreDeviceControlError.unavailable(String(localized: "Stop the current control task before changing the connection settings")) }
         let configuration = try VPNLoopbackConfiguration(localAddress: localAddress, peerAddress: peerAddress)
         guard configuration != vpnConfiguration else { return }
         cancel()
@@ -221,7 +221,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     func connectIfNeeded() throws {
         hasRecord = store.exists
         if ready || pairingActive { return }
-        guard hasRecord else { throw NCMControlError.unavailable(String(localized: "Complete system pairing in Settings → Phone control → Connection and verification first")) }
+        guard hasRecord else { throw CoreDeviceControlError.unavailable(String(localized: "Complete system pairing in Settings → Phone control → Connection and verification first")) }
         if !running && !agentReserved { verify() }
     }
     func verify() {
@@ -258,7 +258,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
-                        throw NCMControlError.unavailable(String(localized: "Phone service not found. Check the ESP32 connection."))
+                        throw CoreDeviceControlError.unavailable(String(localized: "Phone service not found. Check the ESP32 connection."))
                     }
                     message = String(localized: "Verifying identity and opening the developer tunnel through ESP32")
                     try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint)
@@ -331,35 +331,35 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     /// A task pins one authenticated session. Reconnect never silently substitutes
     /// another generation; diagnostics and task traffic share the operation gate.
     func agentOperation<T>(owner: UUID, session: UUID, action: (NativeDeveloperServices) async throws -> T) async throws -> T {
-        guard ready, controlSessionID == session else { throw NCMControlError.unavailable(String(localized: "Phone control is not connected. Connect in Settings → Phone control → Connection and verification.")) }
+        guard ready, controlSessionID == session else { throw CoreDeviceControlError.unavailable(String(localized: "Phone control is not connected. Connect in Settings → Phone control → Connection and verification.")) }
         if agentOwner != owner {
             if !agentQueue.contains(owner) { agentQueue.append(owner) }
             defer { agentQueue.removeAll { $0 == owner } }
             while running || agentOwner != nil || agentQueue.first != owner {
                 try Task.checkCancellation()
-                guard ready, controlSessionID == session, agentRuns.contains(owner) else { throw NCMControlError.stopped }
+                guard ready, controlSessionID == session, agentRuns.contains(owner) else { throw CoreDeviceControlError.stopped }
                 try await Task.sleep(for: .milliseconds(25))
             }
         }
         try Task.checkCancellation()
-        guard ready, controlSessionID == session, agentRuns.contains(owner) else { throw NCMControlError.stopped }
+        guard ready, controlSessionID == session, agentRuns.contains(owner) else { throw CoreDeviceControlError.stopped }
         agentOwner = owner
         running = true
         defer { if controlSessionID == session { running = false } }
         do {
             while maintenanceBusy {
                 try await Task.sleep(for: .milliseconds(10))
-                guard ready, controlSessionID == session, agentOwner == owner else { throw NCMControlError.stopped }
+                guard ready, controlSessionID == session, agentOwner == owner else { throw CoreDeviceControlError.stopped }
             }
             try Task.checkCancellation()
-            guard ready, controlSessionID == session, agentOwner == owner else { throw NCMControlError.stopped }
+            guard ready, controlSessionID == session, agentOwner == owner else { throw CoreDeviceControlError.stopped }
             let value = try await action(backend)
             try Task.checkCancellation()
-            guard ready, controlSessionID == session, agentOwner == owner else { throw NCMControlError.stopped }
+            guard ready, controlSessionID == session, agentOwner == owner else { throw CoreDeviceControlError.stopped }
             lastFailure = nil
             return value
         } catch {
-            guard controlSessionID == session else { throw NCMControlError.stopped }
+            guard controlSessionID == session else { throw CoreDeviceControlError.stopped }
             if let geometry = error as? NativeInputGeometryError {
                 BackgroundExecutionTrace.record("input.geometry.failed reason=\(geometry.reason.rawValue) stage=\(geometry.stage) cause=\(geometry.cause) connectionRetained=true")
                 message = String(localized: "Could not verify the current screen layout. No input was sent.")
@@ -368,20 +368,20 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             }
             if case NativeBackendError.touchPreparationFailure = error {
                 mediaStarted = false; message = String(localized: "\(failure(error)). No input was sent."); lastFailure = message
-                throw NCMControlError.unavailable(message)
+                throw CoreDeviceControlError.unavailable(message)
             }
             if case NativeBackendError.screenshotFailure(let stage, let cause) = error {
                 BackgroundExecutionTrace.record("screenshot.failed stage=\(stage) cause=\(cause) connectionRetained=true")
                 message = failure(error)
                 lastFailure = message
-                throw NCMControlError.unavailable(message)
+                throw CoreDeviceControlError.unavailable(message)
             }
             if case NativeBackendError.applicationQueryFailure(let stage, let cause) = error {
                 BackgroundExecutionTrace.record("apps.query.failed stage=\(stage) cause=\(cause)")
-                throw NCMControlError.unavailable(String(localized: "Could not list installed apps. Try again later."))
+                throw CoreDeviceControlError.unavailable(String(localized: "Could not list installed apps. Try again later."))
             }
-            if error is CancellationError || (error as? NCMControlError) != nil {
-                cancel(); throw NCMControlError.stopped
+            if error is CancellationError || (error as? CoreDeviceControlError) != nil {
+                cancel(); throw CoreDeviceControlError.stopped
             }
             if case NativeBackendError.protocolFailure(let stage, let cause) = error {
                 BackgroundExecutionTrace.record("control.operation.failed stage=\(stage) cause=\(cause) connectionRetained=false")
@@ -391,7 +391,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             message = String(localized: "\(failure(error)); reconnect to \(route.connectionName)"); lastFailure = message
             stopHeartbeat(); ready = false; mediaStarted = false; backend.close()
             invalidateAgentSession(); running = false
-            throw NCMControlError.unavailable(message)
+            throw CoreDeviceControlError.unavailable(message)
         }
     }
     func prepareAgentInput(_ services: NativeDeveloperServices) async throws {
@@ -549,7 +549,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         }
     }
     private func failure(_ error: Error) -> String {
-        if case NCMControlError.unavailable(let message) = error { return message }
+        if case CoreDeviceControlError.unavailable(let message) = error { return message }
         if let vpnError = error as? LocalVPNError {
             switch vpnError {
             case .inactive: return String(localized: "VPN interface \(vpnConfiguration.localAddress) was not found. Check that VPN is on and its addresses are correct.")
@@ -590,9 +590,9 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     /// scheduler; logs state/dimensions. The additional input-probe flag saves
     /// three local verification images for the reversible Home-screen swipe.
     func runBackgroundProbeIfRequested(pip: StatusPiPController? = nil) async {
-        guard (ProcessInfo.processInfo.arguments.contains("--ncm-background-probe") || pip != nil), !backgroundProbeStarted else { return }
+        guard (ProcessInfo.processInfo.arguments.contains("--coredevice-background-probe") || pip != nil), !backgroundProbeStarted else { return }
         backgroundProbeStarted = true
-        let url = URL.documentsDirectory.appending(path: "ncm-background-probe.txt")
+        let url = URL.documentsDirectory.appending(path: "coredevice-background-probe.txt")
         var lines: [String] = []
         func record(_ value: String) {
             lines.append("\(Date().ISO8601Format()) \(value)")
@@ -612,14 +612,14 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         let identifier = (Bundle.main.bundleIdentifier ?? "com.ja1chen.PhoneAgent") + ".backgroundRun." + UUID().uuidString
         var lease: (any RunBackgroundLease)?
         var expired = false
-        var activeBridge: NCMDeviceBridge?
+        var activeBridge: CoreDeviceBridge?
         do {
             try scheduler.submit(identifier: identifier, launched: { grant in
                 lease = grant
                 grant.expirationHandler = { expired = true; activeBridge?.cancelTransport(); record("execution expired") }
             })
             if pip != nil { record("PiP-only acceptance active=\(pip?.active == true); combined lease=\(lease != nil); no system execution lease requested") }
-            let bridge = try NCMDeviceBridge(flow: self)
+            let bridge = try CoreDeviceBridge(flow: self)
             activeBridge = bridge
             defer { lease?.complete(success: !expired); scheduler.cancel(identifier: identifier) }
             do {
@@ -639,15 +639,15 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     let frame = try await bridge.screenshot()
                     record("capture \(step) background=\(isBackground) ready=\(ready) \(frame.width)x\(frame.height) bytes=\(frame.png.count) elapsed=\(start.duration(to: .now))")
                     lease?.report(completed: step, subtitle: String(localized: "Background screenshot verification \(step)/3"))
-                    if step == 1 && ProcessInfo.processInfo.arguments.contains("--ncm-background-input-probe") {
-                        try frame.png.write(to: URL.documentsDirectory.appending(path: "ncm-input-before.png"))
+                    if step == 1 && ProcessInfo.processInfo.arguments.contains("--coredevice-background-input-probe") {
+                        try frame.png.write(to: URL.documentsDirectory.appending(path: "coredevice-input-before.png"))
                         try await bridge.authorizeTaskInput(imageID: frame.id)
                         try await bridge.drag(fromX: 52428, fromY: 32768, toX: 13107, toY: 32768, durationMS: 300, imageID: frame.id)
                         record("background swipe-left reports written")
                         lease?.report(completed: step + 1, subtitle: String(localized: "Background swipe sent. Checking the screen."))
                         try await Task.sleep(for: .seconds(1))
                         let changed = try await bridge.screenshot()
-                        try changed.png.write(to: URL.documentsDirectory.appending(path: "ncm-input-after.png"))
+                        try changed.png.write(to: URL.documentsDirectory.appending(path: "coredevice-input-after.png"))
                         lease?.report(completed: step + 2, subtitle: String(localized: "Screenshot received after swiping. Restoring the Home Screen."))
                         try await bridge.authorizeTaskInput(imageID: changed.id)
                         try await bridge.drag(fromX: 13107, fromY: 32768, toX: 52428, toY: 32768, durationMS: 300, imageID: changed.id)
@@ -655,7 +655,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                         lease?.report(completed: step + 3, subtitle: String(localized: "Restore swipe sent. Checking the Home Screen."))
                         try await Task.sleep(for: .seconds(1))
                         let restored = try await bridge.screenshot()
-                        try restored.png.write(to: URL.documentsDirectory.appending(path: "ncm-input-restored.png"))
+                        try restored.png.write(to: URL.documentsDirectory.appending(path: "coredevice-input-restored.png"))
                         record("background swipe verification images saved")
                         record("complete"); break
                     }

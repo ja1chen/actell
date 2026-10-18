@@ -181,10 +181,10 @@ The existing eight-second fresh-frame bound and sender-confirmation/geometry rul
 
 - [RemoteToolsService.swift](../../ios-app/PhoneAgent/Remote/RemoteToolsService.swift): authenticated RPC, durable call state, ownership and cached-image access.
 - [RemoteToolRuntime.swift](../../ios-app/PhoneAgent/Remote/RemoteToolRuntime.swift): shared execution lifecycle and action dispatch without Agent sessions.
-- [NCMDeviceBridge.swift](../../ios-app/PhoneAgent/Bridge/NCMDeviceBridge.swift): control recovery, session ownership and geometry/dispatch fences.
+- [CoreDeviceBridge.swift](../../ios-app/PhoneAgent/Bridge/CoreDeviceBridge.swift): control recovery, session ownership and geometry/dispatch fences.
 - [RemoteImageGeometry.swift](../../ios-app/PhoneAgent/Remote/RemoteImageGeometry.swift): coordinate mapping, thumbnails and protected cache.
 - [RunExecutionScheduler.swift](../../ios-app/PhoneAgent/Background/RunExecutionScheduler.swift): shared background execution demands.
-- [RemoteImageGeometryTests.swift](../../ios-app/PhoneAgentTests/RemoteImageGeometryTests.swift), [RemoteToolRuntimeTests.swift](../../ios-app/PhoneAgentTests/RemoteToolRuntimeTests.swift), [SimpleLANRPCTests.swift](../../ios-app/PhoneAgentTests/SimpleLANRPCTests.swift) and [NCMDeviceBridgeTests.swift](../../ios-app/PhoneAgentTests/NCMDeviceBridgeTests.swift): cache, RPC, background, connection recovery and one-use input regressions.
+- [RemoteImageGeometryTests.swift](../../ios-app/PhoneAgentTests/RemoteImageGeometryTests.swift), [RemoteToolRuntimeTests.swift](../../ios-app/PhoneAgentTests/RemoteToolRuntimeTests.swift), [SimpleLANRPCTests.swift](../../ios-app/PhoneAgentTests/SimpleLANRPCTests.swift) and [CoreDeviceBridgeTests.swift](../../ios-app/PhoneAgentTests/CoreDeviceBridgeTests.swift): cache, RPC, background, connection recovery and one-use input regressions.
 - [RemoteTransportTraceTests.swift](../../ios-app/PhoneAgentTests/RemoteTransportTraceTests.swift): controlled send/EOF ordering, deadlines, cancellation, pipelining, retained handler slots and synthetic TLS image transfers with slow reads and connection-capacity checks.
 - [iOS validation instructions](../../ios-app/README.md) and [diagnostics](DIAGNOSTICS.md): build/test and structured error/release correlation workflows.
 

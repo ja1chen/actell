@@ -76,15 +76,13 @@ enum LiveDeviceBridgeRouter {
         let supportsHID: Bool
     }
     static func make(frames: LatestScreenFrame, captureActive: Bool,
-                     usb: USBInput?, backgroundEnabled: Bool, legacy: (any DeviceBridge)? = nil,
+                     usb: USBInput?, backgroundEnabled: Bool,
                      usbStatus: USBConnectionStatus = .idle, diagnostics: USBDiagnosticsLog? = nil,
                      onLoss: @escaping @Sendable (USBBridgeStopReason) -> Void = { _ in }) throws -> any DeviceBridge {
         func record(_ route: String, reason: String) {
             diagnostics?.record("run.route selected=\(route) reason=\(reason) usbState=\(usbStatus.diagnosticState) hasClient=\(usb != nil) captureActive=\(captureActive) backgroundEnabled=\(backgroundEnabled)")
         }
         guard captureActive else {
-            // The explicitly started legacy Host service remains available.
-            if usb == nil, let legacy { record("legacy", reason: "explicitLegacyService"); return legacy }
             record("unavailable", reason: "captureNotActive")
             return UnavailableBridge()
         }

@@ -94,7 +94,7 @@ struct ESP32ControlSettingsView: View {
             localAddress = flow.vpnConfiguration.localAddress
             peerAddress = flow.vpnConfiguration.peerAddress
             error = nil; editing = nil
-        } catch let failure as NCMControlError {
+        } catch let failure as CoreDeviceControlError {
             if case .unavailable(let message) = failure { error = message }
         } catch {
             self.error = String(localized: "Enter two different, valid IPv4 addresses")

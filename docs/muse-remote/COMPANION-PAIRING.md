@@ -3,7 +3,7 @@
 The normative wire contract is [SLAN-1.md](SLAN-1.md), SHA256
 `d1ecce424490d4f8e7ea3dc927619f04b7c3fe8b9b522ee2dcacd286c23cee75`.
 This channel is independent of official Muse account/device setup. Credentials are
-not official Muse tokens. See [implementation and validation](SLAN-IMPLEMENTATION.md).
+not official Muse tokens. See [implementation and validation](VALIDATION.md).
 
 ## User flow
 

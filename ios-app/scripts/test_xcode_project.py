@@ -23,6 +23,34 @@ def parse(text):
 
 
 class ProjectGenerationTests(unittest.TestCase):
+    def test_defaults_generates_defaults_even_with_invalid_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "ios-app"
+            root.mkdir()
+            with patch.object(generator, "ROOT", root), contextlib.redirect_stdout(io.StringIO()):
+                with patch.dict(os.environ, {}, clear=True):
+                    generator.objects.clear()
+                    generator.main([])
+                    expected = (root / "PhoneAgent.xcodeproj/project.pbxproj").read_text()
+                overrides = {"ACTELL_BUNDLE_ID_PREFIX": "invalid bundle id", "ACTELL_DEVELOPMENT_TEAM": "ABCDE12345"}
+                with patch.dict(os.environ, overrides):
+                    for flag in ("-d", "--defaults"):
+                        with self.subTest(flag=flag):
+                            generator.objects.clear()
+                            generator.main([flag])
+                            self.assertEqual({key: os.environ[key] for key in overrides}, overrides)
+                            self.assertEqual((root / "PhoneAgent.xcodeproj/project.pbxproj").read_text(), expected)
+                actual = (root / "PhoneAgent.xcodeproj/project.pbxproj").read_text()
+                self.assertEqual(actual, expected)
+                settings = [obj["buildSettings"] for obj in parse(actual)["objects"].values()
+                            if obj["isa"] == "XCBuildConfiguration" and "PRODUCT_BUNDLE_IDENTIFIER" in obj["buildSettings"]]
+                self.assertEqual(len(settings), 8)
+                self.assertTrue(all(setting["DEVELOPMENT_TEAM"] == "" for setting in settings))
+                self.assertEqual({setting["PRODUCT_BUNDLE_IDENTIFIER"] for setting in settings}, {
+                    "com.ja1chen.PhoneAgent", "com.ja1chen.PhoneAgent.LiveActivity",
+                    "com.ja1chen.PhoneAgentTests", "com.ja1chen.PhoneAgentUITests",
+                })
+
     def test_xcode_saved_layout_round_trips_without_text_changes(self):
         project = ROOT / "PhoneAgent.xcodeproj/project.pbxproj"
         source = project.read_text()

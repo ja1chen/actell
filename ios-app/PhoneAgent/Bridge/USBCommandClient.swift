@@ -39,7 +39,7 @@ final class USBDiagnosticsLog: @unchecked Sendable {
         OS=\(ProcessInfo.processInfo.operatingSystemVersionString) runtime=\(runtime)
         SDK=\(value("DTSDKName")) XcodeBuild=\(value("DTXcodeBuild"))
         localNetworkUsageDescriptionPresent=\(!purpose.isEmpty && purpose != "unknown") (not permission status)
-        target=192.168.7.1:28766 expectedPhone=192.168.7.2/24 binding=explicitInterfaceFromLocalIPv4 peerToPeer=false protocol=PA3 noPSK
+        target=192.168.7.1:28766 expectedPhone=192.168.7.2/24 binding=explicitInterfaceFromLocalIPv4 peerToPeer=false protocol=usb-input noPSK
         Times are UTC plus monotonic elapsed seconds. Copy buffer is process-local; events also appear in OSLog category USBNetwork.
         Interface inventory shows USB-subnet/link-local IPv4; other IPs are redacted. No MAC/SSID/IPv6 or command/screen/model payloads.
         Default/wired path monitors describe system paths, not proof of USB TCP reachability.
@@ -240,7 +240,7 @@ enum USBConnectionStatus: Equatable {
         case .idle: return String(localized: "USB not connected")
         case .connecting: return String(localized: "Connecting to USB device 192.168.7.1:28766…")
         case .waiting(let reason): return String(localized: "Waiting for the USB network (up to 30 seconds): \(reason)")
-        case .awaitingGreeting: return String(localized: "USB TCP connected. Waiting for a PA3 response…")
+        case .awaitingGreeting: return String(localized: "USB connected. Waiting for the device to respond…")
         case .checking: return String(localized: "Device response received. Verifying two-way PING…")
         case .ready(let hid): return hid ? String(localized: "USB NCM + HID connected without PSK. The connection stays open between tasks. Tapping and dragging are available after starting a task.") : String(localized: "USB NCM two-way PING verified without PSK. HID is disabled in this firmware.")
         case .failed(let message): return String(localized: "USB connection failed: \(message)")
@@ -285,13 +285,13 @@ enum USBWire {
         if phase == "cancelled" { return true }
         throw needsReceipt ? AppError.unknownOutcome : AppError.protocolViolation(String(localized: "USB acknowledgment phase mismatch"))
     }
-    // PA3 deliberately has no identity authentication or encryption. Never
-    // silently interpret a PA1 challenge/LOCKED response as a usable session.
+    // The USB input protocol has no identity authentication or encryption. Never
+    // silently interpret an older authentication challenge as a usable session.
     static func supportsHID(_ greeting: String) throws -> Bool {
         switch greeting {
         case "PA3 READY 0": return false
         case "PA3 READY 1": return true
-        default: throw AppError.protocolViolation(String(localized: "USB protocol mismatch. The app and firmware must both use PA3 without PSK."))
+        default: throw AppError.protocolViolation(String(localized: "The USB firmware is incompatible with this app. Update the firmware and try again."))
         }
     }
     static func parseACK(_ line: String) throws -> (id: UInt64, phase: String) {
@@ -476,7 +476,7 @@ actor USBCommandClient: USBConnectionSession {
         case .ready:
             guard !tcpReady else { return }
             tcpReady = true; lastWaitingError = nil
-            diagnostics.record("tcp.ready; PA3 greeting deadline started", attempt: token)
+            diagnostics.record("tcp.ready; USB control greeting deadline started", attempt: token)
             onProgress(.awaitingGreeting)
             receive(token)
             timeout(token, id: nil, seconds: 3)
@@ -600,7 +600,7 @@ actor USBCommandClient: USBConnectionSession {
         receivedLines += 1
         if !ready {
             supportsHID = try USBWire.supportsHID(line); ready = true
-            diagnostics.record("greeting.valid protocol=PA3 hid=\(supportsHID)", attempt: token)
+            diagnostics.record("greeting.valid protocol=usb-input hid=\(supportsHID)", attempt: token)
             connectWaiter?.resume(); connectWaiter = nil; return
         }
         let (id, phase) = try USBWire.parseACK(line)
@@ -634,7 +634,7 @@ actor USBCommandClient: USBConnectionSession {
             fail(USBWire.receiptTimeout(isPing: request.isPing, inputInFlight: pending.values.contains { $0.needsReceipt }))
         } else if id == nil, !ready {
             diagnostics.record("timeout.greeting 3s receivedBytes=\(receivedBytes)", attempt: token)
-            fail(.unavailable(String(localized: "TCP connected, but no PA3 response was received from the USB device within 3 seconds. Check the firmware version. \(USBWire.pathDetails(lastPath))")))
+            fail(.unavailable(String(localized: "The USB device did not respond in time. Check the connection and firmware, then try again.")))
         }
     }
     private func transportFailed(_ token: UUID, error: NWError?) {

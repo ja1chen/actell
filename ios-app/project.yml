@@ -31,7 +31,7 @@ targets:
     sources:
       - PhoneAgent
       - Shared
-      - ../ncm-dev/PhoneAgentNCM/Sources/PhoneAgentNCM
+      - ../coredevice/swift/Sources/CoreDeviceBackend
       - path: Licenses
         type: folder
         buildPhase: resources
@@ -39,10 +39,10 @@ targets:
       base:
         ARCHS: arm64
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include']
-        OTHER_LDFLAGS: ['$(inherited)', '-lphoneagent_ncm_backend', '-framework', 'Security', '-framework', 'SystemConfiguration']
-        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release']
-        'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release']
+        HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
+        OTHER_LDFLAGS: ['$(inherited)', '-lcoredevice_backend', '-framework', 'Security', '-framework', 'SystemConfiguration']
+        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios/release']
+        'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios-sim/release']
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent
         INFOPLIST_FILE: PhoneAgent/Info.plist
@@ -56,7 +56,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: '1,2'
     preBuildScripts:
-      - name: Build NCM backend
+      - name: Build CoreDevice backend
         basedOnDependencyAnalysis: false
         script: |
           case "$PLATFORM_NAME" in
@@ -64,7 +64,7 @@ targets:
             iphonesimulator) mode=simulator ;;
             *) exit 1 ;;
           esac
-          bash "$SRCROOT/../tools/build_ncm_rust.sh" "$mode"
+          bash "$SRCROOT/../tools/build_coredevice_rust.sh" "$mode"
     dependencies:
       - target: PhoneAgentLiveActivity
         embed: true
@@ -93,7 +93,7 @@ targets:
     sources: [PhoneAgentTests]
     settings:
       base:
-        HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include']
+        HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
     dependencies:
       - target: PhoneAgent
       - package: SwiftAgentKit

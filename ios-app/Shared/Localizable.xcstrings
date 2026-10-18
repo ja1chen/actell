@@ -6454,19 +6454,19 @@
         }
       }
     },
-    "Invalid NCM screenshot format": {
+    "Invalid screenshot format": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid NCM screenshot format"
+            "value": "Invalid screenshot format"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "NCM 截图格式无效"
+            "value": "截图格式无效"
           }
         }
       }
@@ -6773,23 +6773,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在启动 App"
-          }
-        }
-      }
-    },
-    "Listening for a TLS-PSK bridge connection. Firmware v0.3 does not support this connection yet.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listening for a TLS-PSK bridge connection. Firmware v0.3 does not support this connection yet."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TLS-PSK 监听中；等待真实桥接握手（固件 v0.3 尚未实现此通道）"
           }
         }
       }
@@ -10638,23 +10621,6 @@
         }
       }
     },
-    "Save a separate bridge PSK in Settings first. This is not an iPhone pairing certificate.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save a separate bridge PSK in Settings first. This is not an iPhone pairing certificate."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请先在设置中保存独立桥接 PSK；不是 iPhone 配对证书"
-          }
-        }
-      }
-    },
     "Save a task draft and open Zhiyan for confirmation. This does not start the agent.": {
       "extractionState": "manual",
       "localizations": {
@@ -12763,23 +12729,6 @@
         }
       }
     },
-    "TCP connected, but no PA3 response was received from the USB device within 3 seconds. Check the firmware version. %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TCP connected, but no PA3 response was received from the USB device within 3 seconds. Check the firmware version. %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TCP 已接通，但 3 秒内未收到 USB 设备的 PA3 应答。请检查固件版本。%@"
-          }
-        }
-      }
-    },
     "temperature must be between 0 and 2 for this protocol": {
       "extractionState": "manual",
       "localizations": {
@@ -13269,23 +13218,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "桥接后端未就绪，或协议 / 能力 / 限制不匹配"
-          }
-        }
-      }
-    },
-    "The bridge PSK must be a random 32-byte key from a trusted source (64 hexadecimal characters)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge PSK must be a random 32-byte key from a trusted source (64 hexadecimal characters)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接 PSK 必须是可信来源生成的 32 字节随机密钥（64 位十六进制）"
           }
         }
       }
@@ -13966,40 +13898,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近操作未成功"
-          }
-        }
-      }
-    },
-    "The legacy Host PSK is saved in the local keychain. USB NCM does not use this key.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The legacy Host PSK is saved in the local keychain. USB NCM does not use this key."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "旧 Host PSK 已保存到本机钥匙串；USB NCM 不使用此密钥"
-          }
-        }
-      }
-    },
-    "The legacy Host PSK must be a random 64-character hexadecimal key": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The legacy Host PSK must be a random 64-character hexadecimal key"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "旧 Host PSK 需为 64 位十六进制随机密钥"
           }
         }
       }
@@ -16860,23 +16758,6 @@
         }
       }
     },
-    "USB protocol mismatch. The app and firmware must both use PA3 without PSK.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "USB protocol mismatch. The app and firmware must both use PA3 without PSK."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "USB 协议不匹配；App 和固件均需 PA3 免 PSK 版本"
-          }
-        }
-      }
-    },
     "USB request limit reached": {
       "extractionState": "manual",
       "localizations": {
@@ -16907,23 +16788,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "USB 回复过长"
-          }
-        }
-      }
-    },
-    "USB TCP connected. Waiting for a PA3 response…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "USB TCP connected. Waiting for a PA3 response…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "USB TCP 已接通，等待设备 PA3 应答…"
           }
         }
       }
@@ -21364,6 +21228,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "处理"
+          }
+        }
+      }
+    },
+    "USB connected. Waiting for the device to respond…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB connected. Waiting for the device to respond…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB 已连接，正在等待设备响应…"
+          }
+        }
+      }
+    },
+    "The USB firmware is incompatible with this app. Update the firmware and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The USB firmware is incompatible with this app. Update the firmware and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB 固件与此 App 不兼容。请更新固件后重试。"
+          }
+        }
+      }
+    },
+    "The USB device did not respond in time. Check the connection and firmware, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The USB device did not respond in time. Check the connection and firmware, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB 设备未及时响应。请检查连接和固件后重试。"
           }
         }
       }

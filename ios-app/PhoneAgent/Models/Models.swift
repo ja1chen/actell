@@ -30,7 +30,7 @@ struct TaskRecord: Identifiable, Codable {
 }
 struct FrameImage: Sendable {
     let id: String
-    // Retained property name for the original PNG route; NCM video emits JPEG.
+    // Retained property name for the original PNG route; CoreDevice video emits JPEG.
     let png: Data
     var mimeType: String { png.starts(with: [0xff, 0xd8, 0xff]) ? "image/jpeg" : "image/png" }
     let width: Int

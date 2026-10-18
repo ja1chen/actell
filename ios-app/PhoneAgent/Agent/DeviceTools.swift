@@ -165,12 +165,12 @@ actor ActionCoordinator {
             }
             let x = coordinateAction ? try integer(p, name == "tap" ? "x" : "from_x") : 0
             let y = coordinateAction ? try integer(p, name == "tap" ? "y" : "from_y") : 0
-            let nx = independent ? try display!.normalized(x) : coordinateAction ? try Wire.normalized(pixel: x, dimension: frame!.width) : 0
-            let ny = independent ? try display!.normalized(y) : coordinateAction ? try Wire.normalized(pixel: y, dimension: frame!.height) : 0
+            let nx = independent ? try display!.normalized(x) : coordinateAction ? try InputCoordinates.normalized(pixel: x, dimension: frame!.width) : 0
+            let ny = independent ? try display!.normalized(y) : coordinateAction ? try InputCoordinates.normalized(pixel: y, dimension: frame!.height) : 0
             var tx = 0, ty = 0, duration = 0
             if name == "drag" {
-                tx = independent ? try display!.normalized(integer(p, "to_x")) : try Wire.normalized(pixel: integer(p, "to_x"), dimension: frame!.width)
-                ty = independent ? try display!.normalized(integer(p, "to_y")) : try Wire.normalized(pixel: integer(p, "to_y"), dimension: frame!.height)
+                tx = independent ? try display!.normalized(integer(p, "to_x")) : try InputCoordinates.normalized(pixel: integer(p, "to_x"), dimension: frame!.width)
+                ty = independent ? try display!.normalized(integer(p, "to_y")) : try InputCoordinates.normalized(pixel: integer(p, "to_y"), dimension: frame!.height)
                 duration = try integer(p, "duration_ms")
                 guard (100...2_000).contains(duration) else { throw AppError.invalid(String(localized: "Drag duration must be 100–2,000 milliseconds")) }
             }

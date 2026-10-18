@@ -105,7 +105,7 @@ No session_id is used as a history store. No paid/online model request verifies
 any of these fixtures. Redacted gateway blocks are preserved as received; local
 code cannot reconstruct withheld signatures or encrypted content.
 
-## Current service and wire boundaries (analysis only)
+## Service and wire boundaries
 
 - `PhoneAgent/Models/ProviderModels.swift`: `ProviderKind` identifies services
   (OpenAI-compatible/OpenRouter/Ollama/Anthropic/Gemini) but also owns default URL,
@@ -129,9 +129,3 @@ code cannot reconstruct withheld signatures or encrypted content.
   `ProviderCapabilities`, `ProviderConfiguration` and `ModelProvider` are domain
   boundaries. Scope identity currently uses service kind plus endpoint/account/
   model/run/branch, rather than a dedicated ProviderIdentity type.
-
-A subsequent design can extract URL/header/discovery/parameter/state capability
-rules into service policies and an explicit endpoint descriptor. Wire adapters
-should consume that descriptor, never infer OpenAI server-side state support
-from wire compatibility. The present accounting fix does not perform that
-refactor or add targets.
