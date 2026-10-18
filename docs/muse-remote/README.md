@@ -1,5 +1,7 @@
 # Muse → Actell remote tools adapter
 
+The Muse Gadget-side code is maintained separately in [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods); this repository provides the Actell-side implementation.
+
 The [remote tools technical document](REMOTE-TOOLS.md) defines the direct Gadget interface, screenshot-independent normalized input, protected image retention, execution/background lifecycle, error recovery and remaining integration boundaries.
 
 Current enrollment uses [SLAN/1](COMPANION-PAIRING.md). See [the current implementation record](SLAN-IMPLEMENTATION.md) for build/test evidence. The V1 patch history below retains the original provenance and RPC execution boundaries.

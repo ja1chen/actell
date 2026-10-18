@@ -136,6 +136,8 @@ Existing license and attribution records are in [LICENSE](LICENSE), [THIRD_PARTY
 
 ## Muse remote tools prototype
 
+The Muse Gadget-side code is maintained separately in [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods); this repository provides the Actell-side implementation.
+
 The optional [Muse adapter](docs/muse-remote/README.md) lets Muse plan while Actell executes tools in an independent remote runtime using paired-device scopes and its existing lifecycle, mutual-exclusion and screenshot freshness checks. Remote calls do not create Agent conversations or change the selected chat. Settings → Extensions → Muse Gadget now contains a device list, an add-device entry, and an explicit allow-connection switch. Each paired device supports a saved local display name, independent screenshot, app-list and control permissions, plus removal. Identity material and client secrets remain in the device-only Keychain; the service remembers the last switch setting and restores it when the app is unlocked, in the foreground and idle. Technical connection configuration is hidden from normal navigation.
 
 ### Independent Muse companion

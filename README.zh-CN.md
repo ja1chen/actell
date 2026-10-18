@@ -133,6 +133,8 @@ Rust 其余直接及传递依赖见 [Cargo.toml](ncm-dev/rust/Cargo.toml) 和 [C
 
 ## Muse 远程工具原型
 
+Muse Gadget 端代码独立维护于 [muse-gadget-actell-mods](https://github.com/ja1chen/muse-gadget-actell-mods)，本仓库提供 Actell 端实现。
+
 可选的 [Muse 适配层](docs/muse-remote/README.md) 由 Muse 规划，执言通过独立远程运行对象按已配对设备权限执行工具，保留生命周期、互斥执行和截图时效检查。远程调用不创建 Agent 会话，也不切换当前聊天。设置 → 扩展能力 → Muse Gadget现只保留设备列表、添加入口，以及显式连接开关。每台已配对设备可修改并保存显示名称、分别设置截图、应用列表和操控权限，并可移除。证书材料与客户端密钥保存在本机专用钥匙串，服务会保存上次开关状态，在 App 已解锁、处于前台且空闲时恢复。技术连接配置已从普通导航移除。
 
 ### 独立 Muse 伴侣连接
