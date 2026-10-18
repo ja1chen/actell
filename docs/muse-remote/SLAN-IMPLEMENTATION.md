@@ -65,8 +65,11 @@ Bluetooth permission was added. No QR/camera pairing implementation was present.
 The generic missing-identity guard test was retained as
 `RemoteIdentityGuardTests.swift`; automatic TLS, shared strict JSON, Keychain,
 legacy APIs, normal RPC security tests, licenses and source inventories remain.
-The older noncompiled Muse SDK v5 reference remains provenance only; it is not
-runtime onboarding and is not advertised as an implementation of this contract.
+The older noncompiled Muse v5 Swift pairing experiment has also been removed.
+Muse Gadget firmware, extensions and SDK patches are maintained and published in
+a separate Git repository. This repository keeps Actell's own integration,
+protocol documentation and synthetic interoperability fixtures, without embedding
+Muse Gadget or SDK implementation code, including source copies in documentation.
 Current README pairs, iOS setup documentation and companion guidance now describe
 Simple LAN. Dated historical validation records remain dated evidence.
 

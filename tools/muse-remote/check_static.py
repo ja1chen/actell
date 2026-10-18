@@ -28,8 +28,6 @@ class PackagingChecks(unittest.TestCase):
                     'SimpleLANPairingTests.swift', 'SimpleLANRPCTests.swift'}
         self.assertTrue(required.issubset({path.name for path in files}))
         self.assertTrue(all(path.is_file() for path in files))
-        self.assertNotIn('PhoneAgent/Muse/MusePairingProtocol.swift', project)
-        self.assertTrue((ROOT / 'docs/muse-remote/experiments/MusePairingProtocol.swift.txt').is_file())
         self.assertIn('https://github.com/apple/swift-certificates.git', project)
         self.assertRegex(project, r'\bversion"? = "?1\.10\.0"?;')
         # Verify the PBX reference/build/source-phase graph, accepting both the
