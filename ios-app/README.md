@@ -1,6 +1,6 @@
 # 执言（Actell）iOS
 
-最低 iOS 27，Bundle ID 保持 `com.ja1chen.PhoneAgent`。截图与输入工具默认经 VPN 回环调用 CoreDevice 开发者服务执行；连接只在实际工具调用时校验，普通聊天不要求连接。手机操控支持在“设置 → 手机操控 → 连接模式”选择 VPN 回环（默认，免 ESP32）或 ESP32 NCM，在“连接与验证”中操作；首页和消息页不再显示设备入口。原 ScreenCaptureKit/PA3 HID 和 TLS 实现保留，暂未提供切换开关。NCM 任务在系统后台资格有效时可继续，无需启动录屏；各会话独立运行，同一手机控制按整轮排队。服务商管理位于“设置 → 服务商”，支持添加、编辑、确认移除及恢复。会话选择服务商/模型，当前运行不允许切换配置。现有单服务商配置与 Keychain 引用自动保留；修改服务地址不会转发旧地址的密钥。已保存的 API 密钥在编辑页以正常文字色的圆点显示，仅查询存在状态，不回填真实值；不输入替换值时保留原密钥。
+最低 iOS 27，默认 Bundle ID 为 `com.ja1chen.PhoneAgent`，可在生成工程时配置前缀。截图与输入工具默认经 VPN 回环调用 CoreDevice 开发者服务执行；连接只在实际工具调用时校验，普通聊天不要求连接。手机操控支持在“设置 → 手机操控 → 连接模式”选择 VPN 回环（默认，免 ESP32）或 ESP32 NCM，在“连接与验证”中操作；首页和消息页不再显示设备入口。原 ScreenCaptureKit/PA3 HID 和 TLS 实现保留，暂未提供切换开关。NCM 任务在系统后台资格有效时可继续，无需启动录屏；各会话独立运行，同一手机控制按整轮排队。服务商管理位于“设置 → 服务商”，支持添加、编辑、确认移除及恢复。会话选择服务商/模型，当前运行不允许切换配置。现有单服务商配置与 Keychain 引用自动保留；修改服务地址不会转发旧地址的密钥。已保存的 API 密钥在编辑页以正常文字色的圆点显示，仅查询存在状态，不回填真实值；不输入替换值时保留原密钥。
 
 真实模型使用 screenshot / tap / drag / wait 设备工具，最终文字回复结束本轮。启用用户导入的技能后，系统提示词包含已启用技能的名称、描述、id 和 revision；额外提供 load_skill，只按需读取该技能包的文本。同一响应可含多个工具，按返回顺序串行执行；每个动作仍须经过原有授权、截图与故障检查，ID 不得重复或重用。模型调用数、输入数、累计 token 与固定运行时长不再作为产品预算。图像/协议大小、网络故障、系统后台资格、锁屏、手动停止、未知动作不重放仍然生效。App 不保证系统无限后台执行。
 
@@ -9,6 +9,16 @@
 服务商明确返回的可读思考内容／摘要会在消息中单独折叠展示，支持流式状态、取消／失败后保留以及历史恢复。Chat Completions 解析 reasoning_content、reasoning 和可读 reasoning_details；Responses 展示明确返回的 summary 或 reasoning_text content（包括 DeepSeek 思考流事件），并将 encrypted_content 仅用于同域回放；不生成思考正文，不解释加密块，不从普通回复抽取，也不自动把历史思考发送到新任务。
 
 ## 构建
+
+生成工程时使用 `ACTELL_BUNDLE_ID_PREFIX` 替换完整的默认 App ID `com.ja1chen.PhoneAgent`，extension 和测试 target 使用同一基础标识派生：
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，App、extension 和测试 target 的 Debug/Release 均使用该团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。两个变量在生成工程时读取，后续生成时继续提供即可。
 
 使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
 

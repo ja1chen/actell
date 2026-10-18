@@ -4,6 +4,7 @@ from pathlib import Path
 import hashlib
 import json
 import os
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 objects = {}
@@ -19,14 +20,91 @@ def add(identifier, isa, **fields):
     return key
 
 
-def encode(value, indent=0):
-    if isinstance(value, dict):
-        return "{\n" + "".join("\t" * (indent + 1) + encode(k) + " = " + encode(v, indent + 1) + ";\n" for k, v in value.items()) + "\t" * indent + "}"
-    if isinstance(value, list):
-        return "(" + ", ".join(encode(v, indent) for v in value) + ("," if value else "") + ")"
-    if isinstance(value, int):
-        return str(value)
-    return json.dumps(value, ensure_ascii=False)
+def serialize_project(project, project_name):
+    """Match Xcode's sectioned OpenStep layout while retaining stable object IDs."""
+    graph = project["objects"]
+    phases = {}
+    owners = {}
+    for obj in graph.values():
+        if obj["isa"].endswith("BuildPhase"):
+            label = obj.get("name", obj["isa"].removeprefix("PBX").removesuffix("BuildPhase"))
+            for member in obj.get("files", []):
+                phases[member] = label
+        if "buildConfigurationList" in obj:
+            owners[obj["buildConfigurationList"]] = (obj["isa"], obj.get("name", project_name))
+
+    def comment(identifier):
+        obj = graph[identifier]
+        kind = obj["isa"]
+        if kind == "PBXBuildFile":
+            referenced = obj.get("fileRef", obj.get("productRef"))
+            return comment(referenced) + " in " + phases[identifier]
+        if kind == "PBXProject":
+            return "Project object"
+        if kind == "XCConfigurationList":
+            owner_kind, name = owners[identifier]
+            return f'Build configuration list for {owner_kind} "{name}"'
+        if kind == "XCLocalSwiftPackageReference":
+            return f'{kind} "{obj["relativePath"]}"'
+        if kind == "XCRemoteSwiftPackageReference":
+            name = obj["repositoryURL"].rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+            return f'{kind} "{name}"'
+        if kind == "XCSwiftPackageProductDependency":
+            return obj["productName"]
+        if kind.endswith("BuildPhase"):
+            return obj.get("name", kind.removeprefix("PBX").removesuffix("BuildPhase"))
+        if kind in ("PBXContainerItemProxy", "PBXTargetDependency"):
+            return kind
+        return obj.get("name", obj.get("path", ""))
+
+    def atom(value, field=None, reference=True):
+        if isinstance(value, int):
+            return str(value)
+        unquoted = re.fullmatch(r"[A-Za-z0-9_/][A-Za-z0-9_./]*", value) and "//" not in value
+        text = value if unquoted else json.dumps(value, ensure_ascii=False)
+        if reference and value in graph and field != "remoteGlobalIDString":
+            label = comment(value).replace("*/", "* /").replace("\n", " ").replace("\r", " ")
+            if label:
+                text += " /* " + label + " */"
+        return text
+
+    def encode(value, indent=0, inline=False, field=None):
+        if isinstance(value, dict):
+            keys = sorted(value, key=lambda key: (key != "isa", key))
+            if inline:
+                entries = (atom(key, reference=False) + " = " + encode(value[key], inline=True, field=key) + "; " for key in keys)
+                return "{" + "".join(entries) + "}"
+            entries = (
+                "\t" * (indent + 1) + atom(key, reference=False) + " = "
+                + encode(value[key], indent + 1, field=key) + ";\n"
+                for key in keys
+            )
+            return "{\n" + "".join(entries) + "\t" * indent + "}"
+        if isinstance(value, list):
+            if inline:
+                return "(" + "".join(encode(item, inline=True, field=field) + ", " for item in value) + ")"
+            entries = ("\t" * (indent + 1) + encode(item, indent + 1, field=field) + ",\n" for item in value)
+            return "(\n" + "".join(entries) + "\t" * indent + ")"
+        return atom(value, field=field)
+
+    sections = {}
+    for identifier, obj in graph.items():
+        sections.setdefault(obj["isa"], []).append(identifier)
+    lines = ["// !$*UTF8*$!\n{\n"]
+    for key in sorted(project):
+        if key != "objects":
+            lines.append("\t" + atom(key, reference=False) + " = " + encode(project[key], 1, field=key) + ";\n")
+            continue
+        lines.append("\tobjects = {\n")
+        for kind, identifiers in sorted(sections.items()):
+            lines.append(f"\n/* Begin {kind} section */\n")
+            for identifier in sorted(identifiers):
+                body = encode(graph[identifier], 2, inline=kind in ("PBXBuildFile", "PBXFileReference"))
+                lines.append("\t\t" + atom(identifier) + " = " + body + ";\n")
+            lines.append(f"/* End {kind} section */\n")
+        lines.append("\t};\n")
+    lines.append("}\n")
+    return "".join(lines)
 
 
 def configs(name, settings):
@@ -44,6 +122,11 @@ def configs(name, settings):
 
 
 def generate():
+    prefix = os.environ.get("ACTELL_BUNDLE_ID_PREFIX", "").strip()
+    prefix = prefix.removesuffix(".") if prefix else "com.ja1chen.PhoneAgent"
+    if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*", prefix):
+        raise ValueError("ACTELL_BUNDLE_ID_PREFIX must contain dot-separated letters, digits or hyphens")
+    team = os.environ.get("ACTELL_DEVELOPMENT_TEAM", "").strip()
     packages = [
         add("SwiftAgentKit", "XCLocalSwiftPackageReference", relativePath="Vendor/SwiftAgentKit"),
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
@@ -53,7 +136,12 @@ def generate():
             requirement=dict(kind="exactVersion", version="1.10.0")),
     ]
     targets, groups, products = [], [], []
-    for name, extension, product_type in [("PhoneAgent", "app", "application"), ("PhoneAgentTests", "xctest", "bundle.unit-test"), ("PhoneAgentUITests", "xctest", "bundle.ui-testing"), ("PhoneAgentLiveActivity", "appex", "app-extension")]:
+    for name, extension, product_type, bundle_suffix in [
+        ("PhoneAgent", "app", "application", ""),
+        ("PhoneAgentTests", "xctest", "bundle.unit-test", "Tests"),
+        ("PhoneAgentUITests", "xctest", "bundle.ui-testing", "UITests"),
+        ("PhoneAgentLiveActivity", "appex", "app-extension", ".LiveActivity"),
+    ]:
         sources, children = [], []
         paths = list((ROOT / name).rglob("*.swift"))
         if os.environ.get("INCLUDE_ARCHIVED_TESTS") == "1" and name in ("PhoneAgentTests", "PhoneAgentUITests"):
@@ -97,7 +185,8 @@ def generate():
             resources.append(add("BuiltinSkillsBuild", "PBXBuildFile", fileRef=ref))
         group = add(name + "Group", "PBXGroup", name=name, children=children, sourceTree="<group>")
         groups.append(group)
-        product = add(name + "Product", "PBXFileReference", explicitFileType="wrapper.application" if extension == "app" else "wrapper.cfbundle",
+        file_type = {"app": "wrapper.application", "appex": "wrapper.app-extension", "xctest": "wrapper.cfbundle"}[extension]
+        product = add(name + "Product", "PBXFileReference", explicitFileType=file_type,
                       includeInIndex=0, path=name + "." + extension, sourceTree="BUILT_PRODUCTS_DIR")
         products.append(product)
         package_products, frameworks = [], []
@@ -118,14 +207,14 @@ def generate():
         phases = [add(name + "Sources", "PBXSourcesBuildPhase", buildActionMask=2147483647, files=sources, runOnlyForDeploymentPostprocessing=0),
                   add(name + "Frameworks", "PBXFrameworksBuildPhase", buildActionMask=2147483647, files=frameworks, runOnlyForDeploymentPostprocessing=0),
                   add(name + "Resources", "PBXResourcesBuildPhase", buildActionMask=2147483647, files=resources, runOnlyForDeploymentPostprocessing=0)]
-        settings = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.ja1chen." + name,
-                        CODE_SIGN_STYLE="Automatic", DEVELOPMENT_TEAM="", GENERATE_INFOPLIST_FILE="YES",
+        settings = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER=prefix + bundle_suffix,
+                        CODE_SIGN_STYLE="Automatic", DEVELOPMENT_TEAM=team, GENERATE_INFOPLIST_FILE="YES",
                         TARGETED_DEVICE_FAMILY="1,2", SUPPORTED_PLATFORMS="iphoneos iphonesimulator",
                         SUPPORTS_MACCATALYST="NO", MARKETING_VERSION="0.1.0", CURRENT_PROJECT_VERSION="1",
                         LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"])
         dependencies = []
         if name == "PhoneAgent":
-            settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)",
+            settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="Actell",
                             INFOPLIST_KEY_NSSupportsLiveActivities="YES",
                             INFOPLIST_KEY_NSLocalNetworkUsageDescription="Allow paired phone-control devices and Muse Gadget to connect with Actell on the local network.",
                             INFOPLIST_KEY_NSLocationWhenInUseUsageDescription="When you enable location for background execution, the app uses location services to help your task continue when you switch apps. Your location is never saved or uploaded. This uses more battery and shows the location indicator. You can decline or turn it off at any time.",
@@ -149,8 +238,8 @@ def generate():
             proxy = add("LiveActivityProxy", "PBXContainerItemProxy", containerPortal=uid("Project"), proxyType=1, remoteGlobalIDString=uid(widget + "Target"), remoteInfo=widget)
             dependencies.append(add("LiveActivityDependency", "PBXTargetDependency", target=uid(widget + "Target"), targetProxy=proxy))
         elif name == "PhoneAgentLiveActivity":
-            settings.update(PRODUCT_BUNDLE_IDENTIFIER="com.ja1chen.PhoneAgent.LiveActivity", INFOPLIST_FILE="PhoneAgentLiveActivity/Info.plist",
-                            INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)", APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
+            settings.update(INFOPLIST_FILE="PhoneAgentLiveActivity/Info.plist",
+                            INFOPLIST_KEY_CFBundleDisplayName="Actell", APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
                             LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"])
         else:
             if name == "PhoneAgentUITests":
@@ -169,11 +258,11 @@ def generate():
                   CLANG_ENABLE_MODULES="YES", CLANG_ENABLE_OBJC_ARC="YES", GCC_C_LANGUAGE_STANDARD="gnu17")
     project = add("Project", "PBXProject", attributes=dict(LastUpgradeCheck="2700", BuildIndependentTargetsInParallel="YES"),
                   buildConfigurationList=configs("Project", common), compatibilityVersion="Xcode 14.0", developmentRegion="en",
-                  knownRegions=["en", "zh-Hans", "Base"], mainGroup=main_group, productRefGroup=products_group,
+                  hasScannedForEncodings=0, knownRegions=["en", "zh-Hans", "Base"], mainGroup=main_group, productRefGroup=products_group,
                   projectDirPath="", projectRoot="", targets=targets, packageReferences=packages)
     path = ROOT / "PhoneAgent.xcodeproj"
     path.mkdir(exist_ok=True)
-    (path / "project.pbxproj").write_text("// !$*UTF8*$!\n" + encode(dict(archiveVersion=1, classes={}, objectVersion=56, objects=objects, rootObject=project)) + "\n")
+    (path / "project.pbxproj").write_text(serialize_project(dict(archiveVersion=1, classes={}, objectVersion=60, objects=objects, rootObject=project), path.stem))
     workspace = path / "project.xcworkspace"
     workspace.mkdir(exist_ok=True)
     (workspace / "contents.xcworkspacedata").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<Workspace version="1.0"><FileRef location="self:"></FileRef></Workspace>\n')

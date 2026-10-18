@@ -57,6 +57,20 @@ Run all commands below from the repository root. The scripts reuse a local toolc
 - Firmware uses ESP-IDF 5.5.5. Set `IDF_PATH` and `IDF_TOOLS_PATH` to an installed environment as needed. Component versions are pinned by the [manifest](firmware-device/main/idf_component.yml) and lockfile.
 - The Xcode project is checked in. After adding source files, regenerate it with `python3 ios-app/scripts/generate_xcode_project.py`. Allow Swift Package Manager to resolve dependencies on the first build. An Xcode build phase generates the Rust static library for the current platform.
 
+To customize the Bundle ID and signing team when generating the project:
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+Replace these examples with your full App Bundle ID and Apple Developer Team ID.
+The example produces `org.example.Actell` and `org.example.Actell.LiveActivity`;
+test targets and both build configurations use the same base ID and team.
+Unset or empty values default to `com.ja1chen.PhoneAgent` and an empty team.
+Keep both variables exported for subsequent project generations.
+
 ```sh
 # Unsigned iPhoneOS build; does not install or change signing
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \

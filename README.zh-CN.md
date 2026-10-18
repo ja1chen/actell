@@ -55,6 +55,19 @@ App 使用 [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)、[MacPaw
 - 固件使用 ESP-IDF 5.5.5，可通过 `IDF_PATH`、`IDF_TOOLS_PATH` 指向已安装环境；组件版本由 [清单](firmware-device/main/idf_component.yml) 和锁文件固定。
 - Xcode 项目已提交；新增源文件后可运行 `python3 ios-app/scripts/generate_xcode_project.py` 重新生成。首次构建允许 Swift Package Manager 解析依赖；Xcode 构建阶段会生成当前平台的 Rust 静态库。
 
+生成工程时，可通过环境变量自定义 Bundle ID 和签名团队：
+
+```sh
+export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
+export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
+python3 ios-app/scripts/generate_xcode_project.py
+```
+
+将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。
+示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，测试 target 和 Debug/Release
+也使用同一基础标识及团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。
+保持两个变量的 `export` 配置，后续生成工程时会继续使用。
+
 ```sh
 # iPhoneOS 无签名构建；不会安装或修改签名
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
