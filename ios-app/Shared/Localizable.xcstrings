@@ -8914,19 +8914,19 @@
         }
       }
     },
-    "PhoneAgent pairing": {
+    "%@ pairing": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PhoneAgent pairing"
+            "value": "%@ pairing"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "PhoneAgent 配对"
+            "value": "%@ 配对"
           }
         }
       }

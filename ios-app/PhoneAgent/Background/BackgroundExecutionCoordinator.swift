@@ -50,6 +50,7 @@ import Combine
         let name = "Background.Coordinator." + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         let settings = BackgroundSettingsStore(defaults: defaults, domain: name)
+        settings.setResident(false)
         let value = BackgroundExecutionCoordinator(settings: settings, registry: BackgroundExecutionRegistry(), nativeDrivers: false)
         defaults.removePersistentDomain(forName: name); value.applySelection(selection); return value
     }

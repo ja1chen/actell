@@ -162,6 +162,7 @@ private struct MuseDevicePermissionsSheet: View {
                             .autocorrectionDisabled()
                             .accessibilityIdentifier("museDeviceName")
                     }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
                 Section {
                     ForEach(MuseCompanionScope.allCases) { scope in
@@ -224,12 +225,14 @@ private struct MuseLANPairingSheet: View {
                             Text(name)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
+                                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                         }
                     } else if let pending = connection.pairing.pending {
                         Section {
                             Text(pending.name).font(.headline)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
+                                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                             if pending.approved {
                                 ProgressView(String(localized: "Completing pairing"))
                                     .frame(maxWidth: .infinity, alignment: .center)

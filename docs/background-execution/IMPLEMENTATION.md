@@ -12,7 +12,7 @@
 
 ## 实现边界
 
-`BackgroundSettingsStore` 为共享配置入口；v2 稳定排序保存字符串集合。2026-10-14 调整为新装默认仅开启音频，定位与常驻默认关闭；已保存的选择不覆盖。旧持久域三项明确选择保留单项；仅有 resident key（true 或 false）或已有 `Application Support/PhoneAgent/conversations-v1.json` 文件的安装保持 audio。只检查存在性，不读取历史内容或 Keychain。完全无痕的旧安装无法与新装区分，按规格的新装分支处理。
+`BackgroundSettingsStore` 统一管理后台配置，以 v2 格式稳定排序保存所选方式。默认选择音频并开启后台常驻，定位与待命实时活动默认关闭；已保存的选择保持不变，旧配置保留原有的后台方式。
 
 显式空集重启后仍为空；已知 schema 的未知字符串保留；损坏配置不自动启权、原字节保留直到用户明确修改；未来 schema 的切换禁用，不覆盖。旧 key 保留。旧 systemTask + resident 不再隐式播放音频，界面说明此变化。
 

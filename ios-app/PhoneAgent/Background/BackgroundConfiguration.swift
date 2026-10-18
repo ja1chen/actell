@@ -57,8 +57,8 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
         return BackgroundSettingsStore(existingInstallation: installed)
     }()
     @Published private(set) var configuration = BackgroundConfiguration(selected: [])
-    @Published private(set) var residentEnabled = false
-    @Published private(set) var standbyActivityEnabled = true
+    @Published private(set) var residentEnabled = true
+    @Published private(set) var standbyActivityEnabled = false
     var reservesStandbyActivity: Bool { residentEnabled && standbyActivityEnabled }
     @Published private(set) var warning: String?
     private(set) var futureSchema = false
@@ -71,8 +71,8 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
          existingInstallation: Bool = false, writer: ((Data) -> Bool)? = nil) {
         self.defaults = defaults; self.domain = domain; self.writer = writer
         let saved = defaults.persistentDomain(forName: domain) ?? [:]
-        residentEnabled = saved[Self.residentKey] as? Bool ?? false
-        standbyActivityEnabled = saved[Self.standbyActivityKey] as? Bool ?? true
+        residentEnabled = saved[Self.residentKey] as? Bool ?? true
+        standbyActivityEnabled = saved[Self.standbyActivityKey] as? Bool ?? false
         if let raw = saved[Self.key] {
             if let data = raw as? Data {
                 if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

@@ -124,6 +124,7 @@ import CoreLocation
         let name = "Background.Settings.Permission." + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         let settings = BackgroundSettingsStore(defaults: defaults, domain: name)
+        settings.setResident(false)
         let registry = BackgroundExecutionRegistry()
         let location = LocationBackgroundDriver(registry: registry, configured: true, factory: { manager }, gate: gate)
         let coordinator = BackgroundExecutionCoordinator(settings: settings, registry: registry, nativeDrivers: false, locationDriver: location, gate: gate)

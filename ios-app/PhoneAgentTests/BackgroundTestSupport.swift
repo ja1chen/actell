@@ -11,6 +11,7 @@ import Foundation
 @MainActor func testCoordinator(registry: BackgroundExecutionRegistry, media: StatusPiPController? = nil) -> BackgroundExecutionCoordinator {
     let domain = "BackgroundHarness." + UUID().uuidString, defaults = UserDefaults(suiteName: UUID().uuidString)!
     let store = BackgroundSettingsStore(defaults: defaults, domain: domain)
+    store.setResident(false)
     let coordinator = BackgroundExecutionCoordinator(settings: store, registry: registry, nativeDrivers: false, mediaDriver: media)
     defaults.removePersistentDomain(forName: domain)
     coordinator.applySelection(Set(BackgroundMechanism.allCases)); coordinator.setForeground(true)

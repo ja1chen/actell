@@ -132,7 +132,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         guard registeredBackgroundTask else { message = String(localized: "The system pairing task was not registered. Reopen the app."); return }
         guard #available(iOS 26.0, *) else { message = String(localized: "Interactive system pairing needs continued background tasks on iOS 26 or later"); return }
         generation = UUID(); running = true; pairingActive = true; message = String(localized: "Requesting a background task for pairing. Please wait.")
-        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: String(localized: "PhoneAgent pairing"), subtitle: String(localized: "Complete authorization in system Settings"))
+        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: String(localized: "\(AppIdentity.displayName) pairing"), subtitle: String(localized: "Complete authorization in system Settings"))
         request.strategy = .fail
         do { try BGTaskScheduler.shared.submit(request) }
         catch { running = false; pairingActive = false; message = String(localized: "The system did not allow the background task. Keep the app open and try again.") }
