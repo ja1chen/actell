@@ -76,9 +76,16 @@ struct PhoneAgentLiveActivity: Widget {
                         .foregroundStyle(activityTint(context))
                 }
             } minimal: {
+                // Coexisting activities use this whole presentation, including
+                // the attached leading slot. Suppress updates at its root, not
+                // just when the symbol name changes inside IslandSymbol.
                 IslandSymbol(name: standby ? "sparkles" : (stale ? "exclamationmark.circle" : context.state.symbol))
                     .foregroundStyle(activityTint(context))
                     .accessibilityLabel(stale ? String(localized: "View") : context.state.compactTitle)
+                    .contentTransition(.identity)
+                    .transition(.identity)
+                    .animation(nil, value: context.state)
+                    .animation(nil, value: context.isStale)
             }
             .widgetURL(activityURL(context))
             .keylineTint(activityTint(context))
