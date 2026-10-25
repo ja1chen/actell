@@ -157,16 +157,3 @@ struct ConversationTurn: Identifiable {
         return turns
     }
 }
-extension RunPhase {
-    var label: String {
-        switch self {
-        case .idle: return String(localized: "Ready")
-        case .running: return String(localized: "Running")
-        case .awaitingApproval: return String(localized: "Waiting for confirmation")
-        case .stopped: return String(localized: "Stopped")
-        case .interrupted: return String(localized: "Interrupted")
-        case .completed: return String(localized: "Finished")
-        case .blocked: return String(localized: "Needs attention")
-        }
-    }
-}

@@ -137,6 +137,17 @@ import Foundation
                 }
                 return AgentViewModel(sessions: sessions, loadPersistentState: false)
             }
+            if arguments.contains("--ui-test-edit-list") {
+                for index in 1...3 {
+                    let id = sessions.create(mode: .live)
+                    if let run = sessions.begin(in: id, query: "批量删除验收 \(index)") {
+                        sessions.beginAssistantTurn(run)
+                        sessions.completeAssistantTurn("答复 \(index)", reasoning: "", identity: run)
+                        sessions.finish(run, phase: .completed, summary: "")
+                    }
+                }
+                return AgentViewModel(sessions: sessions, loadPersistentState: false)
+            }
             if arguments.contains("--ui-test-provider-key") {
                 var keys: [String: String] = [:]
                 let model = AgentViewModel(sessions: sessions, loadPersistentState: false,

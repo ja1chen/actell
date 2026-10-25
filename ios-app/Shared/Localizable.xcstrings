@@ -1063,23 +1063,6 @@
         }
       }
     },
-    "An action is already in progress": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An action is already in progress"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一个动作正在处理中"
-          }
-        }
-      }
-    },
     "An HTTPS service URL is required": {
       "extractionState": "manual",
       "localizations": {
@@ -1110,23 +1093,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已有输入动作正在执行"
-          }
-        }
-      }
-    },
-    "An unverified screenshot cannot be submitted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An unverified screenshot cannot be submitted"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未完成验证的截图不能提交"
           }
         }
       }
@@ -1845,40 +1811,6 @@
         }
       }
     },
-    "Bridge disconnected": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bridge disconnected"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接断开"
-          }
-        }
-      }
-    },
-    "Bridge key deleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bridge key deleted"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接密钥已删除"
-          }
-        }
-      }
-    },
     "Bridge timed out and disconnected. Actions were not resent automatically.": {
       "extractionState": "manual",
       "localizations": {
@@ -2537,23 +2469,6 @@
         }
       }
     },
-    "Clear local conversations and task records": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear local conversations and task records"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "清空本地会话与任务记录"
-          }
-        }
-      }
-    },
     "Clear previous reasoning effort": {
       "extractionState": "manual",
       "localizations": {
@@ -2567,6 +2482,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除原思考强度"
+          }
+        }
+      }
+    },
+    "Clear conversation records": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear conversation records"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清理会话记录"
           }
         }
       }
@@ -2686,35 +2618,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先在设置 → 手机操控 → 连接与验证中完成系统配对"
-          }
-        }
-      }
-    },
-    "Completed %lld steps": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Completed %lld step"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Completed %lld steps"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已完成 %lld 个步骤"
           }
         }
       }
@@ -3263,23 +3166,6 @@
         }
       }
     },
-    "Control frame is too large": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Control frame is too large"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "控制帧过大"
-          }
-        }
-      }
-    },
     "Conversation deleted": {
       "extractionState": "manual",
       "localizations": {
@@ -3756,23 +3642,6 @@
         }
       }
     },
-    "Could not listen. Check the port and network permissions.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not listen. Check the port and network permissions."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "监听失败，请检查端口或网络权限"
-          }
-        }
-      }
-    },
     "Could not open system authorization": {
       "extractionState": "manual",
       "localizations": {
@@ -3837,23 +3706,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "触控准备失败：%@，%@"
-          }
-        }
-      }
-    },
-    "Could not read from the bridge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not read from the bridge"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接读取失败"
           }
         }
       }
@@ -4092,23 +3944,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法启动本地授权回调"
-          }
-        }
-      }
-    },
-    "Could not write to the bridge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not write to the bridge"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接写入失败"
           }
         }
       }
@@ -4368,23 +4203,6 @@
         }
       }
     },
-    "Describe your question or goal. Agent replies and tool activity will be kept here.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Describe your question or goal. Agent replies and tool activity will be kept here."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "描述你的问题或目标。Agent 的回复和每次工具执行都会保留在这里。"
-          }
-        }
-      }
-    },
     "Developer image": {
       "extractionState": "manual",
       "localizations": {
@@ -4640,23 +4458,6 @@
         }
       }
     },
-    "Disconnected. Previous actions were not resent. Reconnect and get a new screenshot.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnected. Previous actions were not resent. Reconnect and get a new screenshot."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已断开，未重发动作；需重新监听 / 连接并获取新截图"
-          }
-        }
-      }
-    },
     "Do not touch the center button during the test": {
       "extractionState": "manual",
       "localizations": {
@@ -4691,6 +4492,23 @@
         }
       }
     },
+    "Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据"
+          }
+        }
+      }
+    },
     "Done": {
       "extractionState": "manual",
       "localizations": {
@@ -4721,23 +4539,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载并缓存图片"
-          }
-        }
-      }
-    },
-    "Draft saved. Review it in Zhiyan and tap Confirm and start. If another task is active, this draft will wait.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Draft saved. Review it in Zhiyan and tap Confirm and start. If another task is active, this draft will wait."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "草稿已保存。请在执言核对后点击“确认开始”。如有任务正在运行，草稿会等待。"
           }
         }
       }
@@ -4810,23 +4611,6 @@
         }
       }
     },
-    "Duplicate or invalid acknowledgment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duplicate or invalid acknowledgment"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重复或无效 ACK"
-          }
-        }
-      }
-    },
     "Duplicate skill metadata field": {
       "extractionState": "manual",
       "localizations": {
@@ -4857,6 +4641,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "动态隧道入口"
+          }
+        }
+      }
+    },
+    "Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑"
           }
         }
       }
@@ -5774,23 +5575,6 @@
         }
       }
     },
-    "Help me outline the steps for a task": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Help me outline the steps for a task"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "帮我梳理一个任务的执行步骤"
-          }
-        }
-      }
-    },
     "HID release could not be confirmed. USB was disconnected. Check your device before reconnecting.": {
       "extractionState": "manual",
       "localizations": {
@@ -6369,23 +6153,6 @@
         }
       }
     },
-    "Invalid bridge key format": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid bridge key format"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接密钥格式错误"
-          }
-        }
-      }
-    },
     "Invalid drag duration": {
       "extractionState": "manual",
       "localizations": {
@@ -6399,23 +6166,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "拖动时长无效"
-          }
-        }
-      }
-    },
-    "Invalid frame header length": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid frame header length"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "帧头长度无效"
           }
         }
       }
@@ -6484,40 +6234,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "参数无效"
-          }
-        }
-      }
-    },
-    "Invalid screenshot chunk order, size, or encoding": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid screenshot chunk order, size, or encoding"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "截图分块顺序、大小或编码无效"
-          }
-        }
-      }
-    },
-    "Invalid screenshot header": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid screenshot header"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "截图头无效"
           }
         }
       }
@@ -6671,23 +6387,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "保持此页打开。计数增加才说明界面收到触摸；单纯报告发送成功不计入。"
-          }
-        }
-      }
-    },
-    "Keeps the latest 600 capture and USB diagnostics from this app session, including first-frame status and frame-drop reasons. Copy after a failure. Restarting clears the log. Screenshots, task text, and keys are excluded.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keeps the latest 600 capture and USB diagnostics from this app session, including first-frame status and frame-drop reasons. Copy after a failure. Restarting clears the log. Screenshots, task text, and keys are excluded."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保留本次 App 运行最近 600 条采集与 USB 诊断，含首帧状态及丢帧原因；失败后可直接复制。重启 App 会清空，不含截图、任务正文或密钥。"
           }
         }
       }
@@ -7729,19 +7428,19 @@
         }
       }
     },
-    "Needs attention": {
+    "No conversations yet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs attention"
+            "value": "No conversations yet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要处理"
+            "value": "还没有会话"
           }
         }
       }
@@ -9152,23 +8851,6 @@
         }
       }
     },
-    "Preparing a reply…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preparing a reply…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在准备回复…"
-          }
-        }
-      }
-    },
     "Preparing attachments…": {
       "extractionState": "manual",
       "localizations": {
@@ -9386,23 +9068,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "处理 %@"
-          }
-        }
-      }
-    },
-    "Processing your task": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Processing your task"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "执言正在处理任务"
           }
         }
       }
@@ -9713,69 +9378,6 @@
         }
       }
     },
-    "Received %lld responses or tool results. The total number of steps is unknown.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Received %lld response or tool result. The total number of steps is unknown."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Received %lld responses or tool results. The total number of steps is unknown."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已收到 %lld 个响应或工具结果；总步骤未知"
-          }
-        }
-      }
-    },
-    "Received a response for an unacknowledged request": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Received a response for an unacknowledged request"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收到未确认请求的响应"
-          }
-        }
-      }
-    },
-    "Received an image for a non-screenshot request": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Received an image for a non-screenshot request"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非截图请求返回图片"
-          }
-        }
-      }
-    },
     "Reconnect to %@": {
       "extractionState": "manual",
       "localizations": {
@@ -9840,23 +9442,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "请刷新此 ChatGPT 账户的模型列表，并选择可用模型"
-          }
-        }
-      }
-    },
-    "Rejected an invalid or oversized frame": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rejected an invalid or oversized frame"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒绝无效或过大帧"
           }
         }
       }
@@ -10621,23 +10206,6 @@
         }
       }
     },
-    "Save a task draft and open Zhiyan for confirmation. This does not start the agent.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save a task draft and open Zhiyan for confirmation. This does not start the agent."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存任务草稿并打开执言等待确认。不会自动启动 Agent。"
-          }
-        }
-      }
-    },
     "Save screenshot": {
       "extractionState": "manual",
       "localizations": {
@@ -10944,40 +10512,6 @@
         }
       }
     },
-    "Screenshot response missing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screenshot response missing"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "截图响应缺失"
-          }
-        }
-      }
-    },
-    "Screenshot result is missing an ID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screenshot result is missing an ID"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "截图结果缺少 ID"
-          }
-        }
-      }
-    },
     "Screenshot validated and updated. The image will be sent to the confirmed model provider.": {
       "extractionState": "manual",
       "localizations": {
@@ -10991,23 +10525,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "截图已校验并更新；图像将发送给已确认的模型服务"
-          }
-        }
-      }
-    },
-    "Screenshot validation, dimensions, or PNG decoding failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screenshot validation, dimensions, or PNG decoding failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "截图校验、尺寸或 PNG 解码失败"
           }
         }
       }
@@ -11369,23 +10886,6 @@
         }
       }
     },
-    "Session or request ID mismatch": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session or request ID mismatch"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会话或请求 ID 不匹配"
-          }
-        }
-      }
-    },
     "Set either max_tokens or max_completion_tokens": {
       "extractionState": "manual",
       "localizations": {
@@ -11569,6 +11069,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已退出，服务器已确认结束此刷新会话。"
+          }
+        }
+      }
+    },
+    "Select Text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Text"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文本"
           }
         }
       }
@@ -11841,23 +11358,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "开始一个新的任务或问题"
-          }
-        }
-      }
-    },
-    "Start with an idea": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start with an idea"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从一个想法开始"
           }
         }
       }
@@ -12474,23 +11974,6 @@
         }
       }
     },
-    "Talk with the agent and follow its progress.\nConfirm the next step when needed.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talk with the agent and follow its progress.\nConfirm the next step when needed."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与 Agent 对话，查看执行过程，\n在需要时确认下一步。"
-          }
-        }
-      }
-    },
     "Tap": {
       "extractionState": "manual",
       "localizations": {
@@ -12661,23 +12144,6 @@
         }
       }
     },
-    "Task received. It will start when Zhiyan is active.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Task received. It will start when Zhiyan is active."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任务已接收，执言进入前台后自动开始。"
-          }
-        }
-      }
-    },
     "Task started": {
       "extractionState": "manual",
       "localizations": {
@@ -12691,23 +12157,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务开始处理"
-          }
-        }
-      }
-    },
-    "Task started.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Task started."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任务已开始。"
           }
         }
       }
@@ -13154,108 +12603,6 @@
         }
       }
     },
-    "The bridge disconnected. Reconnect and get a new screenshot. Previous actions will not be resent.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge disconnected. Reconnect and get a new screenshot. Previous actions will not be resent."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接连接已断开；需要新连接和新截图，旧动作不会重发"
-          }
-        }
-      }
-    },
-    "The bridge does not support screenshots yet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge does not support screenshots yet"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接尚不支持截图"
-          }
-        }
-      }
-    },
-    "The bridge is disconnected, unauthenticated, not ready, or does not support this tool": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge is disconnected, unauthenticated, not ready, or does not support this tool"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "真实桥接未连接、未认证、后端未就绪或不支持此工具"
-          }
-        }
-      }
-    },
-    "The bridge is not ready, or its protocol, capabilities, or limits do not match": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge is not ready, or its protocol, capabilities, or limits do not match"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接后端未就绪，或协议 / 能力 / 限制不匹配"
-          }
-        }
-      }
-    },
-    "The bridge reported a tool failure and disconnected. Check the bridge.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge reported a tool failure and disconnected. Check the bridge."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接报告工具失败；连接已断开，请检查桥接状态"
-          }
-        }
-      }
-    },
-    "The bridge stopped. Sent actions may have taken effect. Check your device before continuing.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bridge stopped. Sent actions may have taken effect. Check your device before continuing."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "桥接已停止；已发送的动作可能已执行，继续前请核对设备"
-          }
-        }
-      }
-    },
     "The call failed and its detailed result could not be saved.": {
       "extractionState": "manual",
       "localizations": {
@@ -13494,23 +12841,6 @@
         }
       }
     },
-    "The ChatGPT response format or tool state is incompatible. This turn did not finish and was not retried automatically.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The ChatGPT response format or tool state is incompatible. This turn did not finish and was not retried automatically."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ChatGPT 返回的响应格式或工具状态不兼容；本轮未完成，未自动重试"
-          }
-        }
-      }
-    },
     "The ChatGPT response stream was interrupted. Acceptance is unknown. It was not retried automatically.": {
       "extractionState": "manual",
       "localizations": {
@@ -13698,23 +13028,6 @@
         }
       }
     },
-    "The device disconnected. Reconnect and get a new screenshot.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The device disconnected. Reconnect and get a new screenshot."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "设备已断开；需新连接与新截图"
-          }
-        }
-      }
-    },
     "The device is locked or protected data is unavailable. Input has stopped.": {
       "extractionState": "manual",
       "localizations": {
@@ -13796,23 +13109,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法保存运行检查点；未开始执行"
-          }
-        }
-      }
-    },
-    "The handshake failed or the bridge is not ready. Device tools remain disabled.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The handshake failed or the bridge is not ready. Device tools remain disabled."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "握手失败或后端未就绪；真实工具保持禁用"
           }
         }
       }
@@ -14939,23 +14235,6 @@
         }
       }
     },
-    "This action needs a new screenshot. A previous screenshot cannot be reused.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This action needs a new screenshot. A previous screenshot cannot be reused."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "动作需要最新截图，不能重用旧截图"
-          }
-        }
-      }
-    },
     "This action was denied. The turn ended without sending it.": {
       "extractionState": "manual",
       "localizations": {
@@ -15823,23 +15102,6 @@
         }
       }
     },
-    "Timed out waiting for the phone control connection.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Timed out waiting for the phone control connection."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "等待手机操控连接超时。"
-          }
-        }
-      }
-    },
     "Timed out waiting for the phone control connection. %@": {
       "extractionState": "manual",
       "localizations": {
@@ -15904,40 +15166,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "超时，未收到视频数据"
-          }
-        }
-      }
-    },
-    "TLS authenticated and the bridge reports ready. A screenshot and device verification are still needed.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TLS authenticated and the bridge reports ready. A screenshot and device verification are still needed."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TLS 已认证，后端自报就绪；还需截图和真机验收"
-          }
-        }
-      }
-    },
-    "TLS authentication or connection failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TLS authentication or connection failed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TLS 认证或连接失败"
           }
         }
       }
@@ -16112,6 +15340,23 @@
         }
       }
     },
+    "Tap the compose button to start one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the compose button to start one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点右下角开始新会话。"
+          }
+        }
+      }
+    },
     "Type anything": {
       "extractionState": "manual",
       "localizations": {
@@ -16261,23 +15506,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "请解锁设备后执行任务"
-          }
-        }
-      }
-    },
-    "Unrecognized protocol message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unrecognized protocol message"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未识别的协议消息"
           }
         }
       }
@@ -17404,23 +16632,6 @@
         }
       }
     },
-    "Waiting for a model response or tool result. The total number of steps is unknown.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for a model response or tool result. The total number of steps is unknown."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "等待实际模型响应或工具结果；总步骤未知"
-          }
-        }
-      }
-    },
     "Waiting for a new image after the action": {
       "extractionState": "manual",
       "localizations": {
@@ -17451,23 +16662,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "等待新任务"
-          }
-        }
-      }
-    },
-    "Waiting for a response. You can cancel at any time.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for a response. You can cancel at any time."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "等待实际响应；可随时取消"
           }
         }
       }
@@ -19831,23 +19025,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "更换证书"
-          }
-        }
-      }
-    },
-    "Return to Actell and dismiss any system dialogs, then try again.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Return to Actell and dismiss any system dialogs, then try again."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "执言当前未处于可交互前台，请关闭系统弹窗并回到 App 后重试"
           }
         }
       }

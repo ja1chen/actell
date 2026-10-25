@@ -21,6 +21,7 @@ struct ConversationView: View {
     @State private var attachmentFailure: String?
     @State private var sendingTask: Task<Void, Never>?
     @State private var importCancellation = 0
+    @State private var messageSelection: MessageSelection?
     private var session: AgentConversation? { presentation.session }
     private var running: Bool { presentation.running }
     private var canSend: Bool {
@@ -106,6 +107,15 @@ struct ConversationView: View {
                         ProviderModelPicker(profile: profile) { presentation.selectModel($0) }
                     }
                 }
+                .sheet(item: $messageSelection) { selection in
+                    NavigationStack {
+                        SelectableTextView(text: selection.text)
+                            .navigationTitle(String(localized: "Select Text"))
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(String(localized: "Done")) { messageSelection = nil }.accessibilityIdentifier("closeMessageSelection") } }
+                    }
+                    .presentationDetents([.medium, .large])
+                }
                 .onAppear { presentation.open(); draft = session.draft }
                 .onDisappear { sendingTask?.cancel(); presentation.close() }
                 .onChange(of: draft) { _, text in presentation.saveDraft(text) }
@@ -144,7 +154,7 @@ struct ConversationView: View {
                 completedTurn(turn)
             }
         }
-        if running && presentation.pendingApproval == nil { HStack(spacing: 8) { ProgressView().controlSize(.small); Text(presentation.status).font(.caption).foregroundStyle(.secondary) } }
+        if running && presentation.pendingApproval == nil { ProgressView().controlSize(.small).accessibilityLabel(String(localized: "Processing")) }
         Color.clear.frame(height: 1).id("latest")
             .onScrollVisibilityChange(threshold: 0.01) { visible in
                 lastMessageVisible = visible
@@ -252,12 +262,14 @@ struct ConversationView: View {
         VStack(alignment: .leading, spacing: 18) {
             Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.blue).padding(.top, 34)
             Text(String(localized: "What can we accomplish together?")).font(.title2.bold())
-            Text(mode == .demo ? String(localized: "This conversation uses a fixed script to demonstrate viewing the screen, approving a tap, and checking the result.") : String(localized: "Describe your question or goal. Agent replies and tool activity will be kept here."))
-                .foregroundStyle(.secondary)
-            Button(mode == .demo ? String(localized: "Try a complete demo") : String(localized: "Help me outline the steps for a task")) {
-                draft = mode == .demo ? String(localized: "View the demo screen, tap the counter once, then check the result") : String(localized: "Help me outline the steps for a task")
-                focused = true
-            }.buttonStyle(.bordered).accessibilityIdentifier("suggestedPrompt")
+            if mode == .demo {
+                Text(String(localized: "This conversation uses a fixed script to demonstrate viewing the screen, approving a tap, and checking the result."))
+                    .foregroundStyle(.secondary)
+                Button(String(localized: "Try a complete demo")) {
+                    draft = String(localized: "View the demo screen, tap the counter once, then check the result")
+                    focused = true
+                }.buttonStyle(.bordered).accessibilityIdentifier("suggestedPrompt")
+            }
         }.padding(.bottom, 24)
     }
     private func completedTurn(_ turn: ConversationTurn) -> some View {
@@ -288,15 +300,15 @@ struct ConversationView: View {
                     if message.role != .tool && (message.role != .assistant || !message.text.isEmpty || message.attachments?.isEmpty == false || message.state == .interrupted || message.state == .failed) {
                         messageView(message, includeReasoning: false).id(message.id)
                     }
-                }
-            }
+                }            }
         }
     }
     @ViewBuilder private func messageView(_ message: ChatMessage, includeReasoning: Bool = true) -> some View {
         switch message.role {
         case .user:
             VStack(alignment: .trailing, spacing: 8) {
-                HStack { Spacer(minLength: 36); Text(message.text).textSelection(.enabled).padding(12).background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).foregroundStyle(.primary) }
+                HStack { Spacer(minLength: 36); Text(message.text).textSelection(.enabled).padding(12).background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).foregroundStyle(.primary)
+                    .contextMenu { messageActions(message.text) } }
                 MessageAttachmentsView(message: message, presentation: presentation)
             }
         case .assistant:
@@ -305,7 +317,7 @@ struct ConversationView: View {
             if includeReasoning, let reasoning = message.reasoning, !reasoning.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ReasoningMessageView(reasoning: reasoning, messageID: message.id)
             }
-            if !message.text.isEmpty || message.attachments?.isEmpty == false || message.state == .interrupted || message.state == .failed || (message.state == .streaming && message.reasoning == nil) {
+            if !message.text.isEmpty || message.attachments?.isEmpty == false || message.state == .interrupted || message.state == .failed {
                 assistantReply(message)
             }
         case .tool:
@@ -324,7 +336,8 @@ struct ConversationView: View {
                 Markdown(message.text).markdownTheme(.basic)
                     .markdownImageProvider(NoRemoteMarkdownImages()).markdownInlineImageProvider(NoRemoteInlineImages())
                     .textSelection(.enabled)
-            } else if message.state == .streaming && message.reasoning == nil { Text(String(localized: "Preparing a reply…")).foregroundStyle(.secondary) }
+                    .contextMenu { messageActions(message.text) }
+            }
             if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? String(localized: "Reasoning interrupted") : String(localized: "Reply interrupted")).font(.caption).foregroundStyle(.secondary) }
             if message.state == .failed { Text(String(localized: "Reply incomplete")).font(.caption).foregroundStyle(.secondary) }
             MessageAttachmentsView(message: message, presentation: presentation)
@@ -424,6 +437,12 @@ struct ConversationView: View {
             Text(String(localized: "This historical screenshot has no saved local original and cannot be recovered from the tool record.")).font(.caption).foregroundStyle(.secondary)
         }
     }
+    @ViewBuilder private func messageActions(_ text: String) -> some View {
+        Button { UIPasteboard.general.string = text } label: { Label(String(localized: "Copy"), systemImage: "doc.on.doc") }
+            .accessibilityIdentifier("copyMessage")
+        Button { messageSelection = MessageSelection(text: text) } label: { Label(String(localized: "Select Text"), systemImage: "text.cursor") }
+            .accessibilityIdentifier("selectMessageText")
+    }
     private func send() {
         guard !presentation.awaitingTaskConfirmation else { return }
         sendConfirmedTask()
@@ -513,6 +532,33 @@ private struct MessageInput: UIViewRepresentable {
             if !parent.disabled { parent.onSubmit() }
             return false
         }
+    }
+}
+
+private struct MessageSelection: Identifiable {
+    let id = UUID()
+    let text: String
+}
+
+/// Read-only text panel for the message selection sheet. UITextView keeps the
+/// native drag-selection and copy interactions that SwiftUI Text cannot start
+/// on demand.
+private struct SelectableTextView: UIViewRepresentable {
+    let text: String
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.font = .preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.textColor = .label
+        view.backgroundColor = .clear
+        view.isEditable = false
+        view.isSelectable = true
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        view.accessibilityIdentifier = "messageSelectionText"
+        return view
+    }
+    func updateUIView(_ view: UITextView, context: Context) {
+        if view.text != text { view.text = text }
     }
 }
 

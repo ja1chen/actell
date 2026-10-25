@@ -4,9 +4,6 @@ struct SettingsView: View {
     @ObservedObject var model: AgentViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var control = DeviceControlCoordinator.shared
-    @State private var clear = false
-    @State private var clearAssets = false
-    @State private var assetStatus = ""
     var body: some View {
         NavigationStack {
             Form {
@@ -38,31 +35,49 @@ struct SettingsView: View {
                         Text("Muse Gadget")
                     }.accessibilityIdentifier("openMuseConnection")
                 }
-                Section(String(localized: "Local records")) {
-                    Button(String(localized: "Clear local conversations and task records"), role: .destructive) { clear = true }
-                        .disabled(model.hasBusySessions)
-                    Button(String(localized: "Remove unused attachments"), role: .destructive) { clearAssets = true }
-                        .disabled(model.hasBusySessions).accessibilityIdentifier("clearUnusedAttachments")
-                    if !assetStatus.isEmpty { Text(assetStatus).font(.caption) }
+                Section(String(localized: "Data")) {
+                    NavigationLink { LocalRecordsView(model: model) } label: {
+                        Text(String(localized: "Local records"))
+                    }.accessibilityIdentifier("openLocalRecords")
                 }
                 if let warning = model.storageWarning { Text(warning).foregroundStyle(.orange) }
             }
             .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Close")) { dismiss() } } }
-            .confirmationDialog(String(localized: "Delete tasks and results saved on this device? They cannot be recovered in the app."), isPresented: $clear, titleVisibility: .visible) {
-                Button(String(localized: "Clear records"), role: .destructive) { model.clearHistory() }
-            }
-            .alert(String(localized: "Remove unused attachments?"), isPresented: $clearAssets) {
-                Button(String(localized: "Cancel"), role: .cancel) {}
-                Button(String(localized: "Clean up"), role: .destructive) {
-                    Task {
-                        do { assetStatus = String(localized: "Removed \(try await model.clearUnreferencedAttachments()) unused files") }
-                        catch { assetStatus = String(localized: "Could not clean up attachments. Original files were kept.") }
-                    }
-                }
-            } message: { Text(String(localized: "Original images and files referenced by messages and drafts will be kept. Deleted unused files cannot be recovered.")) }
         }
+    }
+}
+
+private struct LocalRecordsView: View {
+    @ObservedObject var model: AgentViewModel
+    @State private var clear = false
+    @State private var clearAssets = false
+    @State private var assetStatus = ""
+    var body: some View {
+        Form {
+            Section {
+                Button(String(localized: "Clear conversation records"), role: .destructive) { clear = true }
+                    .disabled(model.hasBusySessions)
+                Button(String(localized: "Remove unused attachments"), role: .destructive) { clearAssets = true }
+                    .disabled(model.hasBusySessions).accessibilityIdentifier("clearUnusedAttachments")
+                if !assetStatus.isEmpty { Text(assetStatus).font(.caption) }
+            }
+        }
+        .navigationTitle(String(localized: "Local records"))
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(String(localized: "Delete tasks and results saved on this device? They cannot be recovered in the app."), isPresented: $clear, titleVisibility: .visible) {
+            Button(String(localized: "Clear records"), role: .destructive) { model.clearHistory() }
+        }
+        .alert(String(localized: "Remove unused attachments?"), isPresented: $clearAssets) {
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Clean up"), role: .destructive) {
+                Task {
+                    do { assetStatus = String(localized: "Removed \(try await model.clearUnreferencedAttachments()) unused files") }
+                    catch { assetStatus = String(localized: "Could not clean up attachments. Original files were kept.") }
+                }
+            }
+        } message: { Text(String(localized: "Original images and files referenced by messages and drafts will be kept. Deleted unused files cannot be recovered.")) }
     }
 }
 

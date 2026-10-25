@@ -85,26 +85,76 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-new-conversation"]
         app.launch()
-        let newConversation = app.buttons["newConversation"]
-        XCTAssertTrue(newConversation.waitForExistence(timeout: 5))
-        newConversation.tap()
+        let compose = app.buttons["newConversationToolbar"]
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        compose.tap()
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(newConversation.waitForExistence(timeout: 5))
-        newConversation.tap()
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        compose.tap()
         let input = app.textViews["messageInput"]
         input.tap(); input.tap(); input.typeText("未发送草稿")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(newConversation.waitForExistence(timeout: 5))
-        newConversation.tap()
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        compose.tap()
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         XCTAssertFalse((input.value as? String ?? "").contains("未发送草稿"))
         input.tap(); input.tap(); input.typeText("保存第一条消息")
         app.buttons["sendMessage"].tap()
         XCTAssertTrue(app.staticTexts["合成答复。"].waitForExistence(timeout: 10))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertFalse(newConversation.exists)
+        XCTAssertFalse(app.staticTexts["还没有会话"].exists)
         XCTAssertTrue(app.staticTexts["保存第一条消息"].waitForExistence(timeout: 5))
         capture("first-message-creates-history")
+    }
+    func testEditModeSelectsAndBatchDeletesConversations() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-test-edit-list"]
+        app.launch()
+        let edit = app.buttons["editConversations"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), app.debugDescription)
+        edit.tap()
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "批量删除验收"))
+        XCTAssertEqual(rows.count, 3, app.debugDescription)
+        app.staticTexts["批量删除验收 2"].firstMatch.tap()
+        app.staticTexts["批量删除验收 3"].firstMatch.tap()
+        let delete = app.buttons["deleteSelectedConversations"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(delete.isEnabled)
+        delete.tap()
+        XCTAssertEqual(rows.count, 1, app.debugDescription)
+        XCTAssertEqual(rows.element(boundBy: 0).label, "批量删除验收 1", app.debugDescription)
+        XCTAssertTrue(app.buttons["editConversations"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["deleteSelectedConversations"].exists)
+        // Outside edit mode rows navigate again after the selection binding is released.
+        app.staticTexts["批量删除验收 1"].firstMatch.tap()
+        XCTAssertTrue(app.textViews["messageInput"].waitForExistence(timeout: 5), app.debugDescription)
+        capture("edit-mode-batch-delete")
+    }
+    func testMessageContextMenuOffersCopyAndTextSelection() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-test-edit-list"]
+        app.launch()
+        app.staticTexts["批量删除验收 1"].firstMatch.tap()
+        XCTAssertTrue(app.textViews["messageInput"].waitForExistence(timeout: 5), app.debugDescription)
+        let reply = app.staticTexts["答复 1"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 5), app.debugDescription)
+        reply.press(forDuration: 1.2)
+        let copy = app.buttons["copyMessage"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["selectMessageText"].exists, app.debugDescription)
+        copy.tap()
+        XCTAssertFalse(app.buttons["copyMessage"].waitForExistence(timeout: 2), app.debugDescription)
+        reply.press(forDuration: 1.2)
+        let select = app.buttons["selectMessageText"]
+        XCTAssertTrue(select.waitForExistence(timeout: 5), app.debugDescription)
+        select.tap()
+        let selection = app.textViews["messageSelectionText"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(selection.value as? String, "答复 1", app.debugDescription)
+        app.buttons["closeMessageSelection"].tap()
+        XCTAssertFalse(selection.waitForExistence(timeout: 2), app.debugDescription)
     }
     func testBackgroundCompletionRefreshesOpenConversationWithoutReentry() {
         continueAfterFailure = false

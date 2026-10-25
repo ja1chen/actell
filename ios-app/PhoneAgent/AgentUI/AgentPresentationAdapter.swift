@@ -42,7 +42,6 @@ struct ToolPresentation {
     var backgroundStatus: String { model.backgroundStatus }
     var running: Bool { activeRun != nil && model.running }
     var stopping: Bool { model.stopping }
-    var status: String { running ? model.status : session?.phase.label ?? "" }
     var warning: String? { model.errorMessage ?? model.sessions.warning }
     var providers: [ProviderProfile] { model.providers.profiles }
     var providerID: UUID? { model.selectedProvider(in: sessionID)?.id }
