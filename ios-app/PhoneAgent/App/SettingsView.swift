@@ -3,41 +3,31 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AgentViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var control = DeviceControlCoordinator.shared
     var body: some View {
         NavigationStack {
             Form {
                 Section(String(localized: "Model")) {
                     NavigationLink { ProvidersView(model: model) } label: {
-                        Text(String(localized: "Provider"))
+                        HStack(spacing: 12) { itemIcon("server.rack", .blue); Text(String(localized: "Provider")) }
                     }.accessibilityIdentifier("openProviders")
-                }
-                Section(String(localized: "Phone control")) {
-                    Picker(String(localized: "Connection mode"), selection: Binding(get: { control.route }, set: { _ = control.selectRoute($0) })) {
-                        Text(DeviceControlRoute.vpnLoopback.title).tag(DeviceControlRoute.vpnLoopback)
-                        Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
-                    }.disabled(model.hasBusySessions || !control.canChangeRoute)
-                        .accessibilityIdentifier("deviceControlMode")
-                    NavigationLink { DeviceControlSettingsView() } label: {
-                        Text(String(localized: "Connection and verification"))
-                    }.accessibilityIdentifier("esp32ControlSettings")
-                }
-                Section(String(localized: "Execution mode")) {
-                    NavigationLink { BackgroundSettingsView() } label: {
-                        Text(String(localized: "Mode"))
-                    }.accessibilityIdentifier("openBackgroundSettings")
                 }
                 Section(String(localized: "Extensions")) {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {
-                        Text(String(localized: "Skills"))
+                        HStack(spacing: 12) { itemIcon("puzzlepiece.extension", .purple); Text(String(localized: "Skills")) }
                     }.accessibilityIdentifier("manageSkills")
+                    NavigationLink { BackgroundSettingsView() } label: {
+                        HStack(spacing: 12) { itemIcon("clock.arrow.circlepath", .orange); Text(String(localized: "Background mode")) }
+                    }.accessibilityIdentifier("openBackgroundSettings")
+                    NavigationLink { PhoneControlSettingsView(model: model) } label: {
+                        HStack(spacing: 12) { itemIcon("hand.tap", .green); Text(String(localized: "Phone control")) }
+                    }.accessibilityIdentifier("esp32ControlSettings")
                     NavigationLink { MuseConnectionView(model: model) } label: {
-                        Text("Muse Gadget")
+                        HStack(spacing: 12) { itemIcon("sensor.tag.radiowaves.forward", .indigo); Text("Muse Gadget") }
                     }.accessibilityIdentifier("openMuseConnection")
                 }
                 Section(String(localized: "Data")) {
                     NavigationLink { LocalRecordsView(model: model) } label: {
-                        Text(String(localized: "Local records"))
+                        HStack(spacing: 12) { itemIcon("internaldrive", .cyan); Text(String(localized: "Local records")) }
                     }.accessibilityIdentifier("openLocalRecords")
                 }
                 if let warning = model.storageWarning { Text(warning).foregroundStyle(.orange) }
@@ -46,6 +36,11 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Close")) { dismiss() } } }
         }
+    }
+    private func itemIcon(_ name: String, _ color: Color) -> some View {
+        Image(systemName: name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: 28, height: 28).background(color, in: RoundedRectangle(cornerRadius: 7))
+            .accessibilityHidden(true)
     }
 }
 
@@ -140,7 +135,7 @@ private struct BackgroundSettingsView: View {
                 Section { Text(warning).foregroundStyle(.orange) }
             }
         }
-        .navigationTitle(String(localized: "Background execution"))
+        .navigationTitle(String(localized: "Background mode"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

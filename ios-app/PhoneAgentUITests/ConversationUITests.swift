@@ -438,7 +438,7 @@ import XCTest
         if resident.value as? String == "0" { resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         XCUIDevice.shared.press(.home)
         app.activate()
-        XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["后台模式"].waitForExistence(timeout: 5))
         XCTAssertEqual(backgroundToggle("pictureInPicture", in: app).value as? String, "1")
         capture("pip-selection-returned-to-app")
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -458,7 +458,7 @@ import XCTest
         app.launch(); app.buttons["设置"].tap()
         XCTAssertFalse(app.switches["backgroundMechanism.location"].exists)
         app.buttons["openBackgroundSettings"].tap()
-        XCTAssertTrue(app.navigationBars["后台执行"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["后台模式"].waitForExistence(timeout: 5))
         let resident = backgroundToggle("resident", in: app)
         XCTAssertEqual(resident.value as? String, "1")
         resident.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
@@ -534,21 +534,22 @@ import XCTest
         XCTAssertEqual(title.frame.minY, titleY, accuracy: 1)
         capture("settings")
         app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["ESP32 控制"].waitForExistence(timeout: 5))
-        XCTAssertLessThan(app.navigationBars["ESP32 控制"].staticTexts["ESP32 控制"].frame.height, 30)
+        XCTAssertTrue(app.navigationBars["手机操控"].waitForExistence(timeout: 5))
+        XCTAssertLessThan(app.navigationBars["手机操控"].staticTexts["手机操控"].frame.height, 30)
         XCTAssertFalse(app.buttons["startScreenCapture"].exists)
         capture("device-panel")
     }
     func testVPNLoopbackModePersistsAndShowsEditableAddresses() {
         let app = launch()
         app.buttons["设置"].tap()
+        app.buttons["esp32ControlSettings"].tap()
+        XCTAssertTrue(app.navigationBars["手机操控"].waitForExistence(timeout: 5))
         let mode = app.buttons["deviceControlMode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        capture("vpn-parent-settings")
+        capture("phone-control-mode")
         mode.tap()
         app.buttons["VPN 回环"].tap()
-        app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["VPN 回环控制"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["vpnLoopbackInterfaceAddress"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "共用系统配对身份")).firstMatch.exists)
         XCTAssertEqual(app.textFields["vpnLoopbackInterfaceAddress"].value as? String, "10.7.1.1")
         XCTAssertEqual(app.textFields["vpnLoopbackPeerAddress"].value as? String, "10.7.0.1")
@@ -587,7 +588,8 @@ import XCTest
         app.terminate(); app.launchArguments = ["--ui-testing"]; app.launch()
         app.buttons["设置"].tap()
         app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["VPN 回环控制"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["手机操控"].waitForExistence(timeout: 5))
+        XCTAssertTrue(interfaceAddress.waitForExistence(timeout: 5))
         XCTAssertEqual(interfaceAddress.value as? String, "198.18.0.1")
         presets.tap()
         app.buttons["vpnLoopbackInterfaceAddressCustom"].tap()
@@ -625,11 +627,10 @@ import XCTest
         peerPresets.tap()
         app.buttons["10.7.0.1"].tap()
         saveConfiguration()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.swipeDown()
         app.buttons["deviceControlMode"].tap()
         app.buttons["ESP32 NCM"].tap()
-        app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["ESP32 控制"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["vpnLoopbackInterfaceAddress"].exists)
     }
     private func openProviders(_ app: XCUIApplication) {
         XCTAssertFalse(app.buttons["openProviders"].exists)
@@ -665,7 +666,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Fixture One"].exists)
         XCTAssertTrue(app.staticTexts["Fixture Two"].exists)
         capture("providers")
-        closeProviders(app); app.buttons["newConversation"].tap()
+        closeProviders(app); app.buttons["newConversationToolbar"].tap()
         let picker = app.buttons["conversationModelPicker"]
         XCTAssertFalse(picker.exists)
         app.textViews["messageInput"].tap()
@@ -684,7 +685,11 @@ import XCTest
         app.textViews["messageInput"].tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "model-b-alt"), object: picker)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+        // The first back tap may only dismiss the still-open model popover.
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        if app.buttons["conversationModelPicker"].exists {
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
         app.buttons["newConversationToolbar"].tap()
         app.textViews["messageInput"].tap(); app.textViews["messageInput"].tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
@@ -700,7 +705,7 @@ import XCTest
         XCTAssertFalse(app.buttons["deviceControls"].exists)
         app.buttons["设置"].tap()
         app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["VPN 回环控制"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["手机操控"].waitForExistence(timeout: 5))
     }
     func testComposerActivationPreservesVisibleBottomAndMovesActionsBelowText() {
         continueAfterFailure = false
@@ -1027,7 +1032,7 @@ import XCTest
         XCTAssertLessThan(app.buttons["providerModel-fixture-fifth"].frame.minY, selected.frame.minY)
         XCTAssertLessThan(selected.frame.minY, app.buttons["browseAllProviderModels"].frame.minY)
         capture("compact-model-chips")
-        app.buttons["saveProvider"].tap(); closeProviders(app); app.buttons["newConversation"].tap()
+        app.buttons["saveProvider"].tap(); closeProviders(app); app.buttons["newConversationToolbar"].tap()
         let picker = app.buttons["conversationModelPicker"]
         // Match the existing composer-model test: complete the focus transition
         // after dismissing an editor keyboard before expecting its action row.

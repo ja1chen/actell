@@ -1539,19 +1539,19 @@
         }
       }
     },
-    "Background execution": {
+    "Background mode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Background execution"
+            "value": "Background mode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "后台执行"
+            "value": "后台模式"
           }
         }
       }
@@ -5070,23 +5070,6 @@
         }
       }
     },
-    "Execution mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Execution mode"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "执行模式"
-          }
-        }
-      }
-    },
     "Execution permission was revoked. Input has stopped.": {
       "extractionState": "manual",
       "localizations": {
@@ -7135,23 +7118,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "极低"
-          }
-        }
-      }
-    },
-    "Mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模式"
           }
         }
       }
