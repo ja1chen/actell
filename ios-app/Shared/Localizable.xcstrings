@@ -6544,23 +6544,6 @@
         }
       }
     },
-    "Load skill": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Load skill"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加载技能"
-          }
-        }
-      }
-    },
     "Local attachment verification failed. Select it again or retry the existing image URL.": {
       "extractionState": "manual",
       "localizations": {
@@ -15506,23 +15489,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "未注册的工具"
-          }
-        }
-      }
-    },
-    "Unregistered tool. Raw arguments are hidden.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unregistered tool. Raw arguments are hidden."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未注册工具；不展示原始参数"
           }
         }
       }

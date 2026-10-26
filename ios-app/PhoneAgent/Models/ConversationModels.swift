@@ -82,7 +82,7 @@ struct ToolStep: Codable, Sendable, Equatable {
         case "type_text": return String(localized: "Type text")
         case "wait": return String(localized: "Wait")
         case "finish": return String(localized: "Finish run")
-        case "load_skill": return String(localized: "Load skill") + (skillName.map { " · " + $0 } ?? "")
+        case "load_skill": return String(localized: "Skill") + (skillName.map { " · " + $0 } ?? "")
         default: return name
         }
     }

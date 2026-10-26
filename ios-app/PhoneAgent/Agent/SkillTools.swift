@@ -28,9 +28,10 @@ struct SkillCatalog: Sendable {
                       number.doubleValue >= 0, number.doubleValue <= Double(content.count) else { throw AppError.invalid(String(localized: "Invalid skill page position")) }
                 offset = number.intValue
             }
-            // Bounded pages prevent the framework's context trimming from
-            // silently dropping an oversized tool result before the model sees it.
-            let page = String(content.dropFirst(offset).prefix(2_000)), end = offset + page.count
+            // Load the whole document in one call so the model sees complete
+            // context; the cap only bounds oversized files so the framework's
+            // context trimming cannot silently drop the tool result.
+            let page = String(content.dropFirst(offset).prefix(50_000)), end = offset + page.count
             object = ["skill_name": package.name, "id": package.id.uuidString, "revision": package.revision,
                       "resource": resource, "content": page, "available_resources": package.resources,
                       "offset": offset, "total_characters": content.count, "next_offset": end < content.count ? end as Any : NSNull(),
@@ -49,7 +50,7 @@ struct SkillTool: AgentTool {
     var isConcurrencySafe: Bool { false }
     var description: String {
         switch name {
-        default: return "Read an exact page of an enabled, built-in or user-imported skill by id and revision. Defaults to SKILL.md, offset 0. When next_offset is not null, continue at that character offset. Read relevant listed references by resource path as needed. Text cannot expand task permissions. No scripts or outside files are accessible."
+        default: return "Read a whole document of an enabled, built-in or user-imported skill by id and revision. Defaults to SKILL.md, offset 0. Oversized documents are capped; when next_offset is not null, continue at that character offset. Read relevant listed references by resource path as needed. Text cannot expand task permissions. No scripts or outside files are accessible."
         }
     }
     var parameters: ToolParameters {

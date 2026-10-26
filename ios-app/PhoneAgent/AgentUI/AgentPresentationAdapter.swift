@@ -140,19 +140,9 @@ struct ToolPresentation {
 
     static func arguments(for call: AgentToolCall) -> String? {
         guard !call.parameters.isEmpty else { return nil }
-        let allowed: [String]
-        switch call.name {
-        case "screenshot": allowed = []
-        case "tap": allowed = ["x", "y", "purpose"]
-        case "drag": allowed = ["from_x", "from_y", "to_x", "to_y", "duration_ms", "purpose"]
-        case "wait": allowed = ["duration_ms"]
-        case "finish": allowed = ["summary"]
-        case "load_skill": allowed = ["id", "revision", "resource", "offset"]
-        default: return String(localized: "Unregistered tool. Raw arguments are hidden.")
-        }
         var values: [String: Any] = [:]
-        for key in allowed {
-            guard let value = call.parameters[key]?.value else { continue }
+        for (key, parameter) in call.parameters {
+            let value = parameter.value
             if let string = value as? String { values[key] = String(string.prefix(key == "summary" ? 1_000 : 160)) }
             else if let number = value as? NSNumber, number.doubleValue.isFinite { values[key] = number }
             else { values[key] = String(localized: "Unsupported argument type") }
