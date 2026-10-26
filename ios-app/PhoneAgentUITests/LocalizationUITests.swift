@@ -12,10 +12,9 @@ import XCTest
         let settings = app.buttons[chinese ? "设置" : "Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10), app.debugDescription)
         settings.tap()
-        XCTAssertTrue(app.staticTexts[chinese ? "执行模式" : "Execution mode"].exists)
-        XCTAssertEqual(app.buttons["openBackgroundSettings"].label, chinese ? "模式" : "Mode")
+        XCTAssertEqual(app.buttons["openBackgroundSettings"].label, chinese ? "后台模式" : "Background mode")
         app.buttons["openBackgroundSettings"].tap()
-        XCTAssertTrue(app.navigationBars[chinese ? "后台执行" : "Background execution"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars[chinese ? "后台模式" : "Background mode"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.switches["backgroundMechanism.audio"].exists)
         XCTAssertEqual(app.switches["backgroundMechanism.location"].label, chinese ? "定位" : "Location")
         capture("background-\(language)")

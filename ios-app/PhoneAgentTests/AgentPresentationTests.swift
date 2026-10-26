@@ -243,7 +243,7 @@ import SwiftAgentKit
         XCTAssertEqual(tool.state, .requested)
         let data = try XCTUnwrap(tool.arguments?.data(using: .utf8))
         let args = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(args["x"] as? Int, 100); XCTAssertNil(args["api_key"])
+        XCTAssertEqual(args["x"] as? Int, 100); XCTAssertEqual(args["api_key"] as? String, "never-display")
         store.finish(run, phase: .interrupted, summary: "")
         let before = store.conversation(id)?.messages
         AgentEventProjection.record(.streamChunk("late"), run: run, frame: nil, in: store)

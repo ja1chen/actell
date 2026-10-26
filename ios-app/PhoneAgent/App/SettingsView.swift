@@ -3,66 +3,76 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AgentViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var control = DeviceControlCoordinator.shared
-    @State private var clear = false
-    @State private var clearAssets = false
-    @State private var assetStatus = ""
     var body: some View {
         NavigationStack {
             Form {
                 Section(String(localized: "Model")) {
                     NavigationLink { ProvidersView(model: model) } label: {
-                        Text(String(localized: "Provider"))
+                        HStack(spacing: 12) { itemIcon("server.rack", .blue); Text(String(localized: "Provider")) }
                     }.accessibilityIdentifier("openProviders")
-                }
-                Section(String(localized: "Phone control")) {
-                    Picker(String(localized: "Connection mode"), selection: Binding(get: { control.route }, set: { _ = control.selectRoute($0) })) {
-                        Text(DeviceControlRoute.vpnLoopback.title).tag(DeviceControlRoute.vpnLoopback)
-                        Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
-                    }.disabled(model.hasBusySessions || !control.canChangeRoute)
-                        .accessibilityIdentifier("deviceControlMode")
-                    NavigationLink { DeviceControlSettingsView() } label: {
-                        Text(String(localized: "Connection and verification"))
-                    }.accessibilityIdentifier("esp32ControlSettings")
-                }
-                Section(String(localized: "Execution mode")) {
-                    NavigationLink { BackgroundSettingsView() } label: {
-                        Text(String(localized: "Mode"))
-                    }.accessibilityIdentifier("openBackgroundSettings")
                 }
                 Section(String(localized: "Extensions")) {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {
-                        Text(String(localized: "Skills"))
+                        HStack(spacing: 12) { itemIcon("puzzlepiece.extension", .purple); Text(String(localized: "Skills")) }
                     }.accessibilityIdentifier("manageSkills")
+                    NavigationLink { BackgroundSettingsView() } label: {
+                        HStack(spacing: 12) { itemIcon("clock.arrow.circlepath", .orange); Text(String(localized: "Background mode")) }
+                    }.accessibilityIdentifier("openBackgroundSettings")
+                    NavigationLink { PhoneControlSettingsView(model: model) } label: {
+                        HStack(spacing: 12) { itemIcon("hand.tap", .green); Text(String(localized: "Phone control")) }
+                    }.accessibilityIdentifier("esp32ControlSettings")
                     NavigationLink { MuseConnectionView(model: model) } label: {
-                        Text("Muse Gadget")
+                        HStack(spacing: 12) { itemIcon("sensor.tag.radiowaves.forward", .indigo); Text("Muse Gadget") }
                     }.accessibilityIdentifier("openMuseConnection")
                 }
-                Section(String(localized: "Local records")) {
-                    Button(String(localized: "Clear local conversations and task records"), role: .destructive) { clear = true }
-                        .disabled(model.hasBusySessions)
-                    Button(String(localized: "Remove unused attachments"), role: .destructive) { clearAssets = true }
-                        .disabled(model.hasBusySessions).accessibilityIdentifier("clearUnusedAttachments")
-                    if !assetStatus.isEmpty { Text(assetStatus).font(.caption) }
+                Section(String(localized: "Data")) {
+                    NavigationLink { LocalRecordsView(model: model) } label: {
+                        HStack(spacing: 12) { itemIcon("internaldrive", .cyan); Text(String(localized: "Local records")) }
+                    }.accessibilityIdentifier("openLocalRecords")
                 }
                 if let warning = model.storageWarning { Text(warning).foregroundStyle(.orange) }
             }
             .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Close")) { dismiss() } } }
-            .confirmationDialog(String(localized: "Delete tasks and results saved on this device? They cannot be recovered in the app."), isPresented: $clear, titleVisibility: .visible) {
-                Button(String(localized: "Clear records"), role: .destructive) { model.clearHistory() }
-            }
-            .alert(String(localized: "Remove unused attachments?"), isPresented: $clearAssets) {
-                Button(String(localized: "Cancel"), role: .cancel) {}
-                Button(String(localized: "Clean up"), role: .destructive) {
-                    Task {
-                        do { assetStatus = String(localized: "Removed \(try await model.clearUnreferencedAttachments()) unused files") }
-                        catch { assetStatus = String(localized: "Could not clean up attachments. Original files were kept.") }
-                    }
-                }
-            } message: { Text(String(localized: "Original images and files referenced by messages and drafts will be kept. Deleted unused files cannot be recovered.")) }
         }
+    }
+    private func itemIcon(_ name: String, _ color: Color) -> some View {
+        Image(systemName: name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: 28, height: 28).background(color, in: RoundedRectangle(cornerRadius: 7))
+            .accessibilityHidden(true)
+    }
+}
+
+private struct LocalRecordsView: View {
+    @ObservedObject var model: AgentViewModel
+    @State private var clear = false
+    @State private var clearAssets = false
+    @State private var assetStatus = ""
+    var body: some View {
+        Form {
+            Section {
+                Button(String(localized: "Clear conversation records"), role: .destructive) { clear = true }
+                    .disabled(model.hasBusySessions)
+                Button(String(localized: "Remove unused attachments"), role: .destructive) { clearAssets = true }
+                    .disabled(model.hasBusySessions).accessibilityIdentifier("clearUnusedAttachments")
+                if !assetStatus.isEmpty { Text(assetStatus).font(.caption) }
+            }
+        }
+        .navigationTitle(String(localized: "Local records"))
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(String(localized: "Delete tasks and results saved on this device? They cannot be recovered in the app."), isPresented: $clear, titleVisibility: .visible) {
+            Button(String(localized: "Clear records"), role: .destructive) { model.clearHistory() }
+        }
+        .alert(String(localized: "Remove unused attachments?"), isPresented: $clearAssets) {
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Clean up"), role: .destructive) {
+                Task {
+                    do { assetStatus = String(localized: "Removed \(try await model.clearUnreferencedAttachments()) unused files") }
+                    catch { assetStatus = String(localized: "Could not clean up attachments. Original files were kept.") }
+                }
+            }
+        } message: { Text(String(localized: "Original images and files referenced by messages and drafts will be kept. Deleted unused files cannot be recovered.")) }
     }
 }
 
@@ -125,7 +135,7 @@ private struct BackgroundSettingsView: View {
                 Section { Text(warning).foregroundStyle(.orange) }
             }
         }
-        .navigationTitle(String(localized: "Background execution"))
+        .navigationTitle(String(localized: "Background mode"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

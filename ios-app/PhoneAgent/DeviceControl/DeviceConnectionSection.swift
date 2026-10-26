@@ -48,9 +48,8 @@ struct DeviceConnectionSection: View {
                         Button(String(localized: "Stop")) { flow.cancel() }
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderless)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
             }
         }
         if flow.ready {

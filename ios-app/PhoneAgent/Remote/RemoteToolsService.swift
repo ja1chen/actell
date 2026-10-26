@@ -168,8 +168,12 @@ struct RemoteRPCError: LocalizedError {
     /// separately by the run lifecycle; backgrounding does not revoke connectivity.
     func setBackground(_ value: Bool) {
         background = value
+        // Scene snapshots are transition debug aids, not failure evidence; keep
+        // them out of the diagnostics log unless verbose logging is enabled.
+        guard Self.verboseSceneLogs else { return }
         diagnostics?.record(value ? "scene.background" : "scene.foreground", state: model.remoteAdmissionSnapshot)
     }
+    static let verboseSceneLogs = ProcessInfo.processInfo.environment["ACTELL_REMOTE_VERBOSE_LOGS"] == "1"
     func stop() {
         model.endRemoteContinuity(); continuityClient = nil
         diagnostics?.record("service.stop", state: diagnosticSnapshot)

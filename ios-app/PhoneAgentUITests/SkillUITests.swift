@@ -34,7 +34,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["合成技能已读取。"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons.matching(NSPredicate(format: "label MATCHES %@", "[0-9]+ 次工具调用")).firstMatch.tap()
         XCTAssertTrue(app.otherElements["tool-invocation-succeeded-load_skill"].exists)
-        XCTAssertTrue(app.staticTexts["加载技能 · Synthetic Guide"].exists)
+        XCTAssertTrue(app.staticTexts["技能 · Synthetic Guide"].exists)
         capture("skill-tool-name-and-icon")
     }
     private func importSkill(_ app: XCUIApplication) {
