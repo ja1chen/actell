@@ -8460,6 +8460,20 @@
         }
       }
     },
+    "Include accessible screen content": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Include accessible screen content" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "包含屏幕无障碍内容" } }
+      }
+    },
+    "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无障碍文本和结构可能包含屏幕外的内容，并会随截图发送给模型服务商。" } }
+      }
+    },
     "Phone control": {
       "extractionState": "manual",
       "localizations": {

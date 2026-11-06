@@ -3,6 +3,16 @@ import SwiftAgentKit
 @testable import PhoneAgent
 
 @MainActor final class AgentPresentationTests: XCTestCase {
+    func testScreenshotHistoryStoresOnlyAccessibilitySummary() throws {
+        let input = #"{"image_id":"frame","width":100,"height":200,"accessibility":{"status":"available","nodes":[{"label":"PRIVATE_FIXTURE"}],"atomic":false}}"#
+        let receipt = AgentEventProjection.screenshotReceipt(input)
+        XCTAssertFalse(receipt.contains("PRIVATE_FIXTURE"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(receipt.utf8)) as? [String: Any])
+        let summary = try XCTUnwrap(object["accessibility"] as? [String: Any])
+        XCTAssertEqual(summary["status"] as? String, "available")
+        XCTAssertEqual(summary["nodeCount"] as? Int, 1)
+        XCTAssertEqual(object["image_id"] as? String, "frame")
+    }
     func testConversationReasoningChoicePersistsAndValidatesModelScope() throws {
         let defaults = UserDefaults(suiteName: "conversation-effort-\(UUID())")!
         defer { defaults.removeObject(forKey: ProviderStore.storageKey) }

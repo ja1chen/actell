@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import CCoreDeviceBackend
+import Darwin
 
 /// Fixed, payload-free timings. The observer is inherited by child Tasks; spans
 /// capture it explicitly before crossing decoder queues. No wall-clock subtraction.
@@ -87,6 +88,7 @@ public enum NativeBackendError: Error, Equatable {
     case touchPreparationFailure(stage: UInt32, cause: UInt32)
     case applicationQueryFailure(stage: UInt32, cause: UInt32)
     case screenshotFailure(stage: UInt32, cause: UInt32)
+    case accessibilityFailure(stage: UInt32, cause: UInt32)
 }
 /// Read-only input preparation failed; no HID report has been submitted.
 /// These failures do not invalidate the authenticated control session.
@@ -412,6 +414,29 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     }
     public func home() async throws { _ = try await operation(7) }
     public func installedApplications() async throws -> Data { try await operation(8, expectedKind: 11) }
+    /// Tests raw service reachability only; it does not read an accessibility tree.
+    public func probeAccessibilityTransport() async throws { _ = try await operation(13) }
+    /// Negotiates and closes a read-only accessibility session without a snapshot.
+    public func probeAccessibilityProtocol() async throws -> Data { try await operation(14, expectedKind: 17) }
+    /// Reads a single application's native snapshot; no HID actions are sent.
+    public func accessibilitySnapshot(pid: Int32) async throws -> Data {
+        guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
+        guard pid > 0 else { throw NativeBackendError.malformedEvent }
+        return try await operation(15, expectedKind: 18, payload: JSONSerialization.data(withJSONObject: ["pid": pid]))
+    }
+    public func accessibilitySnapshotAtCenter() async throws -> Data {
+        guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
+        return try await operation(16, expectedKind: 18)
+    }
+    private static var supportsAccessibilityProfile: Bool {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        guard version.majorVersion == 27, version.minorVersion == 0, version.patchVersion == 0 else { return false }
+        var count = 0
+        guard sysctlbyname("kern.osversion", nil, &count, nil, 0) == 0, (1...128).contains(count) else { return false }
+        var buffer = [CChar](repeating: 0, count: count)
+        guard sysctlbyname("kern.osversion", &buffer, &count, nil, 0) == 0 else { return false }
+        return String(cString: buffer) == "24A437"
+    }
     public func launchApplication(bundleID: String, arguments: [String]) async throws {
         _ = try await operation(9, payload: JSONSerialization.data(withJSONObject: ["bundle_id": bundleID, "arguments": arguments]))
     }
@@ -458,6 +483,8 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                [UInt32(9), 19, 20].contains(stage) {
                 throw NativeBackendError.screenshotFailure(stage: stage, cause: cause)
             }
+            if [UInt32(13), 14, 15, 16].contains(action), case NativeBackendError.protocolFailure(let stage, let cause) = error,
+               (22...29).contains(stage) { throw NativeBackendError.accessibilityFailure(stage: stage, cause: cause) }
             if case NativeBackendError.touchPreparationFailure = error { throw error }
             if case NativeBackendError.applicationQueryFailure = error { throw error }
             if handle == token { close() }; throw error

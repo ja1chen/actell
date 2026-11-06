@@ -45,6 +45,11 @@ are in [SOURCES.json](coredevice/docs/SOURCES.json) and [REUSE.md](coredevice/do
 idevice_pair and rPlayHub remain reference-only. No Apple developer image or
 private framework is included.
 
+The read-only AX protocol, request shapes and native snapshot interpretation
+are adapted from [ipb](https://github.com/ipbtools/ipb) at commit
+`8c227a10710dad479852aa0203de729fed57471b`. The upstream MIT copyright and
+license are retained in [ipb-MIT.txt](ios-app/Licenses/ipb-MIT.txt).
+
 ## MacPaw/OpenAI
 
 Remote Swift Package Manager dependency, fixed at 0.5.2 /

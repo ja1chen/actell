@@ -17,8 +17,11 @@ typedef struct {
     coredevice_bytes seed, controller_id, peer_id, peer_public_key, alt_irk, peer_udid, peer_model;
 } coredevice_identity;
 typedef struct { uint32_t abi,interface_index,generation,endpoint_index,permissions; } coredevice_config;
-enum coredevice_failure_stage { COREDEVICE_STAGE_IDENTITY=1, COREDEVICE_STAGE_TRANSPORT_CONNECT=2, COREDEVICE_STAGE_PAIR_VERIFY=3, COREDEVICE_STAGE_TUNNEL_LISTENER=4, COREDEVICE_STAGE_TLS_TUNNEL=5, COREDEVICE_STAGE_RSD=6, COREDEVICE_STAGE_DEVELOPER_MODE=7, COREDEVICE_STAGE_DEVELOPER_IMAGE=8, COREDEVICE_STAGE_SCREENSHOT=9, COREDEVICE_STAGE_MEDIA=10, COREDEVICE_STAGE_INPUT=11, COREDEVICE_STAGE_CLOSED=12, COREDEVICE_STAGE_VIDEO_RECEIVER=13, COREDEVICE_STAGE_VIDEO_SERVICE=14, COREDEVICE_STAGE_VIDEO_NEGOTIATION=15, COREDEVICE_STAGE_VIDEO_ANSWER=16, COREDEVICE_STAGE_VIDEO_PACKETS=17, COREDEVICE_STAGE_TOUCH_SERVICE=18, COREDEVICE_STAGE_SCREENSHOT_CONNECTION=19, COREDEVICE_STAGE_SCREENSHOT_RESPONSE=20, COREDEVICE_STAGE_APPLICATIONS=21 };
-enum coredevice_failure_cause { COREDEVICE_CAUSE_PROTOCOL=1, COREDEVICE_CAUSE_TIMEOUT=2, COREDEVICE_CAUSE_INVALID=3, COREDEVICE_CAUSE_MISSING_SERVICE=4, COREDEVICE_CAUSE_UNPREPARED=5, COREDEVICE_CAUSE_MEDIA_INACTIVE=6, COREDEVICE_CAUSE_DELIVERY_UNCERTAIN=7 };
+enum coredevice_failure_stage { COREDEVICE_STAGE_IDENTITY=1, COREDEVICE_STAGE_TRANSPORT_CONNECT=2, COREDEVICE_STAGE_PAIR_VERIFY=3, COREDEVICE_STAGE_TUNNEL_LISTENER=4, COREDEVICE_STAGE_TLS_TUNNEL=5, COREDEVICE_STAGE_RSD=6, COREDEVICE_STAGE_DEVELOPER_MODE=7, COREDEVICE_STAGE_DEVELOPER_IMAGE=8, COREDEVICE_STAGE_SCREENSHOT=9, COREDEVICE_STAGE_MEDIA=10, COREDEVICE_STAGE_INPUT=11, COREDEVICE_STAGE_CLOSED=12, COREDEVICE_STAGE_VIDEO_RECEIVER=13, COREDEVICE_STAGE_VIDEO_SERVICE=14, COREDEVICE_STAGE_VIDEO_NEGOTIATION=15, COREDEVICE_STAGE_VIDEO_ANSWER=16, COREDEVICE_STAGE_VIDEO_PACKETS=17, COREDEVICE_STAGE_TOUCH_SERVICE=18, COREDEVICE_STAGE_SCREENSHOT_CONNECTION=19, COREDEVICE_STAGE_SCREENSHOT_RESPONSE=20, COREDEVICE_STAGE_APPLICATIONS=21, COREDEVICE_STAGE_AX_DISCOVERY=22, COREDEVICE_STAGE_AX_CONNECTION=23, COREDEVICE_STAGE_AX_HANDSHAKE=24, COREDEVICE_STAGE_AX_VERSION=25, COREDEVICE_STAGE_AX_SUBSCRIPTION=26, COREDEVICE_STAGE_AX_ROOT=27, COREDEVICE_STAGE_AX_SNAPSHOT=28, COREDEVICE_STAGE_AX_SELECTION=29 };
+enum coredevice_failure_cause { COREDEVICE_CAUSE_PROTOCOL=1, COREDEVICE_CAUSE_TIMEOUT=2, COREDEVICE_CAUSE_INVALID=3, COREDEVICE_CAUSE_MISSING_SERVICE=4, COREDEVICE_CAUSE_UNPREPARED=5, COREDEVICE_CAUSE_MEDIA_INACTIVE=6, COREDEVICE_CAUSE_DELIVERY_UNCERTAIN=7, COREDEVICE_CAUSE_UNSUPPORTED_VERSION=8, COREDEVICE_CAUSE_RESPONSE_MISMATCH=9, COREDEVICE_CAUSE_LIMIT_EXCEEDED=10, COREDEVICE_CAUSE_AX_ACK=11, COREDEVICE_CAUSE_AX_CALLBACK_ARGUMENT=12, COREDEVICE_CAUSE_AX_ARCHIVE=13, COREDEVICE_CAUSE_AX_REMOTE_REFUSED=14, COREDEVICE_CAUSE_AX_CALLBACK_HEADER=15, COREDEVICE_CAUSE_AX_CALLBACK_TYPE=16, COREDEVICE_CAUSE_AX_CALLBACK_LENGTH=17, COREDEVICE_CAUSE_AX_CALLBACK_ARCHIVE=18, COREDEVICE_CAUSE_AX_SELECTION_CHANGED=19 };
+/* Accessibility probe stages 22 discovery, 23 connection, 24 handshake,
+ * 25 version, 26 subscription, 27 application root, 28 snapshot, 29 selection.
+ * Causes 8/9/10 are unsupported version, response mismatch and limit exceeded. */
 typedef struct { uint64_t request_id; uint32_t kind,stage,cause,reserved; size_t size; } coredevice_event;
 /* Return codes: 0 success/queued, 1 invalid, 2 busy, 3 closed, 4 empty,
  * 5 buffer too small (event retained), 6 not ready. Errors contain no payloads.
@@ -79,6 +82,14 @@ int32_t coredevice_lockdown_start(uint32_t interface_index,uint32_t permissions,
 /* Actions: 1 read-only developer/DDI check, 2 capture PNG, 3 start media drain,
  * 4 tap normalized x/y; 11 release owned media/HID streams (idempotent),
  * retaining the authenticated tunnel. No global stopAll. Every accepted request id must increase; no replay.
+ * Action 13 probes the advertised raw accessibility service port and closes it;
+ * SCREEN permission required. It does not negotiate DTX or read a snapshot.
+ * Action 14 negotiates DTX/API version and toggles the owned subscription;
+ * SCREEN permission required. Event 17 contains a bounded JSON cleanup report.
+ * Action 15 is command JSON {pid: positive integer}; SCREEN permission required.
+ * Event 18 is a bounded native-snapshot JSON result for that PID.
+ * Action 16 selects the process at the current display center; this is not a
+ * claim of foreground ownership. Geometry and selection are checked again.
  * Touch media uses screen video only; no audio session is requested. Caller obtains consent. */
 // Drag uses normalized coordinates, 100–2000 ms; uncertain delivery is never replayed.
 int32_t coredevice_backend_drag(uint64_t handle,uint64_t request_id,uint16_t x,uint16_t y,uint16_t end_x,uint16_t end_y,uint16_t duration_ms);

@@ -10,6 +10,7 @@ struct PhoneControlSettingsView: View {
     @State private var localAddress = DeviceControlCoordinator.shared.vpnConfiguration.localAddress
     @State private var peerAddress = DeviceControlCoordinator.shared.vpnConfiguration.peerAddress
     @State private var error: String?
+    @AppStorage("accessibilityTreeEnabled") private var accessibilityTreeEnabled = false
     var body: some View {
         Form {
             Section {
@@ -24,6 +25,13 @@ struct PhoneControlSettingsView: View {
             }
             DeviceControlRouteSections(localAddress: $localAddress, peerAddress: $peerAddress, error: $error,
                 showTouchTest: { showingTouchTest = true }, save: save)
+            Section {
+                Toggle(String(localized: "Include accessible screen content"), isOn: $accessibilityTreeEnabled)
+                    .accessibilityIdentifier("accessibilityTreeEnabled")
+                    .disabled(model.hasBusySessions)
+            } footer: {
+                Text(String(localized: "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots."))
+            }
         }
             .navigationTitle(String(localized: "Phone control"))
             .navigationBarTitleDisplayMode(.inline)

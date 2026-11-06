@@ -466,7 +466,7 @@ fn request_geometry_valid(r: &Request, video: &crate::video::VideoMailbox) -> bo
 async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
     let required = match r.action {
         1 | 11 => 0,
-        2 => SCREEN,
+        2 | 13 | 14 | 15 | 16 => SCREEN,
         3 => MEDIA,
         4 | 6 | 7 | 9 | 10 | 12 => INPUT,
         8 => VERIFY,
@@ -478,6 +478,7 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             Error {
                 stage: match r.action {
                     2 => Stage::Screenshot,
+                    13 | 14 | 15 | 16 => Stage::AccessibilityDiscovery,
                     3 => Stage::Media,
                     _ => Stage::Input,
                 },
@@ -494,6 +495,13 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             .await
             .map(|_| Event::ok(r.id, 2, Vec::new())),
         12 => session.input_display_geometry().await.map(|data| Event::ok(r.id, 15, data)),
+        13 => session.probe_accessibility_transport().await.map(|_| Event::ok(r.id, 2, Vec::new())),
+        14 => session.probe_accessibility_protocol().await.map(|data| Event::ok(r.id, 17, data)),
+        15 => {
+            let p: serde_json::Value = serde_json::from_slice(&r.payload).expect("validated payload");
+            session.accessibility_snapshot(p["pid"].as_u64().expect("validated pid")).await.map(|data| Event::ok(r.id, 18, data))
+        },
+        16 => session.accessibility_snapshot_at_center().await.map(|data| Event::ok(r.id, 18, data)),
         11 => session
             .stop_touch_media()
             .await
@@ -791,7 +799,7 @@ pub unsafe extern "C" fn coredevice_local_vpn_start_configured(
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn coredevice_backend_submit(handle: u64, id: u64, action: u32, x: u16, y: u16) -> i32 {
-    if !(1..=5).contains(&action) && action != 7 && action != 8 && action != 11 && action != 12 {
+    if !(1..=5).contains(&action) && action != 7 && action != 8 && action != 11 && action != 12 && action != 13 && action != 14 && action != 16 {
         return INVALID;
     }
     submit_request(
@@ -872,6 +880,7 @@ fn valid_command(action: u32, bytes: &[u8]) -> bool {
         10 => p["text"]
             .as_str()
             .is_some_and(|s| crate::valid_input_text(s)),
+        15 => p.as_object().is_some_and(|m| m.len() == 1) && p["pid"].as_u64().is_some_and(|v| v > 0 && v <= i32::MAX as u64),
         _ => false,
     }
 }

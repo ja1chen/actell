@@ -10,6 +10,9 @@ mod video;
 pub use relay::RelayConnector;
 pub mod lockdown;
 mod png;
+mod ax_dtx;
+mod ax_archive;
+mod ax_snapshot;
 mod transport;
 pub use idevice::remote_pairing::{RpPairingFile, VerifiedPeerIdentity};
 use idevice::{
@@ -55,6 +58,14 @@ pub enum Stage {
     ScreenshotConnection,
     ScreenshotResponse,
     Applications,
+    AccessibilityDiscovery,
+    AccessibilityConnection,
+    AccessibilityHandshake,
+    AccessibilityVersion,
+    AccessibilitySubscription,
+    AccessibilityRoot,
+    AccessibilitySnapshot,
+    AccessibilitySelection,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -66,6 +77,18 @@ pub enum Cause {
     Unprepared,
     MediaInactive,
     DeliveryUncertain,
+    UnsupportedVersion,
+    ResponseMismatch,
+    LimitExceeded,
+    SemanticAcknowledgement,
+    CallbackArgument,
+    ArchiveInvalid,
+    RemoteRefused,
+    CallbackHeader,
+    CallbackType,
+    CallbackLength,
+    CallbackArchive,
+    SelectionChanged,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Error {
@@ -83,6 +106,57 @@ pub(crate) fn valid_input_text(text: &str) -> bool {
 }
 fn error(stage: Stage, cause: Cause) -> Error {
     Error { stage, cause }
+}
+const ACCESSIBILITY_SERVICE: &str = "com.apple.accessibility.axAuditDaemon.remoteAXService";
+fn accessibility_port(handshake: &RsdHandshake) -> Result<u16, Error> {
+    handshake.services.get(ACCESSIBILITY_SERVICE)
+        .map(|service| service.port)
+        .filter(|port| *port != 0)
+        .ok_or(error(Stage::AccessibilityDiscovery, Cause::MissingService))
+}
+fn accessibility_error(e: ax_dtx::Failure) -> Error {
+    use ax_dtx::Failure as F;
+    fn phase_stage(phase: ax_dtx::Phase) -> Stage {
+        match phase {
+            ax_dtx::Phase::Handshake => Stage::AccessibilityHandshake,
+            ax_dtx::Phase::Version => Stage::AccessibilityVersion,
+            ax_dtx::Phase::Subscription => Stage::AccessibilitySubscription,
+            ax_dtx::Phase::Selection => Stage::AccessibilitySelection,
+            ax_dtx::Phase::Root => Stage::AccessibilityRoot,
+            ax_dtx::Phase::Snapshot | ax_dtx::Phase::Cleanup => Stage::AccessibilitySnapshot,
+        }
+    }
+    match e {
+        F::Handshake | F::Protocol => error(Stage::AccessibilityHandshake, Cause::Protocol),
+        F::Version => error(Stage::AccessibilityVersion, Cause::Protocol),
+        F::UnsupportedVersion => error(Stage::AccessibilityVersion, Cause::UnsupportedVersion),
+        F::Subscription => error(Stage::AccessibilitySubscription, Cause::Protocol),
+        F::Selection => error(Stage::AccessibilitySelection, Cause::Protocol),
+        F::SelectionChanged => error(Stage::AccessibilitySelection, Cause::SelectionChanged),
+        F::Root => error(Stage::AccessibilityRoot, Cause::Protocol),
+        F::Snapshot => error(Stage::AccessibilitySnapshot, Cause::Protocol),
+        F::Mismatch => error(Stage::AccessibilitySnapshot, Cause::ResponseMismatch),
+        F::Limit => error(Stage::AccessibilitySnapshot, Cause::LimitExceeded),
+        F::SemanticAck => error(Stage::AccessibilityRoot, Cause::SemanticAcknowledgement),
+        F::PacketArgument => error(Stage::AccessibilityRoot, Cause::CallbackArgument),
+        F::ArchiveInvalid => error(Stage::AccessibilityRoot, Cause::ArchiveInvalid),
+        F::RemoteRefused => error(Stage::AccessibilityRoot, Cause::RemoteRefused),
+        F::PacketHeader => error(Stage::AccessibilityRoot, Cause::CallbackHeader),
+        F::PacketType => error(Stage::AccessibilityRoot, Cause::CallbackType),
+        F::PacketLength => error(Stage::AccessibilityRoot, Cause::CallbackLength),
+        F::PacketArchive => error(Stage::AccessibilityRoot, Cause::CallbackArchive),
+        F::Timeout(phase) => error(phase_stage(phase), Cause::Timeout),
+        F::Semantic(phase, issue) => error(phase_stage(phase), match issue {
+            ax_dtx::SemanticIssue::Ack => Cause::SemanticAcknowledgement,
+            ax_dtx::SemanticIssue::PacketArgument => Cause::CallbackArgument,
+            ax_dtx::SemanticIssue::PacketHeader => Cause::CallbackHeader,
+            ax_dtx::SemanticIssue::PacketType => Cause::CallbackType,
+            ax_dtx::SemanticIssue::PacketLength => Cause::CallbackLength,
+            ax_dtx::SemanticIssue::PacketArchive => Cause::CallbackArchive,
+            ax_dtx::SemanticIssue::ArchiveInvalid => Cause::ArchiveInvalid,
+            ax_dtx::SemanticIssue::RemoteRefused => Cause::RemoteRefused,
+        }),
+    }
 }
 async fn bounded<T, E>(stage: Stage, f: impl Future<Output = Result<T, E>>) -> Result<T, Error> {
     bounded_for(stage, Duration::from_secs(15), f).await
@@ -253,6 +327,62 @@ impl Session {
             .collect();
         services.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(services)
+    }
+    /// Probe only the advertised raw service port. A successful TCP connection
+    /// does not establish DTX compatibility or imply that snapshots work.
+    pub async fn probe_accessibility_transport(&mut self) -> Result<(), Error> {
+        self.check()?;
+        if !self.prepared {
+            return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared));
+        }
+        let port = accessibility_port(&self.handshake)?;
+        let stream = bounded(Stage::AccessibilityConnection, self.adapter.connect(port)).await?;
+        drop(stream);
+        self.check()
+    }
+    /// Negotiates a separate AX service session; does not request a snapshot.
+    pub async fn probe_accessibility_protocol(&mut self) -> Result<Vec<u8>, Error> {
+        self.check()?;
+        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared)); }
+        let port = accessibility_port(&self.handshake)?;
+        let stream = bounded(Stage::AccessibilityConnection, self.adapter.connect(port)).await?;
+        let report = ax_dtx::probe(stream).await.map_err(accessibility_error);
+        self.check()?;
+        let report = report?;
+        serde_json::to_vec(&serde_json::json!({
+            "deviceAPIVersion": report.api_version,
+            "subscriptionStopConfirmed": report.subscription_stop_confirmed,
+            "localWriteShutdownCompleted": report.local_write_shutdown_completed,
+        })).map_err(|_| error(Stage::AccessibilityHandshake, Cause::Protocol))
+    }
+    pub async fn accessibility_snapshot(&mut self, pid: u64) -> Result<Vec<u8>, Error> {
+        if pid == 0 || pid > i32::MAX as u64 { return Err(error(Stage::AccessibilityRoot, Cause::InvalidParameters)); }
+        self.accessibility_snapshot_for(ax_dtx::Selection::ExplicitPid(pid)).await
+    }
+    /// Selects the process at the display center, not necessarily the foreground app.
+    pub async fn accessibility_snapshot_at_center(&mut self) -> Result<Vec<u8>, Error> {
+        self.check()?;
+        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared)); }
+        let before = media::query_ax_display_geometry(&mut self.adapter, &mut self.handshake).await;
+        self.check()?;
+        let before = before.map_err(|e| error(Stage::AccessibilitySelection, e.cause))?;
+        let data = self.accessibility_snapshot_for(ax_dtx::Selection::HitPoint { x: before.x + before.width / 2.0, y: before.y + before.height / 2.0 }).await?;
+        let after = media::query_ax_display_geometry(&mut self.adapter, &mut self.handshake).await;
+        self.check()?;
+        let after = after.map_err(|e| error(Stage::AccessibilitySelection, e.cause))?;
+        if before != after { return Err(error(Stage::AccessibilitySelection, Cause::SelectionChanged)); }
+        Ok(data)
+    }
+    async fn accessibility_snapshot_for(&mut self, selection: ax_dtx::Selection) -> Result<Vec<u8>, Error> {
+        self.check()?;
+        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared)); }
+        let port = accessibility_port(&self.handshake)?;
+        let stream = bounded(Stage::AccessibilityConnection, self.adapter.connect(port)).await?;
+        let data = tokio::time::timeout(Duration::from_secs(30), ax_dtx::snapshot(stream, selection)).await
+            .map_err(|_| error(Stage::AccessibilitySnapshot, Cause::Timeout))
+            .and_then(|r| r.map_err(accessibility_error));
+        self.check()?;
+        data
     }
     /// Read-only checks, never download/personalize/mount a DDI or toggle mode.
     pub async fn check_developer_readiness(&mut self) -> Result<(), Error> {
@@ -836,6 +966,24 @@ mod tests {
         assert!(verify_rsd_identity(&h, &id.peer).is_ok());
         h.protocol_version = 0;
         assert!(verify_rsd_identity(&h, &id.peer).is_err());
+    }
+    #[test]
+    fn accessibility_discovery_uses_advertised_raw_port() {
+        let mut h = RsdHandshake {
+            services: Default::default(), properties: Default::default(),
+            protocol_version: 1, uuid: String::new(),
+        };
+        assert_eq!(accessibility_port(&h).unwrap_err().cause, Cause::MissingService);
+        h.services.insert(ACCESSIBILITY_SERVICE.into(), idevice::rsd::RsdService {
+            entitlement: String::new(), port: 0, uses_remote_xpc: false,
+            features: None, service_version: None,
+        });
+        assert_eq!(accessibility_port(&h).unwrap_err().cause, Cause::MissingService);
+        let service = h.services.get_mut(ACCESSIBILITY_SERVICE).unwrap();
+        service.port = 1234;
+        assert_eq!(accessibility_port(&h).unwrap(), 1234);
+        h.services.get_mut(ACCESSIBILITY_SERVICE).unwrap().uses_remote_xpc = true;
+        assert_eq!(accessibility_port(&h).unwrap(), 1234);
     }
     #[test]
     fn canceled_operation_invalidates_transport_generation() {

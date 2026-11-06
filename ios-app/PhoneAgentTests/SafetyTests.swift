@@ -10,10 +10,19 @@ private actor SpyBridge: DeviceBridge {
     private(set) var systemActions: [String] = []
     private(set) var insertedText = ""
     private(set) var launchArguments: [String] = []
+    private(set) var accessibilityReads = 0
+    var accessibilityData: Data?
+    var accessibilityError: NativeBackendError?
     let tapError: AppError?
     let capturedAt: Date
     init(tapError: AppError? = nil, capturedAt: Date = Date()) { self.tapError = tapError; self.capturedAt = capturedAt }
     func screenshot() async throws -> FrameImage { FrameImage(id: "fresh", png: Data(), width: 390, height: 844, capturedAt: capturedAt, isDemo: true) }
+    func configureAccessibility(data: Data? = nil, error: NativeBackendError? = nil) { accessibilityData = data; accessibilityError = error }
+    func accessibilityObservation() async throws -> Data? {
+        accessibilityReads += 1
+        if let accessibilityError { throw accessibilityError }
+        return accessibilityData
+    }
     func tap(x: Int, y: Int, imageID: String) async throws { taps += 1; if let tapError { throw tapError } }
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws { drags += 1 }
     func systemActionContext() async throws -> String { "synthetic-system-session" }
@@ -25,6 +34,22 @@ private actor SpyBridge: DeviceBridge {
     func stop() async { stopped = true }
 }
 final class SafetyTests: XCTestCase {
+    func testAccessibilityObservationIsOptInAndFailureKeepsScreenshot() async throws {
+        let bridge = SpyBridge()
+        let disabled = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
+        let first = try await disabled.execute(name: "screenshot", parameters: [:], callID: "disabled")
+        XCTAssertFalse(first.result.contains("accessibility"))
+        let readsBefore = await bridge.accessibilityReads; XCTAssertEqual(readsBefore, 0)
+        await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[{"label":"fixture"}],"atomic":false}"#.utf8))
+        let enabled = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, includeAccessibilityTree: true)
+        let second = try await enabled.execute(name: "screenshot", parameters: [:], callID: "enabled")
+        XCTAssertTrue(second.result.contains("fixture")); XCTAssertTrue(second.result.contains("accessibility"))
+        await bridge.configureAccessibility(error: .accessibilityFailure(stage: 22, cause: 4))
+        let third = try await enabled.execute(name: "screenshot", parameters: [:], callID: "fallback")
+        XCTAssertFalse(third.isError); XCTAssertTrue(third.result.contains("service_unavailable"))
+        _ = try await enabled.execute(name: "tap", parameters: ["x": 10, "y": 10, "purpose": "fixture"], callID: "after-fallback")
+        let taps = await bridge.taps; XCTAssertEqual(taps, 1)
+    }
     func testSystemActionsForwardExactTextAndArgumentsWithoutScreenshotDependency() async throws {
         let bridge = SpyBridge()
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })

@@ -39,6 +39,7 @@ enum CoreDeviceAdmissionError: LocalizedError {
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws
     func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws
     func agentApplications(owner: UUID, session: UUID) async throws -> Data
+    func agentAccessibilityObservation(owner: UUID, session: UUID) async throws -> Data?
     func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws
     func canActivateApplication(owner: UUID, session: UUID) -> Bool
     func retainConnection(owner: UUID)
@@ -50,6 +51,7 @@ enum CoreDeviceAdmissionError: LocalizedError {
 }
 
 extension CoreDeviceControlConnection {
+    func agentAccessibilityObservation(owner: UUID, session: UUID) async throws -> Data? { nil }
     func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?) { releaseAgent(owner: owner, session: session) }
     func agentInputGeometry(owner: UUID, session: UUID) async throws -> String { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
 
@@ -76,6 +78,9 @@ extension CoreDeviceControlConnection {
 }
 
 extension DeviceControlCoordinator: CoreDeviceControlConnection {
+    func agentAccessibilityObservation(owner: UUID, session: UUID) async throws -> Data? {
+        try await agentOperation(owner: owner, session: session) { try await $0.accessibilitySnapshotAtCenter() }
+    }
     func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
         try await agentOperation(owner: owner, session: session) { services in
             try await self.prepareAgentInput(services)
@@ -343,6 +348,13 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
         let id = UUID().uuidString
         imageID = id; approvedImageID = nil
         return FrameImage(id: id, png: png, width: width, height: height, capturedAt: Date(), isDemo: false, remoteGeometryToken: geometryToken)
+    }
+    func accessibilityObservation() async throws -> Data? {
+        try await prepareConnection()
+        let session = try requireSession()
+        let observation = try await perform { try await flow.agentAccessibilityObservation(owner: owner, session: session) }
+        try check()
+        return observation
     }
     func validateRemoteObservation(_ frame: FrameImage) async throws {
         try await prepareConnection()

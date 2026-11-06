@@ -23,6 +23,7 @@ protocol DeviceBridge: Sendable {
     func acceptApproval(imageID: String) async throws
     func authorizeTaskInput(imageID: String) async throws
     func screenshot() async throws -> FrameImage
+    func accessibilityObservation() async throws -> Data?
     func validateRemoteObservation(_ frame: FrameImage) async throws
     func tap(x: Int, y: Int, imageID: String) async throws
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws
@@ -37,6 +38,7 @@ protocol DeviceBridge: Sendable {
 }
 
 extension DeviceBridge {
+    func accessibilityObservation() async throws -> Data? { nil }
     func finishRemoteRun() async { await stop() }
     func inputDisplaySnapshot() async throws -> InputDisplaySnapshot { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws { throw RemoteRPCError("geometry_unavailable", "Independent input is unavailable on this route") }

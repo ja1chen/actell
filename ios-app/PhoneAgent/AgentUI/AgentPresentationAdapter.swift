@@ -133,9 +133,25 @@ struct ToolPresentation {
             store.updateTool(callID: call.id, name: call.name, state: .running, arguments: arguments(for: call), skillName: skillName(call), identity: run)
         case .toolExecutionFinished(let call, let result):
             store.updateTool(callID: call.id, name: call.name, state: result.isError ? .failed : .succeeded,
-                result: result.result, arguments: arguments(for: call), skillName: skillName(call), identity: run)
+                result: call.name == "screenshot" ? screenshotReceipt(result.result) : result.result,
+                arguments: arguments(for: call), skillName: skillName(call), identity: run)
         default: break // Unrelated framework events stay out of UI/history.
         }
+    }
+
+    /// The model receives the observation in memory, but conversation history
+    /// stores only a summary rather than a second copy of screen contents.
+    nonisolated static func screenshotReceipt(_ result: String) -> String {
+        guard let data = result.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let observation = object["accessibility"] as? [String: Any] else { return result }
+        var summary: [String: Any] = ["status": observation["status"] as? String ?? "unavailable"]
+        if let reason = observation["reason"] as? String { summary["reason"] = reason }
+        if let nodes = observation["nodes"] as? [[String: Any]] { summary["nodeCount"] = nodes.count }
+        object["accessibility"] = summary
+        guard let encoded = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let text = String(data: encoded, encoding: .utf8) else { return "{}" }
+        return text
     }
 
     static func arguments(for call: AgentToolCall) -> String? {

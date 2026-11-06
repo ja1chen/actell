@@ -644,7 +644,8 @@ struct AgentRunServices {
             onImage: { [weak self] frame, callID in await self?.show(frame, callID: callID, generation: token) },
             onReceipt: { [weak self] text in await self?.record(text, generation: token) },
             onExecuting: { [weak self] callID, name in await self?.markExecuting(callID: callID, name: name, generation: token) },
-            lifecycle: lifecycle, generation: token, authorizationMode: inputAuthorizationMode, diagnostics: usbDiagnostics)
+            lifecycle: lifecycle, generation: token, authorizationMode: inputAuthorizationMode, diagnostics: usbDiagnostics,
+            includeAccessibilityTree: selectedMode == .live && UserDefaults.standard.bool(forKey: "accessibilityTreeEnabled"))
         coordinator = action
         let names = selectedMode == .demo ? ["screenshot", "tap", "drag", "wait", "finish"] : ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text", "wait"]
         let skillSnapshot = skills.enabledSnapshot
@@ -700,7 +701,9 @@ struct AgentRunServices {
                             var message = original
                             if message.role != .user { message.images = [] }
                             message.toolResults = original.toolResults?.map {
-                                AgentToolResult(id: $0.id, toolCallId: $0.toolCallId, toolName: $0.toolName, result: $0.result, isError: $0.isError, images: [])
+                                AgentToolResult(id: $0.id, toolCallId: $0.toolCallId, toolName: $0.toolName,
+                                    result: $0.toolName == "screenshot" ? AgentEventProjection.screenshotReceipt($0.result) : $0.result,
+                                    isError: $0.isError, images: [])
                             }
                             return message
                         }
