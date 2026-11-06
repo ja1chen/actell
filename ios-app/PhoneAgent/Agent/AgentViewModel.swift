@@ -85,11 +85,10 @@ struct AgentRunServices {
         if primarySessionID == nil { primarySessionID = id }
         if primarySessionID == id { return self }
         if let value = sessionRuntimes[id] { return value }
-        let directory = URL.applicationSupportDirectory.appending(path: "PhoneAgent/Sessions/" + id.uuidString)
         let worker = AgentViewModel(sessions: sessions, loadPersistentState: persistentRuntime,
             backgroundCoordinator: allowSystemProcessing ? executionBackground : nil, approvalRecords: approvalRecords,
             attachments: attachments, skills: skills, providers: providers, sharedCapture: capture,
-            sharedActivities: liveActivities, checkpointDirectory: directory, restoreLegacyState: false,
+            sharedActivities: liveActivities, checkpointConversationID: id, restoreLegacyState: false,
             runServicesFactory: runServicesFactory, makeUSBClient: makeUSBClient)
         worker.runtimeOwner = self; worker.primarySessionID = id; worker.selectedConversationID = id
         worker.hasActivatedScene = hasActivatedScene
@@ -104,7 +103,6 @@ struct AgentRunServices {
         return primarySessionID == id ? self : sessionRuntimes[id]
     }
 
-    private var store: TaskStore?
     private var activeID: UUID?
     private var generation = UUID()
     private var runTask: Task<Void, Never>?
@@ -153,7 +151,7 @@ struct AgentRunServices {
          approvalRecords: ApprovalRecordStore? = nil, liveActivitiesEnabled: Bool? = nil,
          attachments: AttachmentStore? = nil, skills: SkillStore? = nil,
          providers: ProviderStore? = nil, sharedCapture: ScreenCaptureController? = nil,
-         sharedActivities: AgentLiveActivityController? = nil, checkpointDirectory: URL? = nil,
+         sharedActivities: AgentLiveActivityController? = nil, checkpointConversationID: UUID? = nil,
          makeRemoteBridge: (@MainActor () throws -> any DeviceBridge)? = nil,
          restoreLegacyState: Bool = true, runServicesFactory: (@MainActor (UUID) -> AgentRunServices)? = nil,
          writeProviderKey: @escaping (String, String) throws -> Void = { try SecretStore.save($0, account: $1) },
@@ -164,7 +162,7 @@ struct AgentRunServices {
         self.capture = sharedCapture ?? ScreenCaptureController()
         self.persistentRuntime = loadPersistentState; self.runServicesFactory = runServicesFactory
         self.skills = skills ?? SkillStore(inMemory: !loadPersistentState)
-        self.attachments = attachments ?? AttachmentStore(directory: loadPersistentState ? nil : FileManager.default.temporaryDirectory.appendingPathComponent("test-assets-\(UUID())"))
+        self.attachments = attachments ?? AttachmentStore(directory: sessions?.storageRoot ?? (loadPersistentState ? nil : FileManager.default.temporaryDirectory.appendingPathComponent("test-assets-\(UUID())")))
         self.makeUSBClient = makeUSBClient
         self.approvalRecords = approvalRecords ?? ApprovalRecordStore(inMemory: !loadPersistentState)
         self.liveActivities = sharedActivities ?? AgentLiveActivityController(enabled: liveActivitiesEnabled ?? loadPersistentState)
@@ -173,13 +171,16 @@ struct AgentRunServices {
         self.executionBackground = backgroundCoordinator ?? .shared
         self.executionScheduler = RunExecutionScheduler(coordinator: self.executionBackground)
         self.allowSystemProcessing = loadPersistentState || backgroundCoordinator != nil
-        self.lifecycle = lifecycle ?? RunLifecycleFactory.make(persistent: loadPersistentState, scheduler: executionScheduler, directory: checkpointDirectory)
         var legacy: [TaskRecord] = []
-        if loadPersistentState && restoreLegacyState {
-            do { let s = try TaskStore(); legacy = try s.load(); store = s; records = legacy }
+        if loadPersistentState && restoreLegacyState && sessions == nil && !SessionStorageLayout(root: SessionStorageLayout.defaultRoot).isInstalled {
+            do { legacy = try TaskStore().load(); records = legacy }
             catch { storageWarning = String(localized: "Previous task records could not be read. The original file has been kept.") }
         }
-        self.sessions = sessions ?? ConversationStore(legacy: legacy)
+        let sessionStore = sessions ?? ConversationStore(legacy: legacy)
+        self.sessions = sessionStore
+        self.lifecycle = lifecycle ?? RunLifecycleCoordinator(scheduler: executionScheduler,
+            storage: loadPersistentState ? SessionRunCheckpointStore(sessions: sessionStore, conversationID: checkpointConversationID)
+                : MemoryRunCheckpointStore())
         self.lifecycle.onPause = { [weak self] message in
             guard let self else { return }
             if let context = self.screenExecutionContext, let failure = context.failureMessage {
@@ -190,14 +191,6 @@ struct AgentRunServices {
         providerSubscription = self.providers.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         lifecycleSubscription = self.lifecycle.$backgroundStatus.sink { [weak self] in self?.backgroundStatus = $0 }
         for saved in self.lifecycle.recoveries { self.sessions.reconcileRecovery(saved) }
-        if persistentRuntime && restoreLegacyState {
-            let root = URL.applicationSupportDirectory.appending(path: "PhoneAgent/Sessions")
-            for folder in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
-                guard UUID(uuidString: folder.lastPathComponent) != nil else { continue }
-                let recovery = RunLifecycleFactory.make(persistent: true, scheduler: RunExecutionScheduler(), directory: folder)
-                for saved in recovery.recoveries { self.sessions.reconcileRecovery(saved) }
-            }
-        }
         if sharedCapture == nil {
             capture.onDiagnostic = { [weak self] event in self?.usbDiagnostics.record(event) }
             capture.onLoss = { [weak self] in
@@ -360,7 +353,7 @@ struct AgentRunServices {
         liveActivities.setForeground(active)
         screenExecutionContext?.setScene(scene)
         lifecycle.setForeground(scene != .background)
-        if active { sessions.saveNow(); persist() }
+        if active { sessions.saveNow() }
         // System CPU/network time does not authorize foreground-only control routes.
         if !active, screenExecutionContext == nil, !(bridge is CoreDeviceBridge) { bridge?.cancelTransport() }
         // An established USB connection belongs to the App, not the current
@@ -740,7 +733,7 @@ struct AgentRunServices {
                 await self.closeRun(.blocked, result: Self.runFailure(error, provider: selectedProvider), bridge: selectedBridge, generation: token)
             }
         }
-        persist(); return true
+        return true
     }
     private func stopHealthObservation() {
         if let healthObserver { screenExecutionContext?.removeHealthObserver(healthObserver) }
@@ -1076,7 +1069,7 @@ struct AgentRunServices {
         }
         // Closing a view does not own the lifetime of a run.
     }
-    func clearHistory() { guard !appOwner.hasBusySessions else { return }; records = []; activeID = nil; latestFrame = nil; sessions.clear(); persist() }
+    func clearHistory() { guard !appOwner.hasBusySessions else { return }; records = []; activeID = nil; latestFrame = nil; sessions.clear() }
     func cacheMessageImage(_ url: URL, messageID: UUID, conversationID: UUID, downloader: MessageImageDownloader = MessageImageDownloader()) async throws -> StoredAttachment {
         guard !appOwner.clearingAssets else { throw AppError.unavailable(String(localized: "Attachments are being cleaned up. Try again shortly.")) }
         appOwner.assetMutations += 1
@@ -1100,18 +1093,18 @@ struct AgentRunServices {
     }
     func clearUnreferencedAttachments() async throws -> Int {
         guard !appOwner.hasBusySessions, appOwner.assetMutations == 0, !appOwner.clearingAssets else { throw AppError.stopped }
+        let references = sessions.referencedAttachments
+        guard sessions.canCleanAttachments else {
+            throw AppError.unavailable(String(localized: "Attachment cleanup is unavailable until conversation history has been read and saved successfully."))
+        }
         appOwner.clearingAssets = true
         defer { appOwner.clearingAssets = false }
-        return try await attachments.removeUnreferenced(keeping: sessions.referencedAttachments)
+        return try await attachments.removeUnreferenced(keeping: references)
     }
     private func log(_ text: String) { mutate { $0.log(text) } }
     private func mutate(_ update: (inout TaskRecord) -> Void) {
         guard let id = activeID, let index = records.firstIndex(where: { $0.id == id }) else { return }
-        update(&records[index]); records[index].updatedAt = Date(); persist()
-    }
-    private func persist() {
-        do { guard let store else { return }; try store.save(records) }
-        catch { storageWarning = String(localized: "The local task could not be saved. Its current state is not confirmed as persisted.") }
+        update(&records[index]); records[index].updatedAt = Date()
     }
     // The runner may wrap provider errors. Use only the dedicated adapter's
     // locally generated summary, never arbitrary provider/server text.

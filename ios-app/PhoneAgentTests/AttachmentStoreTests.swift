@@ -27,7 +27,7 @@ import UIKit
         let encoded = try JSONEncoder().encode(attachment)
         XCTAssertLessThan(encoded.count, 1500)
         XCTAssertFalse(String(data: encoded, encoding: .utf8)!.contains(data.base64EncodedString()))
-        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, false)
     }
     func testDuplicateContentIsDeduplicatedOnlyWithinItsConversation() async throws {
         let root = try directory(), store = AttachmentStore(directory: root), a = UUID(), b = UUID(), data = png()
@@ -59,7 +59,7 @@ import UIKit
         do { _ = try await store.importFile(alias, conversationID: id); XCTFail("symlink import") } catch {}
         let item = try await store.store(png(), name: "../../picture.png", conversationID: id)
         XCTAssertEqual(item.name, "picture.png")
-        let original = root.appendingPathComponent("store/\(id)/\(item.id)/original")
+        let original = try SessionStorageLayout(root: root.appendingPathComponent("store")).directory(for: id).appendingPathComponent("attachments/\(item.id)/original")
         try FileManager.default.removeItem(at: original)
         try FileManager.default.createSymbolicLink(at: original, withDestinationURL: file)
         do { _ = try await store.read(item, conversationID: id); XCTFail("symlink read") } catch {}
@@ -75,7 +75,7 @@ import UIKit
     func testDamagedOriginalCanBeRepairedWithVerifiedReplacementBytes() async throws {
         let root = try directory(), store = AttachmentStore(directory: root), id = UUID(), data = png()
         let item = try await store.store(data, name: "image.png", conversationID: id)
-        try Data("damaged".utf8).write(to: root.appendingPathComponent("\(id)/\(item.id)/original"))
+        try Data("damaged".utf8).write(to: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments/\(item.id)/original"))
         do { _ = try await store.read(item, conversationID: id); XCTFail("corrupt") } catch {}
         let repaired = try await store.store(data, name: "image.png", conversationID: id)
         XCTAssertEqual(repaired.id, item.id)

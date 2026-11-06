@@ -30,7 +30,7 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let provider = AttachmentReceiptProvider()
         let model = AgentViewModel(sessions: ConversationStore(directory: root), loadPersistentState: false,
-            runServices: AgentRunServices(provider: provider, bridge: DemoBridge()), attachments: AttachmentStore(directory: root.appendingPathComponent("assets")))
+            runServices: AgentRunServices(provider: provider, bridge: DemoBridge()), attachments: AttachmentStore(directory: root))
         return (model, model.createConversation(mode: .demo), provider, root)
     }
     private func image() -> Data {
@@ -57,7 +57,7 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         }
         XCTAssertNil(model.sessions.conversation(id)?.draftAttachments)
         XCTAssertEqual(model.sessions.conversation(id)?.messages.first?.attachments, draft)
-        let disk = try Data(contentsOf: root.appendingPathComponent("conversations-v1.json"))
+        let disk = try Data(contentsOf: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("history.jsonl"))
         XCTAssertFalse(String(decoding: disk, as: UTF8.self).contains("SYNTHETIC_FILE_CONTENT"))
     }
     func testRepeatSelectionRemoveAndOtherSessionAreIsolated() async throws {
@@ -82,7 +82,7 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         let cancelled = Task { try await model.sendDraft("cancelled", in: id, cloudConsent: true) }
         cancelled.cancel()
         do { _ = try await cancelled.value; XCTFail() } catch {}
-        try FileManager.default.removeItem(at: root.appendingPathComponent("assets/\(id)/\(asset.id)/original"))
+        try FileManager.default.removeItem(at: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments/\(asset.id)/original"))
         do { _ = try await model.sendDraft("missing", in: id, cloudConsent: true); XCTFail() } catch {}
         XCTAssertTrue(provider.requests.isEmpty); XCTAssertEqual(model.sessions.conversation(id)?.draftAttachments?.count, 1)
     }

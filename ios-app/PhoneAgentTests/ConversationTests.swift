@@ -240,10 +240,13 @@ import ProviderCore
         store.create(mode: .demo); store.saveNow()
         XCTAssertEqual(try Data(contentsOf: file), original)
     }
-    func testLegacyMigrationRunsOnlyOnceAndPreservesDrafts() throws {
+    func testLegacyMigrationRunsOnlyOnceAndPreservesDrafts() async throws {
         let directory = try temporaryDirectory()
         let legacy = TaskRecord(goal: "旧任务", mode: .demo)
         let store = ConversationStore(directory: directory, legacy: [legacy])
+        XCTAssertTrue(store.migrationRequired)
+        await store.migrateLegacyHistory()
+        XCTAssertFalse(store.migrationRequired)
         store.setDraft("下次继续的消息", in: legacy.id); store.saveNow()
         let restored = ConversationStore(directory: directory, legacy: [legacy, legacy])
         XCTAssertEqual(restored.conversations.count, 1)

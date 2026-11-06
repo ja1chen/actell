@@ -25,16 +25,15 @@ actor AttachmentStore {
     static let capacity = 1_024 * 1_024 * 1_024
     static let supportedTextExtensions = Set(["txt", "md", "markdown", "json", "csv"])
     private let root: URL
+    private let legacyRoot: URL
     private let capacity: Int
     init(directory: URL? = nil, capacity: Int = AttachmentStore.capacity) {
-        self.root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PhoneAgent/Attachments", isDirectory: true)
+        self.root = directory ?? SessionStorageLayout.defaultRoot
+        self.legacyRoot = directory ?? SessionStorageLayout.defaultLegacyRoot
         self.capacity = capacity
     }
     private func create(_ folder: URL) throws {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
-        var url = folder, values = URLResourceValues(); values.isExcludedFromBackup = true
-        try url.setResourceValues(values)
+        try SessionStorageLayout.createProtectedDirectory(folder)
     }
     func importFile(_ url: URL, conversationID: UUID) throws -> StoredAttachment {
         let scoped = url.startAccessingSecurityScopedResource()
@@ -74,7 +73,8 @@ actor AttachmentStore {
         let attachment = StoredAttachment(id: id, conversationID: conversationID,
             name: String((name as NSString).lastPathComponent.prefix(160)), kind: kind, mimeType: mime,
             byteCount: data.count, digest: digest, width: width, height: height, sourceURL: sourceURL)
-        let folder = directory(attachment)
+        try ensureSession(conversationID)
+        let folder = try directory(attachment)
         try requireOwnedDirectory(attachment)
         if FileManager.default.fileExists(atPath: folder.appendingPathComponent("original").path) {
             if (try? read(attachment, conversationID: conversationID)) != nil {
@@ -96,19 +96,31 @@ actor AttachmentStore {
         }
         return attachment
     }
-    private func directory(_ attachment: StoredAttachment) -> URL {
-        root.appendingPathComponent(attachment.conversationID.uuidString, isDirectory: true).appendingPathComponent(attachment.id.uuidString, isDirectory: true)
+    private func ensureSession(_ id: UUID) throws {
+        try create(root)
+        let layout = SessionStorageLayout(root: root)
+        if !layout.isInstalled {
+            guard !FileManager.default.fileExists(atPath: legacyRoot.appendingPathComponent("conversations-v1.json").path),
+                  try !SessionStorageMigration.hasLegacyResources(in: legacyRoot) else { throw SessionStorageLayout.Failure.migrationRequired }
+            try ConversationJournal.install([], in: root)
+        }
+        _ = try layout.ensureDirectory(for: id, createdAt: Date())
+    }
+    private func directory(_ attachment: StoredAttachment) throws -> URL {
+        try SessionStorageLayout(root: root).directory(for: attachment.conversationID)
+            .appendingPathComponent("attachments", isDirectory: true).appendingPathComponent(attachment.id.uuidString, isDirectory: true)
     }
     private func requireOwnedDirectory(_ attachment: StoredAttachment) throws {
-        let expected = root.resolvingSymlinksInPath().appendingPathComponent(attachment.conversationID.uuidString).appendingPathComponent(attachment.id.uuidString)
-        guard directory(attachment).resolvingSymlinksInPath().standardizedFileURL.path == expected.standardizedFileURL.path else {
+        let session = try SessionStorageLayout(root: root).directory(for: attachment.conversationID)
+        let expected = session.resolvingSymlinksInPath().appendingPathComponent("attachments").appendingPathComponent(attachment.id.uuidString)
+        guard try directory(attachment).resolvingSymlinksInPath().standardizedFileURL.path == expected.standardizedFileURL.path else {
             throw AppError.invalid(String(localized: "The attachment folder contains an invalid path reference"))
         }
     }
     func read(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
         guard attachment.conversationID == conversationID else { throw AppError.invalid(String(localized: "The attachment does not belong to this conversation")) }
         try requireOwnedDirectory(attachment)
-        let folder = directory(attachment), file = folder.appendingPathComponent("original")
+        let folder = try directory(attachment), file = folder.appendingPathComponent("original")
         guard folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/"),
               let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
               info.isRegularFile == true, info.isSymbolicLink != true,
@@ -142,33 +154,38 @@ actor AttachmentStore {
         return output as Data
     }
     func usage() throws -> Int {
-        guard FileManager.default.fileExists(atPath: root.path) else { return 0 }
-        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
         var bytes = 0
-        while let url = files?.nextObject() as? URL {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
-            if values.isSymbolicLink == true { files?.skipDescendants(); continue }
-            if values.isRegularFile == true { bytes += values.fileSize ?? 0 }
+        for folder in try SessionStorageLayout(root: root).directories().values {
+            let attachments = folder.appendingPathComponent("attachments")
+            guard FileManager.default.fileExists(atPath: attachments.path) else { continue }
+            try SessionStorageLayout.requireDirectory(attachments)
+            let files = FileManager.default.enumerator(at: attachments, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+            while let url = files?.nextObject() as? URL {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+                if values.isSymbolicLink == true { files?.skipDescendants(); continue }
+                if values.isRegularFile == true { bytes += values.fileSize ?? 0 }
+            }
         }
         return bytes
     }
     /// Called only after explicit confirmation. Referenced message/draft originals survive.
     func removeUnreferenced(keeping references: [StoredAttachment]) throws -> Int {
         let keep = Set(references.map { $0.conversationID.uuidString + "/" + $0.id.uuidString })
-        guard FileManager.default.fileExists(atPath: root.path) else { return 0 }
         var removed = 0
-        for conversation in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
-            guard UUID(uuidString: conversation.lastPathComponent) != nil,
-                  try conversation.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { continue }
-            for asset in try FileManager.default.contentsOfDirectory(at: conversation, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
+        for (id, folder) in try SessionStorageLayout(root: root).directories() {
+            let attachments = folder.appendingPathComponent("attachments")
+            guard FileManager.default.fileExists(atPath: attachments.path) else { continue }
+            try SessionStorageLayout.requireDirectory(attachments)
+            for asset in try FileManager.default.contentsOfDirectory(at: attachments, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
                 guard UUID(uuidString: asset.lastPathComponent) != nil,
-                      !keep.contains(conversation.lastPathComponent + "/" + asset.lastPathComponent),
+                      !keep.contains(id.uuidString + "/" + asset.lastPathComponent),
                       try asset.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { continue }
                 try FileManager.default.removeItem(at: asset); removed += 1
             }
         }
         return removed
     }
+
 }
 
 /// The caller must bind this URL to an existing message before and after await.

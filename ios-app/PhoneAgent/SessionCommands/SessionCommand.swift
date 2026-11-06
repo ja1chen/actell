@@ -19,7 +19,7 @@ struct SessionCommand: Sendable {
     }
 }
 
-/// Persisted in the same atomic archive as the conversation and draft.
+/// Persisted in the same journal transaction as the conversation and draft.
 struct SessionEntry: Codable, Sendable, Equatable {
     enum State: String, Codable, Sendable { case pendingConfirmation, submitted, dismissed }
     let commandID: UUID

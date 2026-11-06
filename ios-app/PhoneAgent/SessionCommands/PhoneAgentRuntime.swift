@@ -75,6 +75,23 @@ import Foundation
         }
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") || ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] == "1" {
             let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--ui-test-history-migration") {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentMigrationUITest", isDirectory: true)
+                let legacyDirectory = directory.appendingPathComponent("Library/Application Support/PhoneAgent", isDirectory: true)
+                let documents = directory.appendingPathComponent("Documents", isDirectory: true)
+                if arguments.contains("--ui-test-history-migration-seed") {
+                    struct LegacyArchive: Encodable { let version = 1; let conversations: [AgentConversation] }
+                    try? FileManager.default.removeItem(at: directory)
+                    try? FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+                    var conversation = AgentConversation(mode: .demo)
+                    conversation.title = "Migration fixture"
+                    conversation.messages = [ChatMessage(role: .user, text: "Saved question"), ChatMessage(role: .assistant, text: "Saved answer")]
+                    try? JSONEncoder().encode(LegacyArchive(conversations: [conversation]))
+                        .write(to: legacyDirectory.appendingPathComponent("conversations-v1.json"))
+                }
+                return AgentViewModel(sessions: ConversationStore(directory: documents, legacyDirectory: legacyDirectory), loadPersistentState: false,
+                    runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()))
+            }
             if arguments.contains("--ui-test-reasoning-seed") || arguments.contains("--ui-test-reasoning-restore") {
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentReasoningUITest", isDirectory: true)
                 if arguments.contains("--ui-test-reasoning-seed") { try? FileManager.default.removeItem(at: directory) }
@@ -91,7 +108,7 @@ import Foundation
                 if sessions.conversations.isEmpty { sessions.create(mode: .demo) }
                 return AgentViewModel(sessions: sessions, loadPersistentState: false,
                     runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()),
-                    attachments: AttachmentStore(directory: directory.appendingPathComponent("assets")))
+                    attachments: AttachmentStore(directory: directory))
             }
             if arguments.contains("--ui-test-siri-seed") || arguments.contains("--ui-test-siri-restore") {
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentSiriUITest", isDirectory: true)

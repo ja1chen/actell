@@ -20405,6 +20405,159 @@
           }
         }
       }
+    },
+    "An interrupted save was found. Conversations were restored through their last complete save.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An interrupted save was found. Conversations were restored through their last complete save."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现未完成的保存，已恢复到会话上次完整保存的内容。"
+          }
+        }
+      }
+    },
+    "Attachment cleanup is unavailable until conversation history has been read and saved successfully.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment cleanup is unavailable until conversation history has been read and saved successfully."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话历史记录尚未完整读取并保存，暂时无法清理附件。"
+          }
+        }
+      }
+    },
+    "History could not be migrated. Your original data is unchanged. Check available storage and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History could not be migrated. Your original data is unchanged. Check available storage and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历史记录迁移未完成，原数据未改动。请检查可用存储空间后重试。"
+          }
+        }
+      }
+    },
+    "Start migration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start migration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始迁移"
+          }
+        }
+      }
+    },
+    "Convert saved conversations and attachments to the new storage format. Your original data will be kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convert saved conversations and attachments to the new storage format. Your original data will be kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将已有会话和附件转换为新的存储格式，原数据会保留。"
+          }
+        }
+      }
+    },
+    "Migrating data…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migrating data…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在迁移数据…"
+          }
+        }
+      }
+    },
+    "Some conversations could not be read. Their files have been kept. Other conversations can still be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some conversations could not be read. Their files have been kept. Other conversations can still be saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分会话无法读取，原文件已保留，其他会话仍可正常保存。"
+          }
+        }
+      }
+    },
+    "Data storage format migration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data storage format migration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据存储格式迁移"
+          }
+        }
+      }
+    },
+    "Some saved attachments are missing or damaged. Their references and any existing files were kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some saved attachments are missing or damaged. Their references and any existing files were kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分已保存的附件缺失或损坏，已保留引用和现有文件。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,6 +1,30 @@
 import XCTest
 
 @MainActor final class ConversationUITests: XCTestCase {
+    func testStartupMigrationPromptPreservesHistoryAndDoesNotRepeat() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-test-history-migration", "--ui-test-history-migration-seed"]
+        app.launch()
+        let migrate = app.buttons["migrateConversationHistory"]
+        XCTAssertTrue(migrate.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["数据存储格式迁移"].exists)
+        XCTAssertEqual(migrate.label, "开始迁移")
+        XCTAssertEqual(migrate.frame.midX, app.frame.midX, accuracy: 2)
+        capture("history-migration-prompt")
+        migrate.tap()
+        XCTAssertTrue(app.buttons["newConversationToolbar"].waitForExistence(timeout: 10))
+        app.staticTexts["Migration fixture"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Saved answer"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launchArguments = ["--ui-testing", "--ui-test-history-migration"]
+        app.launch()
+        XCTAssertTrue(app.buttons["newConversationToolbar"].waitForExistence(timeout: 5))
+        XCTAssertFalse(migrate.exists)
+        app.staticTexts["Migration fixture"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Saved answer"].waitForExistence(timeout: 5))
+        capture("history-migration-restored")
+    }
     func testCollapsedReasoningAndToolHeadersHaveEqualSpacing() {
         verifyCollapsedActivitySpacing(active: false)
     }

@@ -102,7 +102,7 @@ struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
     var attachments: [StoredAttachment]?
     var reasoning: ReasoningMessage?
 }
-struct AgentConversation: Identifiable, Codable, Sendable {
+struct AgentConversation: Identifiable, Codable, Sendable, Equatable {
     var id = UUID()
     var title = String(localized: "New conversation")
     var mode: RunMode
@@ -116,8 +116,15 @@ struct AgentConversation: Identifiable, Codable, Sendable {
     var recoveryNotices: [String: String]?
     var phase: RunPhase = .idle
     var messages: [ChatMessage] = []
+    /// Derived list cache; never part of the authoritative history encoding.
+    var cachedPreview: String? = nil
+    private enum CodingKeys: String, CodingKey {
+        case id, title, mode, createdAt, updatedAt, entry, draft, draftAttachments
+        case providerID, modelID, recoveryNotices, phase, messages
+    }
     var preview: String {
         if entry?.state == .pendingConfirmation { return String(localized: "Siri · Awaiting confirmation: \(draft)") }
+        if let cachedPreview { return cachedPreview }
         return messages.last(where: { $0.role == .user || $0.role == .assistant })?.text ?? String(localized: "Start a new task or question")
     }
 }
