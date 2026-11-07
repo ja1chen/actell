@@ -10,6 +10,8 @@ public struct TokenEstimate: Sendable, Equatable {
     public init(tokens: Int, method: TokenEstimateMethod, revision: Int, safetyMargin: Int) { self.tokens = tokens; self.method = method; self.revision = revision; self.safetyMargin = safetyMargin }
 }
 public struct ContextBudget: Sendable, Equatable {
+    public static let defaultPlanningTokens = 256 * 1024
+    public static let defaultOutputReserve = 4096
     public let planningTokens: Int
     public let hardInputTokens: Int?
     public let hardContextTokens: Int?
@@ -17,8 +19,8 @@ public struct ContextBudget: Sendable, Equatable {
     public let toolResultReserve: Int
     public let softFraction: Double
     public let targetFraction: Double
-    public init(planningTokens: Int = 32768, hardInputTokens: Int? = nil, hardContextTokens: Int? = nil,
-                outputReserve: Int = 4096, toolResultReserve: Int = 4096, softFraction: Double = 0.8, targetFraction: Double = 0.6) {
+    public init(planningTokens: Int = ContextBudget.defaultPlanningTokens, hardInputTokens: Int? = nil, hardContextTokens: Int? = nil,
+                outputReserve: Int = ContextBudget.defaultOutputReserve, toolResultReserve: Int = 4096, softFraction: Double = 0.9, targetFraction: Double = 0.6) {
         self.planningTokens = max(256, planningTokens); self.hardInputTokens = hardInputTokens.map { max(1, $0) }
         self.hardContextTokens = hardContextTokens.map { max(1, $0) }; self.outputReserve = max(0, outputReserve); self.toolResultReserve = max(0, toolResultReserve)
         self.softFraction = min(0.95, max(0.1, softFraction)); self.targetFraction = min(0.9, max(0.1, targetFraction))

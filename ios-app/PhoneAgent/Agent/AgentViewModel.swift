@@ -661,11 +661,11 @@ struct AgentRunServices {
         let reportsTotalWindow = profile?.providerKind == .openRouter || profile?.providerKind == .ollama
         let inputLimit = reportsTotalWindow ? nil : metadata?.inputTokenLimit
         let contextLimit = metadata?.contextTokenLimit ?? (reportsTotalWindow ? metadata?.inputTokenLimit : nil)
-        let planning = Self.contextPlanningBudget(default: inputLimit ?? contextLimit ?? 32768)
+        let planning = Self.contextPlanningBudget(default: inputLimit ?? contextLimit ?? ContextBudget.defaultPlanningTokens)
         let config = AgentConfiguration(model: selectedProvider.configuration.defaultModel ?? runSettings.model,
             instructions: Self.systemPrompt(skills: skillSnapshot), scope: scope, storage: storage,
             budget: ContextBudget(planningTokens: planning, hardInputTokens: inputLimit, hardContextTokens: contextLimit,
-                outputReserve: limits.maxOutputTokens ?? 4096), maxOutputTokens: limits.maxOutputTokens,
+                outputReserve: limits.maxOutputTokens ?? ContextBudget.defaultOutputReserve), maxOutputTokens: limits.maxOutputTokens,
             cacheKey: conversationID.uuidString, maximumInferences: limits.maxTurns)
         let runner: AgentRuntime
         do {

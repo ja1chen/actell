@@ -63,6 +63,7 @@ public enum AgentRuntimeEvent: Sendable {
     case turnFinished(TurnResult)
 }
 public struct AgentConfiguration: Sendable {
+    public static let defaultStageTimeout: TimeInterval = 180
     public let model: String
     public let instructions: String
     public let scope: ProviderReplayScope?
@@ -80,14 +81,14 @@ public struct AgentConfiguration: Sendable {
     public let observationRetention: ObservationRetentionPolicy
     public init(model: String, instructions: String = "", scope: ProviderReplayScope? = nil, storage: StoragePolicy = .none,
                 budget: ContextBudget = .init(), temperature: Double? = nil, maxOutputTokens: Int? = nil,
-                reasoningEffort: ModelReasoningEffort? = nil, cacheKey: String? = nil, maximumInferences: Int? = nil, streamIdleTimeout: TimeInterval = 60,
-                summaryTimeout: TimeInterval = 90, compactionTimeout: TimeInterval = 90, observationRetention: ObservationRetentionPolicy = .init()) {
+                reasoningEffort: ModelReasoningEffort? = nil, cacheKey: String? = nil, maximumInferences: Int? = nil, streamIdleTimeout: TimeInterval = AgentConfiguration.defaultStageTimeout,
+                summaryTimeout: TimeInterval = AgentConfiguration.defaultStageTimeout, compactionTimeout: TimeInterval = AgentConfiguration.defaultStageTimeout, observationRetention: ObservationRetentionPolicy = .init()) {
         self.model = model; self.instructions = instructions; self.scope = scope; self.storage = storage; self.budget = budget
         self.temperature = temperature; self.maxOutputTokens = maxOutputTokens; self.reasoningEffort = reasoningEffort
         self.cacheKey = cacheKey; self.maximumInferences = maximumInferences.map { max(1, $0) }
-        self.streamIdleTimeout = streamIdleTimeout.isFinite ? max(0.01, streamIdleTimeout) : 60
-        self.summaryTimeout = summaryTimeout.isFinite ? max(0.01, summaryTimeout) : 90
-        self.compactionTimeout = compactionTimeout.isFinite ? max(0.01, compactionTimeout) : 90
+        self.streamIdleTimeout = streamIdleTimeout.isFinite ? max(0.01, streamIdleTimeout) : Self.defaultStageTimeout
+        self.summaryTimeout = summaryTimeout.isFinite ? max(0.01, summaryTimeout) : Self.defaultStageTimeout
+        self.compactionTimeout = compactionTimeout.isFinite ? max(0.01, compactionTimeout) : Self.defaultStageTimeout
         self.observationRetention = observationRetention
     }
 }
