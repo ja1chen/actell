@@ -54,8 +54,7 @@ struct Approval: Identifiable, Sendable {
 }
 enum InputAuthorizationMode: String, Codable, Sendable { case perAction, task }
 struct AgentLimits: Sendable {
-    // SwiftAgentKit's loop uses a non-optional Int. No product turn budget.
-    let maxTurns = Int.max
+    let maxTurns: Int? = nil
     let maxOutputTokens: Int? = nil
 }
 enum AppError: LocalizedError, Equatable {

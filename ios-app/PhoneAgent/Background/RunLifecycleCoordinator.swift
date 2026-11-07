@@ -74,9 +74,11 @@ extension RunCheckpointStorage {
     init(directory: URL? = nil) throws {
         let root = try directory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("PhoneAgent", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        var excludedRoot = root
-        var attributes = URLResourceValues(); attributes.isExcludedFromBackup = true
-        try excludedRoot.setResourceValues(attributes)
+        if directory == nil {
+            var excludedRoot = root
+            var attributes = URLResourceValues(); attributes.isExcludedFromBackup = true
+            try excludedRoot.setResourceValues(attributes)
+        }
         file = root.appendingPathComponent("run-checkpoint-v1.json")
     }
     func load() throws -> RunCheckpoint? { try loadRecoveries().first }

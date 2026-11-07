@@ -10,20 +10,11 @@
 
 ## 构建
 
-生成工程时使用 `ACTELL_BUNDLE_ID_PREFIX` 替换完整的默认 App ID `com.ja1chen.PhoneAgent`，extension 和测试 target 使用同一基础标识派生：
+生成工程时可设置 `ACTELL_BUNDLE_ID_PREFIX`（完整 App Bundle ID）和 `ACTELL_DEVELOPMENT_TEAM` 环境变量，生成器会将非空值写入 Git 忽略的 `Config/Local.xcconfig`，供 Xcode 后续构建使用；未设置的值保留原有本地设置。也可手动复制 `Config/Local.xcconfig.example` 并编辑。没有本地配置时默认使用 `com.ja1chen.PhoneAgent` 和空 Team；实时活动及测试 target 从 App ID 派生。
 
 ```sh
-export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
-export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
-python3 ios-app/scripts/generate_xcode_project.py
-```
-
-将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，App、extension 和测试 target 的 Debug/Release 均使用该团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。两个变量在生成工程时读取，后续生成时继续提供即可。
-
-需要忽略环境变量并生成默认配置时，使用 `-d`（完整参数为 `--defaults`）。此时 App Bundle ID 为 `com.ja1chen.PhoneAgent`，开发团队为空，extension 和测试 target 也使用默认配置：
-
-```sh
-python3 ios-app/scripts/generate_xcode_project.py -d
+ACTELL_BUNDLE_ID_PREFIX=org.example.Actell ACTELL_DEVELOPMENT_TEAM=ABCDE12345 \
+  python3 ios-app/scripts/generate_xcode_project.py
 ```
 
 使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
@@ -40,6 +31,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ## 测试
 
 ```sh
+swift test --package-path ios-app/AgentKit
+swift test --package-path ios-app/ProviderKit
 CC=clang bash devices/esp32/tools/test_usb.sh
 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
@@ -79,11 +72,15 @@ Personal Team 签名、真实定位、静止和耗电、音频中断、PiP 共�
 
 ## Provider 边界
 
-已用自有 ProviderCore 与远程 SPM MacPaw/OpenAI 0.5.2 替换旧 Kit。SDK 源码未复制入工程。设置可选择 Chat Completions 或 Responses；原配置保持 Chat 默认。Responses 默认本地回放/store=false，明确选择服务端响应链后才使用 store=true/previous_response_id；续接仅限当前任务，每轮重发 instructions。旧截图不再上传不等于远端历史已删除。OpenRouter 保留 Chat 默认，也可显式使用无状态 Responses；其 store=true/previous_response_id 在本地拒绝。服务商类型与 wire 协议独立。其他原生协议推理、Conversations、background、compaction 和 hosted tools 尚未启用。细节与验证边界见 [Provider 模块](ProviderKit/README.md)。
+[AgentKit](AgentKit/README.md) 是 App 自有的事件循环、顺序工具调度与持久化会话内核，仅依赖同级 ProviderKit 的 ProviderCore。完整 JSONL 会话历史与模型有效上下文分开；加载历史不会恢复任务或重放设备动作。上下文预算、窗口转换和压缩由 AgentKit 管理，Provider 不保存另一份历史或续接 checkpoint。存储与迁移边界见[会话存储](../docs/CONVERSATION-STORAGE.md)。
+
+[ProviderKit](ProviderKit/README.md) 使用远程 SPM MacPaw/OpenAI 0.5.2 编解码，SDK 源码未复制入工程。设置可选择 Chat Completions 或 Responses；原配置保持 Chat 默认。Responses 默认完整本地回放和 store=false，明确选择支持的服务端响应链后才使用 store=true/previous_response_id。作用域绑定持久会话、服务地址、账号、模型与协议，每次推理重发 instructions；不再限定为单次任务。旧截图不再上传不等于远端历史已删除。OpenRouter Responses 与 ChatGPT 订阅 HTTP 路线只支持无状态请求，不能把本地回放称为服务端上下文。
+
+受支持的 OpenAI Responses 配置可使用原生 compact，完整保留返回的下一窗口；其他配置使用无工具摘要压缩。候选压缩验证并持久化后才替换有效窗口，UI 历史不会因此减少。缓存字段与用量统计为可降级信息，不作为执行成功的前提。Conversations、background、hosted tools 和远端取消确认尚未启用。
 
 ## ChatGPT 订阅配置与思考强度
 
-新增供应商预设顺序为 OpenAI、OpenRouter、ChatGPT 订阅、自定义。订阅配置固定官方地址与无状态 Responses，不接收 API Key。Continue with ChatGPT 使用系统认证浏览器与 HTTP 回环授权，校验官方 JWKS 身份后保存账号隔离的本机 Keychain 凭据。仅获套餐授权的账号模型使用独立订阅流式 Responses；退出尝试官方 discovery 撤销端点并清理本地 token。全部开发验证只用本地 mock，真实账号授权、实体设备与订阅计费尚未验证。完整官方能力与验证边界见 [订阅整合说明](../docs/CHATGPT-SUBSCRIPTION.md)。
+新增供应商预设顺序为 OpenAI、OpenRouter、ChatGPT 订阅、自定义。订阅配置固定官方地址与无状态 Responses，不接收 API Key。Continue with ChatGPT 使用系统认证浏览器与 HTTP 回环授权，校验官方 JWKS 身份后保存账号隔离的本机 Keychain 凭据。仅获套餐授权的账号模型使用独立订阅流式 Responses；退出尝试官方 discovery 撤销端点并清理本地 token。默认测试使用本地 mock；显式真实推理验收使用用户已登录的账号，初次授权、实体设备与订阅计费仍须分别验收。完整官方能力与验证边界见 [订阅整合说明](../docs/CHATGPT-SUBSCRIPTION.md)。
 
 每服务商／模型可保存思考强度；仅显示明确报告或官方文档确认的档位，未知模型使用默认、不猜档位。Responses 映射 reasoning.effort，Chat Completions 映射 reasoning_effort。GPT-6.1 Sol 的文档档位只用于官方地址的 Responses 配置，不推广到代理或未知模型。
 

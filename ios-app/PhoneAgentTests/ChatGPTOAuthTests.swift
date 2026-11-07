@@ -4,7 +4,7 @@ import CryptoKit
 import Security
 import ProviderCore
 import OpenAIAdapter
-import SwiftAgentKit
+import AgentKit
 @testable import PhoneAgent
 
 private struct AnyCodingKey: CodingKey {
@@ -353,7 +353,7 @@ extension ChatGPTOAuthTests {
         let p = try subscription(manager: manager, profileID: id, account: account); defer { p.cancel() }
         SubscriptionWireFixture.reset(try responseFrames([["type": "computer_call", "id": "SECRET", "arguments": "SECRET"]], unknownEvents: true))
         do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])); XCTFail("Unsupported output accepted") } catch {}
-        let message = await MainActor.run { AgentViewModel.runFailure(AgentError.providerError("SECRET"), provider: p) }
+        let message = await MainActor.run { AgentViewModel.runFailure(ModelError.providerError("SECRET"), provider: p) }
         XCTAssertEqual(message, String(localized: "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again."))
         XCTAssertFalse(message.contains("SECRET"))
         XCTAssertTrue(p.lastDiagnostic?.contains("unsupportedCapability") == true)
@@ -364,7 +364,30 @@ extension ChatGPTOAuthTests {
         var metadata = DiscoveredModel(id: "fixture", name: "fixture"); metadata.reasoningEfforts = ["low", "high"]
         profile.catalog = .init(endpoint: try profile.catalogEndpoint(), fetchedAt: Date(), models: [metadata])
         var params = ModelParameters(); params.reasoningEffort = "high"; profile.modelParameters = ["fixture": params]
-        return try ChatGPTSubscriptionProvider(profile: profile, model: "fixture", account: account, runID: UUID(), manager: manager, transport: ResponsesTransport(protocolClasses: [SubscriptionWireFixture.self]))
+        return try ChatGPTSubscriptionProvider(profile: profile, model: "fixture", account: account, sessionID: UUID(), manager: manager, transport: ResponsesTransport(protocolClasses: [SubscriptionWireFixture.self]))
+    }
+    func testSubscriptionHistoricalSkillReplaySurvivesChangedToolDefinitions() async throws {
+        let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)
+        let account = try await login(manager, http, profile: id)
+        let provider = try subscription(manager: manager, profileID: id, account: account)
+        defer { provider.cancel() }
+        for tools in [[], [localTool]] {
+            let call = ModelToolCall(id: "historical-skill", itemID: "historical-item", name: "load_skill", arguments: "{}", status: .completed, extra: ["namespace": .string("actell")], scope: provider.replayScope)
+            var request = ModelRequest(model: "fixture", messages: [], tools: tools)
+            request.input = [.replay(.functionCall(call)), .functionResult(callID: call.id, output: "historical skill body")]
+            let outgoing = try provider.prepareRequest(request, token: "synthetic")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(outgoing.httpBody)) as? [String: Any])
+            let input = try XCTUnwrap(body["input"] as? [[String: Any]])
+            XCTAssertEqual(input.first?["name"] as? String, "load_skill")
+            XCTAssertEqual(input.first?["namespace"] as? String, "actell")
+            let wrong = ModelToolCall(id: call.id, name: call.name, arguments: "{}", extra: ["namespace": .string("other")], scope: provider.replayScope)
+            request.input = [.replay(.functionCall(wrong))]
+            XCTAssertThrowsError(try provider.prepareRequest(request, token: "synthetic"))
+            let scope = provider.replayScope
+            let foreign = ProviderReplayScope(provider: scope.provider, endpoint: scope.endpoint, account: scope.account, project: scope.project, model: scope.model, session: UUID())
+            request.input = [.replay(.functionCall(.init(id: call.id, name: call.name, arguments: "{}", extra: ["namespace": .string("actell")], scope: foreign)))]
+            XCTAssertThrowsError(try provider.prepareRequest(request, token: "synthetic"))
+        }
     }
     func testSubscriptionCompletedToolWithOptionalStatus() async throws {
         let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)
@@ -462,9 +485,9 @@ extension ChatGPTOAuthTests {
             (ModelError.httpError(400, Data("SECRET_BODY".utf8)) as Error, "httpError(400)"),
             (AppError.invalid("工具参数不完整，已阻止执行") as Error, "工具参数不完整，已阻止执行"),
             (URLError(.timedOut) as Error, "URLError code=-1001"),
-            (AgentError.toolExecutionFailed(name: "SECRET_TOOL", message: "SECRET_ARGUMENTS") as Error, "AgentError.toolExecutionFailed"),
-            (AgentError.providerError("SECRET_KEY") as Error, "AgentError.providerError"),
-            (AgentError.providerRefused(summary: "SECRET", details: "SECRET") as Error, "providerFailure wrapper=providerRefused"),
+            (ModelError.protocolViolation("SECRET_ARGUMENTS") as Error, "ModelError.protocolViolation"),
+            (ModelError.providerError("SECRET_KEY") as Error, "ModelError.providerError"),
+            (ModelError.interrupted as Error, "ModelError.interrupted"),
             (ModelStreamStalled(seconds: 15) as Error, "ModelStreamStalled seconds=15")
         ] {
             let line = LLMDiagnostics.failure(error, attempt: attempt, stage: "agent.run", shape: "event=none")
@@ -765,7 +788,7 @@ extension ChatGPTOAuthTests {
             SubscriptionWireFixture.reset(Data(#"{"error":{"message":"Bearer SECRET user content","code":"unsupported_parameter","param":"tools[0].SECRET"}}"#.utf8), status: status)
             // Reset only this in-memory mock account between admission cases.
             do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])) ; XCTFail("Admission accepted") } catch {}
-            let message = AgentViewModel.runFailure(AgentError.providerError("raw SECRET wrapper"), provider: p)
+            let message = AgentViewModel.runFailure(ModelError.providerError("raw SECRET wrapper"), provider: p)
             XCTAssertTrue(message.contains("HTTP \(status)"), message)
             XCTAssertTrue(message.contains("unsupported_parameter"), message)
             XCTAssertTrue(message.contains("字段 tools"), message)

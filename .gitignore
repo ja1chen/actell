@@ -57,3 +57,5 @@ __pycache__/
 /devices/esp32/firmware/managed_components/
 /devices/esp32/firmware/sdkconfig*
 /devices/esp32/firmware/build/
+
+/ios-app/Config/Local.xcconfig

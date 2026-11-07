@@ -1,7 +1,7 @@
 import XCTest
 import ProviderCore
 import OpenAIAdapter
-import SwiftAgentKit
+import AgentKit
 @testable import PhoneAgent
 
 final class ResponsesProviderTests: XCTestCase {
@@ -39,69 +39,44 @@ final class ResponsesProviderTests: XCTestCase {
         let fresh = try reducer([])
         XCTAssertNil(fresh.checkpoint.events)
     }
-    func testRetainedEventLimitsFailExplicitlyWithoutAuthorizingTools() throws {
+    func testRetainedEventLimitsDegradeWithoutAuthorizingTools() throws {
         var r = try reducer([])
-        for i in 1...128 { _ = try r.consume(payload: event("response.extension", seq: i)) }
+        for i in 1...140 { _ = try r.consume(payload: event("response.extension", seq: i)) }
         XCTAssertEqual(r.checkpoint.events?.count, 128)
-        XCTAssertThrowsError(try r.consume(payload: event("response.extension", seq: 129)))
         XCTAssertNil(r.response)
+        _ = try r.consume(payload: event("response.completed", seq: 141, fields: ["response": envelope([])]))
+        XCTAssertEqual(try r.finish().status, .completed)
         r = try reducer([])
-        for i in 1...2 { _ = try r.consume(payload: event("response.extension", seq: i, fields: ["value": String(repeating: "x", count: 200_000)])) }
-        XCTAssertThrowsError(try r.consume(payload: event("response.extension", seq: 3, fields: ["value": String(repeating: "x", count: 200_000)])))
+        for i in 1...3 { _ = try r.consume(payload: event("response.extension", seq: i, fields: ["value": String(repeating: "x", count: 200_000)])) }
+        XCTAssertEqual(r.checkpoint.events?.count, 2)
         XCTAssertNil(r.response)
     }
-    func testRetainedEventsPersistSeparatelyFromReplayAndFailedResultsDoNotCommit() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), file = root.appendingPathComponent("context.json")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let c = try ContextCoordinator(scope: scope, checkpointFile: file), prepared = try c.prepare(request)
+
+    func testRetainedEventsRemainSeparateFromReplayAndFailedResultsCannotExecute() throws {
         var r = try reducer([call()])
         _ = try r.consume(payload: event("response.metadata", seq: 3, fields: ["metadata": ["marker": "retained_business_marker"]]))
-        try c.recordStream(r.checkpoint, force: true)
-        let partial = try JSONDecoder().decode(StreamCheckpoint.self, from: Data(contentsOf: file.deletingPathExtension().appendingPathExtension("stream.json")))
+        let partial = try JSONDecoder().decode(StreamCheckpoint.self, from: JSONEncoder().encode(r.checkpoint))
         XCTAssertEqual(partial.events?.count, 1)
-        XCTAssertNil(c.snapshot().responseEventHistory)
         _ = try r.consume(payload: event("response.completed", seq: 4, fields: ["response": envelope([call()])]))
         let response = try r.finish()
-        try c.commit(response, prepared: prepared)
-        let restored = try ContextCoordinator(scope: scope, checkpointFile: file)
-        XCTAssertEqual(restored.snapshot().responseEventHistory?.first?.responseID, "resp1")
-        XCTAssertEqual(restored.snapshot().responseEventHistory?.first?.events, response.streamEvents)
-        var next = request; next.messages += [.assistant(content: response.text, toolCalls: response.toolCalls), .tool("done", toolCallId: "call1")]
-        let outgoing = try OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope).prepareRequest(restored.prepare(next).request, stream: true)
+        var next = request; next.input = try response.output.map { try $0.asReplayInput(scope: scope) } + [.functionResult(callID: "call1", output: "done")]
+        let outgoing = try OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope).prepareRequest(next, stream: true)
         XCTAssertFalse(String(decoding: try XCTUnwrap(outgoing.httpBody), as: UTF8.self).contains("retained_business_marker"))
-        let failed = try ContextCoordinator(scope: scope)
         r = try reducer([call()])
-        _ = try r.consume(payload: event("response.metadata", seq: 3))
-        _ = try r.consume(payload: event("response.failed", seq: 4, fields: ["response": envelope([call()], status: "failed")]))
-        XCTAssertThrowsError(try failed.commit(r.finish(), prepared: failed.prepare(request)))
-        XCTAssertNil(failed.snapshot().responseEventHistory)
-        var foreign = r.checkpoint; foreign.scope = ProviderScope(provider: "other", endpoint: "other", account: "other", model: "fixture")
-        XCTAssertThrowsError(try failed.recordStream(foreign, force: true))
+        _ = try r.consume(payload: event("response.failed", seq: 3, fields: ["response": envelope([call()], status: "failed")]))
+        XCTAssertThrowsError(try ResponsesReducer.requireExecutable(r.finish()))
     }
-    func testResponseEventHistoryIsBoundedAndLegacyCheckpointsStillDecode() throws {
-        let c = try ContextCoordinator(scope: scope)
-        var next = request
-        for i in 0..<18 {
-            let id = "response-\(i)", prepared = try c.prepare(next)
-            let attachment = ProviderStreamEvent(type: "response.metadata", sequence: 1, responseID: id, payloadJSON: Data("{\"is_blocked\":false}".utf8))
-            let response = ModelResponse(id: id, model: "fixture", status: .completed, scope: scope, output: [], streamEvents: [attachment], request: prepared.request, providerName: "fixture")
-            try c.commit(response, prepared: prepared)
-            next.messages += [.assistant(content: "", toolCalls: []), .user("next")]
-        }
-        XCTAssertEqual(c.snapshot().responseEventHistory?.count, 16)
-        XCTAssertEqual(c.snapshot().responseEventHistory?.first?.responseID, "response-2")
-        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(c.snapshot())) as? [String: Any])
-        old.removeValue(forKey: "responseEventHistory")
-        let restored = try JSONDecoder().decode(ProviderRunCheckpoint.self, from: JSONSerialization.data(withJSONObject: old))
-        XCTAssertNil(restored.responseEventHistory)
-        XCTAssertEqual(restored.revision, 18)
+
+    func testStreamCheckpointOptionalEventsRemainBackwardReadable() throws {
         let r = try reducer([])
-        var legacyStream = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r.checkpoint)) as? [String: Any])
-        legacyStream.removeValue(forKey: "events")
-        let stream = try JSONDecoder().decode(StreamCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacyStream))
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r.checkpoint)) as? [String: Any])
+        legacy.removeValue(forKey: "events")
+        let stream = try JSONDecoder().decode(StreamCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacy))
         XCTAssertNil(stream.events)
         XCTAssertEqual(stream.responseID, "resp1")
+        XCTAssertEqual(stream.scope, scope)
     }
+
     func testPlainReasoningTextStreamsAndReplaysWithoutInventingSummary() throws {
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
         let plain: [String: Any] = ["type": "reasoning", "id": "reason", "content": [["type": "reasoning_text", "text": "public reasoning"]]]
@@ -131,7 +106,7 @@ final class ResponsesProviderTests: XCTestCase {
         XCTAssertThrowsError(try invalid.consume(payload: event("response.reasoning_text.delta", seq: 1, fields: ["output_index": 0, "item_id": "unknown", "content_index": 0, "delta": "invalid"])))
     }
     private let configuration = ProviderConfiguration(name: "fixture", baseURL: URL(string: "https://invalid.invalid/proxy/v1")!, apiKey: "synthetic", defaultModel: "fixture")
-    private let scope = ProviderScope(provider: "fixture", endpoint: "https://invalid.invalid/proxy/v1", account: "fixture-account", model: "fixture")
+    private let scope = ProviderScope(provider: "fixture", endpoint: "https://invalid.invalid/proxy/v1", account: "fixture-account", model: "fixture", session: UUID())
     private var request: ModelRequest { .init(model: "fixture", messages: [.system("safety instructions"), .user("task")]) }
     private func json(_ o: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) }
     private func message(_ text: String = "final answer", id: String = "msg") -> [String: Any] {
@@ -194,31 +169,32 @@ final class ResponsesProviderTests: XCTestCase {
         XCTAssertEqual(content.map { $0["type"] as? String }, ["input_text", "input_image"])
         XCTAssertEqual(input[1]["call_id"] as? String, "call1"); XCTAssertNil(input[1]["item_id"])
     }
-    func testBothContextModesResendInstructionsAndChainSendsOnlyNewResults() throws {
+    func testBothPreparedContextModesResendInstructionsAndChainSendsOnlyNewResults() throws {
+        let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope, capabilities: .init(responseChain: true))
+        let response = try codec.parseResponse(json(envelope([reasoning, call()])), request: request)
         for policy in [StoragePolicy.none, .responseChain] {
-            let s = scope, c = try ContextCoordinator(scope: s, storage: policy)
-            let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: s)
-            let first = try c.prepare(request), response = try codec.parseResponse(json(envelope([reasoning, call()])), request: first.request)
-            try c.commit(response, prepared: first)
-            var next = request; next.messages += [.assistant(content: "", toolCalls: response.toolCalls), .tool("receipt", toolCallId: "call1")]
-            let prepared = try c.prepare(next)
-            let o = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(codec.prepareRequest(prepared.request, stream: true).httpBody)) as? [String: Any])
+            var next = request; next.instructions = "safety instructions"; next.storage = policy
+            let result = ModelInputItem.functionResult(callID: "call1", output: "receipt")
+            if policy == .responseChain { next.context = .previousResponse(.init(response.id, scope: scope)); next.input = [result] }
+            else { next.input = [.message(role: .user, content: [.text("task")])] + (try response.output.map { try $0.asReplayInput(scope: scope) }) + [result] }
+            let o = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(codec.prepareRequest(next, stream: true).httpBody)) as? [String: Any])
             XCTAssertEqual(o["instructions"] as? String, "safety instructions"); XCTAssertEqual(o["store"] as? Bool, policy == .responseChain)
             let input = try XCTUnwrap(o["input"] as? [[String: Any]])
-            if policy == .responseChain { XCTAssertEqual(o["previous_response_id"] as? String, "resp1"); XCTAssertEqual(input.count, 1); XCTAssertEqual(input.first?["type"] as? String, "function_call_output") }
+            if policy == .responseChain { XCTAssertEqual(o["previous_response_id"] as? String, "resp1"); XCTAssertEqual(input.count, 1) }
             else { XCTAssertNil(o["previous_response_id"]); XCTAssertEqual(input.map { $0["type"] as? String }, ["message", "reasoning", "function_call", "function_call_output"]) }
         }
     }
+
     func testContinuationRejectsDifferentAccountEndpointModelAndStorage() throws {
-        let s = scope, codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: s)
-        for wrong in [ProviderScope(provider: s.provider, endpoint: s.endpoint, account: "other", model: s.model, run: s.run, branch: s.branch), ProviderScope(provider: s.provider, endpoint: "https://else.invalid/v1", account: s.account, model: s.model, run: s.run, branch: s.branch), ProviderScope(provider: s.provider, endpoint: s.endpoint, account: s.account, model: "different", run: s.run, branch: s.branch)] {
+        let s = scope, codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: s, capabilities: .init(responseChain: true))
+        for wrong in [ProviderScope(provider: s.provider, endpoint: s.endpoint, account: "other", model: s.model, session: s.session), ProviderScope(provider: s.provider, endpoint: "https://else.invalid/v1", account: s.account, model: s.model, session: s.session), ProviderScope(provider: s.provider, endpoint: s.endpoint, account: s.account, model: "different", session: s.session)] {
             var r = request; r.storage = .responseChain; r.context = .previousResponse(.init("resp1", scope: wrong)); XCTAssertThrowsError(try codec.prepareRequest(r, stream: false))
         }
         var r = request; r.context = .previousResponse(.init("resp1", scope: s)); XCTAssertThrowsError(try codec.prepareRequest(r, stream: false))
         r.context = .conversation("conv"); XCTAssertThrowsError(try codec.prepareRequest(r, stream: false))
         r.context = .stateless; r.execution = .background; XCTAssertThrowsError(try codec.prepareRequest(r, stream: false))
         let response = try codec.parseResponse(json(envelope([reasoning, message(), call()])), request: request)
-        let wrong = ProviderScope(provider: s.provider, endpoint: s.endpoint, account: "different", model: s.model, run: s.run, branch: s.branch)
+        let wrong = ProviderScope(provider: s.provider, endpoint: s.endpoint, account: "different", model: s.model, session: s.session)
         for item in response.output { XCTAssertThrowsError(try item.asReplayInput(scope: wrong)) }
     }
     func testInterleavedToolArgumentsRemainBufferedAndDoneCorrectsPreview() throws {
@@ -354,112 +330,81 @@ final class ResponsesProviderTests: XCTestCase {
         _ = try decoder.consume(0xE4); XCTAssertThrowsError(try decoder.finish())
         var limited = SSEFrameDecoder(); XCTAssertThrowsError(try (0...256*1024).forEach { _ in _ = try limited.consume(65) })
     }
-    func testDurableCommitCASCancelFenceAndFailedGenerationKeepOldHead() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), file = root.appendingPathComponent("context.json")
+    func testDurableCommitRejectsStaleRevisionAndPreservesCommittedContext() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), id = UUID()
         defer { try? FileManager.default.removeItem(at: root) }
-        let s = scope, c = try ContextCoordinator(scope: s, storage: .responseChain, checkpointFile: file)
-        let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: s), prepared = try c.prepare(request)
-        let response = try codec.parseResponse(json(envelope([call()])), request: prepared.request)
-        try c.commit(response, prepared: prepared); XCTAssertThrowsError(try c.commit(response, prepared: prepared))
-        XCTAssertEqual(c.snapshot().revision, 1)
-        let restored = try ContextCoordinator(scope: s, storage: .responseChain, checkpointFile: file)
-        XCTAssertEqual(restored.snapshot().head?.value, "resp1")
-        try c.cancel(); XCTAssertThrowsError(try c.commit(response, prepared: prepared)); XCTAssertThrowsError(try c.prepare(request))
-        XCTAssertThrowsError(try ContextCoordinator(scope: s, storage: .responseChain, checkpointFile: file))
-        XCTAssertEqual(c.snapshot().pendingCalls.map(\.id), ["call1"])
+        let store = JSONLSessionStore(root: root, sessionID: id)
+        let transaction = SessionTransaction(sessionID: id, kind: .sessionCreated, contextItems: [.message(role: .user, content: [.text("original")])])
+        let receipt = try store.appendSync(transaction, expecting: 0)
+        XCTAssertEqual(receipt.revision, 1)
+        XCTAssertThrowsError(try store.appendSync(.init(sessionID: id, kind: .modelOutput), expecting: 0))
+        XCTAssertEqual(try store.loadContextSync(id).items, transaction.contextItems)
     }
+
     func testNativeResponseNeverInfersToolsFromAnswerText() throws {
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
         let response = try codec.parseResponse(json(envelope([message("TOOL_CALL: tap {\"x\":1}")])), request: request)
-        XCTAssertFalse(AgentLLMResponse.from(response).hasToolCalls)
+        XCTAssertFalse(!response.toolCalls.isEmpty)
     }
-    func testScreenshotPruningKeepsToolResultPairsAndUserAttachment() throws {
-        let c = try ContextCoordinator(scope: scope)
-        var r = request; r.messages += [.user("attachment", images: [.init(data: Data([1]))]), .assistant(content: "", toolCalls: [.init(id: "old", name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "old receipt", images: [.init(data: Data([2]))], toolCallId: "old"), .assistant(content: "", toolCalls: [.init(id: "new", name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "new receipt", images: [.init(data: Data([3]))], toolCallId: "new")]
-        let prepared = try c.prepare(r), codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: c.scope)
-        let body = String(decoding: try XCTUnwrap(codec.prepareRequest(prepared.request, stream: false).httpBody), as: UTF8.self)
-        XCTAssertTrue(body.contains("AQ==")); XCTAssertFalse(body.contains("Ag==")); XCTAssertTrue(body.contains("Aw==")); XCTAssertTrue(body.contains("old receipt")); XCTAssertTrue(body.contains("new receipt"))
-    }
-    func testAgentToolArgumentReencodingDoesNotChangeCommittedContext() throws {
-        let raw = try ContextCoordinator(scope: scope), stable = try ContextCoordinator(scope: scope)
+    func testPreparedProjectionKeepsToolResultPairsAndAllAuthorizedImages() throws {
+        var r = request
+        r.messages += [.user("attachment", images: [.init(data: Data([1]))]), .assistant(content: "", toolCalls: [.init(id: "old", name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "old receipt", images: [.init(data: Data([2]))], toolCallId: "old"), .assistant(content: "", toolCalls: [.init(id: "new", name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "new receipt", images: [.init(data: Data([3]))], toolCallId: "new")]
+        r.input = try ModelInputProjection.input(messages: r.messages)
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
-        var r = request
-        let first = try raw.prepare(r), stableFirst = try stable.prepare(PortableContextRequest.normalized(r))
-        let response = try codec.parseResponse(json(envelope([call("one", item: "item-one", name: "tap", args: "{\"x\":1,\"y\":2}")])), request: first.request)
-        try raw.commit(response, prepared: first); try stable.commit(response, prepared: stableFirst)
-        // The actual runtime projection loses native-only fields, but preserves metadata.
-        let runtime = ModelToolCall(id: "one", name: "tap", arguments: "{\"x\":1,\"y\":2}", providerMetadata: response.toolCalls[0].providerMetadata)
-        r.messages += [.assistant(content: response.text, toolCalls: [runtime]), .tool("receipt", toolCallId: "one")]
-        let second = try raw.prepare(r), stableSecond = try stable.prepare(PortableContextRequest.normalized(r))
-        let response2 = try codec.parseResponse(json(envelope([call("two", item: "item-two", name: "screenshot", args: "{}")], id: "resp2")), request: second.request)
-        try raw.commit(response2, prepared: second); try stable.commit(response2, prepared: stableSecond)
-        r.messages[2] = .assistant(content: response.text, toolCalls: [.init(id: "one", name: "tap", arguments: "{ \"y\":2, \"x\":1 }", providerMetadata: runtime.providerMetadata)])
-        r.messages += [.assistant(content: response2.text, toolCalls: response2.toolCalls), .tool("image receipt", toolCallId: "two")]
-        XCTAssertThrowsError(try raw.prepare(r)) { error in
-            XCTAssertEqual(error as? ModelError, .protocolViolation("上下文已改变；不能静默剪链或重放动作，请开始新的任务"))
-        }
-        XCTAssertNoThrow(try stable.prepare(PortableContextRequest.normalized(r)))
-        for changed in [ModelToolCall(id: "one", name: "tap", arguments: "{\"x\":9,\"y\":2}", providerMetadata: runtime.providerMetadata),
-                        ModelToolCall(id: "changed", name: "tap", arguments: runtime.arguments, providerMetadata: runtime.providerMetadata),
-                        ModelToolCall(id: "one", name: "drag", arguments: runtime.arguments, providerMetadata: runtime.providerMetadata)] {
-            var altered = r; altered.messages[2] = .assistant(content: response.text, toolCalls: [changed])
-            XCTAssertThrowsError(try stable.prepare(PortableContextRequest.normalized(altered)))
-        }
-        var changedReceipt = r; changedReceipt.messages[3] = .tool("changed receipt", toolCallId: "one")
-        XCTAssertThrowsError(try stable.prepare(PortableContextRequest.normalized(changedReceipt)))
+        let body = String(decoding: try XCTUnwrap(codec.prepareRequest(r, stream: false).httpBody), as: UTF8.self)
+        for value in ["AQ==", "Ag==", "Aw==", "old receipt", "new receipt"] { XCTAssertTrue(body.contains(value)) }
     }
-    func testHundredScreenshotRoundsKeepOnlyLatestDeviceImageAndAllReceipts() throws {
-        let c = try ContextCoordinator(scope: scope), codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
-        var r = request
-        r.messages.append(.user("user attachment", images: [.init(data: Data(repeating: 1, count: 1024))]))
+
+    func testNativeReplayPreservesArgumentsWithoutReencoding() throws {
+        let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
+        let original = "{ \"y\":2, \"x\":1 }"
+        let response = try codec.parseResponse(json(envelope([call("one", item: "item-one", name: "tap", args: original)])), request: request)
+        let item = try codec.inputObject(response.output[0].asReplayInput(scope: scope))
+        XCTAssertEqual(item["arguments"] as? String, original)
+        XCTAssertEqual(item["call_id"] as? String, "one")
+        XCTAssertEqual(item["id"] as? String, "item-one")
+    }
+
+    func testHundredPreparedScreenshotRoundsNeverPruneProviderInput() throws {
+        var messages: [ModelMessage] = [.user("attachment", images: [.init(data: Data([1]))])]
         for i in 0..<100 {
-            // Match App.afterTool: observation pruning must not invalidate the
-            // committed message-prefix identity or erase any call/result pair.
-            if i > 0 { let newest = r.messages.lastIndex { $0.role == .tool }; for j in r.messages.indices where r.messages[j].role == .tool && j != newest { r.messages[j].images = [] } }
-            let prepared = try c.prepare(r), id = "call-\(i)"
-            let response = try codec.parseResponse(json(envelope([call(id, item: "item-\(i)", name: "screenshot", args: "{}")], id: "r-\(i)")), request: prepared.request)
-            try c.commit(response, prepared: prepared)
-            r.messages.append(.assistant(content: "", toolCalls: response.toolCalls))
-            r.messages.append(.init(role: .tool, content: "receipt-\(i)", images: [.init(data: Data(repeating: 2, count: 4096))], toolCallId: id))
+            let id = "call-\(i)"
+            messages += [.assistant(content: "", toolCalls: [.init(id: id, name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "receipt-\(i)", images: [.init(data: Data([2]))], toolCallId: id)]
         }
-        let prepared = try c.prepare(r), items = try XCTUnwrap(prepared.request.input)
-        let bytes = items.reduce(0) { count, item in
-            if case .message(_, let content) = item { return count + content.reduce(0) { n, value in if case .image(let image) = value { return n + image.data.count }; return n } }; return count
-        }
-        XCTAssertEqual(bytes, 5120)
+        let items = try ModelInputProjection.input(messages: messages)
         XCTAssertEqual(items.filter { if case .functionResult = $0 { return true }; return false }.count, 100)
+        XCTAssertEqual(items.filter { if case .message(_, let content) = $0 { return content.contains { if case .image = $0 { return true }; return false } }; return false }.count, 101)
     }
-    func testStreamCheckpointIsSeparateAndScopedWhileFailedTerminalLeavesHeadUnchanged() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), file = root.appendingPathComponent("run.json")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let c = try ContextCoordinator(scope: scope, storage: .responseChain, checkpointFile: file)
+
+    func testStreamCheckpointIsScopedAndFailedTerminalCannotExecute() throws {
         var r = try reducer([reasoning, call()])
-        try c.recordStream(r.checkpoint, force: true)
-        let saved = try JSONDecoder().decode(StreamCheckpoint.self, from: Data(contentsOf: root.appendingPathComponent("run.stream.json")))
-        XCTAssertEqual(saved.completedItems.count, 2); XCTAssertEqual(saved.scope, scope); XCTAssertNil(c.snapshot().head)
+        let saved = try JSONDecoder().decode(StreamCheckpoint.self, from: JSONEncoder().encode(r.checkpoint))
+        XCTAssertEqual(saved.completedItems.count, 2); XCTAssertEqual(saved.scope, scope)
         _ = try r.consume(payload: event("response.failed", seq: 5, fields: ["response": envelope([reasoning, call()], status: "failed")]))
-        let prepared = try c.prepare(request)
-        XCTAssertThrowsError(try c.commit(r.finish(), prepared: prepared)); XCTAssertNil(c.snapshot().head)
+        XCTAssertThrowsError(try ResponsesReducer.requireExecutable(r.finish()))
+        XCTAssertEqual(saved.completedItems.count, 2)
+        XCTAssertNil(saved.terminal)
     }
+
     @MainActor func testOpenRouterLegacyProfileKeepsChatAndExplicitResponsesIsStatelessOnly() async throws {
         var original = ProviderProfile(name: "router", settings: .init(baseURL: "https://fixture.invalid/proxy/api/v1", model: "vendor/model-id"), keyAccount: "existing-reference")
         original.protocolKind = .openRouter
         let restored = try JSONDecoder().decode(ProviderProfile.self, from: JSONEncoder().encode(original))
         XCTAssertEqual(restored.providerKind, .openRouter); XCTAssertEqual(restored.inferenceAPI, .chatCompletions)
         XCTAssertEqual(restored.keyAccount, "existing-reference"); XCTAssertEqual(restored.settings, original.settings)
-        let chat = try PrivateVisionProvider(settings: restored.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter)
+        let chat = try PrivateVisionProvider(settings: restored.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter, sessionID: UUID())
         let chatRequest = try chat.prepareRequest(.init(model: original.settings.model, messages: [.user("hello")]), stream: false)
         XCTAssertEqual(chatRequest.url?.path, "/proxy/api/v1/chat/completions"); XCTAssertEqual(chatRequest.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic")
         var native = restored; native.inferenceKind = .responses
         XCTAssertNoThrow(try native.requireInference(model: original.settings.model))
-        let router = try PrivateVisionProvider(settings: original.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter, inferenceAPI: .responses)
+        let router = try PrivateVisionProvider(settings: original.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter, inferenceAPI: .responses, sessionID: UUID())
         let outgoing = try router.prepareRequest(.init(model: original.settings.model, messages: [.user("hello")]), stream: false)
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(outgoing.httpBody)) as? [String: Any])
         XCTAssertEqual(outgoing.url?.path, "/proxy/api/v1/responses"); XCTAssertEqual(body["store"] as? Bool, false); XCTAssertNil(body["previous_response_id"])
         let capabilities = try await router.capabilities(for: original.settings.model); XCTAssertFalse(capabilities.responseChain)
         native.contextKind = .responseChain
         XCTAssertThrowsError(try native.requireInference(model: original.settings.model)); XCTAssertThrowsError(try ProviderStore(defaults: nil).prepared(native))
-        XCTAssertThrowsError(try PrivateVisionProvider(settings: original.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter, inferenceAPI: .responses, contextPolicy: .responseChain))
+        XCTAssertThrowsError(try PrivateVisionProvider(settings: original.settings, apiKey: "synthetic", limits: .init(), providerKind: .openRouter, inferenceAPI: .responses, contextPolicy: .responseChain, sessionID: UUID()))
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope, capabilities: .init(responseChain: false))
         var prohibited = request; prohibited.storage = .responseChain; XCTAssertThrowsError(try codec.prepareRequest(prohibited, stream: false))
         prohibited.storage = .none; prohibited.context = .previousResponse(.init("old", scope: scope)); XCTAssertThrowsError(try codec.prepareRequest(prohibited, stream: false))
@@ -467,18 +412,20 @@ final class ResponsesProviderTests: XCTestCase {
         XCTAssertThrowsError(try native.requireInference(model: original.settings.model))
     }
     func testOpenRouterChatOpaqueReasoningRoundTripNeverProjectsSignaturesToUI() throws {
-        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter)
+        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter, sessionID: UUID())
         let blocks: [[String: Any]] = [["type": "reasoning.text", "text": "visible", "signature": "OPAQUE_SIGNATURE", "index": 0], ["type": "reasoning.encrypted", "data": "OPAQUE_ENCRYPTED", "index": 1, "vendor_extra": "retain"]]
         let data = try json(["choices": [["finish_reason": "tool_calls", "message": ["role": "assistant", "content": "answer", "reasoning_details": blocks, "tool_calls": [["id": "call1", "type": "function", "function": ["name": "tap", "arguments": "{}"]]]]]]])
-        let response = try provider.parseResponse(data, request: request), agent = AgentLLMResponse.from(response)
-        XCTAssertFalse((agent.reasoning ?? "").contains("OPAQUE")); XCTAssertFalse(agent.text.contains("OPAQUE"))
-        let message = AgentMessage.assistant(content: agent.text, toolCalls: try XCTUnwrap(agent.toolCalls), replayState: agent.replayState)
-        var next = request; next.messages += message.toModelMessages() + [.tool("executed", toolCallId: "call1")]
+        let response = try provider.parseResponse(data, request: request)
+        XCTAssertFalse((response.reasoning ?? "").contains("OPAQUE")); XCTAssertFalse(response.text.contains("OPAQUE"))
+        var next = request
+        next.input = try ModelInputProjection.input(messages: request.messages) + response.output.map { try $0.asReplayInput(scope: provider.replayScope) }
+        if let state = response.replayState { next.input?.append(.chatReplayState(state)) }
+        next.input?.append(.functionResult(callID: "call1", output: "executed"))
         let body = try XCTUnwrap(provider.prepareRequest(next, stream: false).httpBody)
         let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any]); let messages = try XCTUnwrap(envelope["messages"] as? [[String: Any]])
         let replay = try XCTUnwrap(messages.first { $0["role"] as? String == "assistant" }?["reasoning_details"])
         XCTAssertEqual(try ProviderCore.JSONValue(any: replay), try ProviderCore.JSONValue(any: blocks))
-        let other = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter)
+        let other = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter, sessionID: UUID())
         XCTAssertThrowsError(try other.prepareRequest(next, stream: false))
     }
     func testOpenRouterStreamOrderedReasoningAndRepeatedUsageFinishProduceOneBatch() throws {

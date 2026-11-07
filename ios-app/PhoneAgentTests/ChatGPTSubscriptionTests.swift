@@ -75,7 +75,7 @@ final class ChatGPTSubscriptionTests: XCTestCase {
         XCTAssertEqual(saved.inferenceAPI, .responses)
         XCTAssertEqual(saved.contextPolicy, .stateless)
         XCTAssertThrowsError(try saved.requireInference(model: "fixture"))
-        XCTAssertThrowsError(try PrivateVisionProvider(settings: saved.settings, apiKey: "fixture_key", limits: AgentLimits(), providerKind: .chatGPTSubscription, inferenceAPI: .responses))
+        XCTAssertThrowsError(try PrivateVisionProvider(settings: saved.settings, apiKey: "fixture_key", limits: AgentLimits(), providerKind: .chatGPTSubscription, inferenceAPI: .responses, sessionID: UUID()))
         p.settings.baseURL = "https://other.invalid/v1"
         XCTAssertThrowsError(try store.prepared(p))
         p.settings.baseURL = ProviderKind.chatGPTSubscription.defaultBase; p.contextKind = .responseChain
@@ -109,10 +109,10 @@ final class ChatGPTSubscriptionTests: XCTestCase {
         var parameters = ModelParameters(); parameters.reasoningEffort = "high"
         XCTAssertEqual(try parameters.requestFields(providerKind: .openAI, model: metadata)["reasoning_effort"] as? String, "high")
         var settings = ProviderSettings(); settings.model = "fixture"
-        let provider = try PrivateVisionProvider(settings: settings, apiKey: "fixture", limits: AgentLimits(), parameters: parameters, metadata: metadata, inferenceAPI: .responses)
+        let provider = try PrivateVisionProvider(settings: settings, apiKey: "fixture", limits: AgentLimits(), parameters: parameters, metadata: metadata, inferenceAPI: .responses, sessionID: UUID())
         let body = try JSONSerialization.jsonObject(with: XCTUnwrap(provider.prepareRequest(ModelRequest(model: "fixture", messages: [.user("fixture")]), stream: true).httpBody)) as! [String: Any]
         XCTAssertEqual((body["reasoning"] as? [String: String])?["effort"], "high"); XCTAssertNil(body["reasoning_effort"])
-        let chat = try PrivateVisionProvider(settings: settings, apiKey: "fixture", limits: AgentLimits(), parameters: parameters, metadata: metadata)
+        let chat = try PrivateVisionProvider(settings: settings, apiKey: "fixture", limits: AgentLimits(), parameters: parameters, metadata: metadata, sessionID: UUID())
         let chatBody = try JSONSerialization.jsonObject(with: XCTUnwrap(chat.prepareRequest(ModelRequest(model: "fixture", messages: [.user("fixture")]), stream: true).httpBody)) as! [String: Any]
         XCTAssertEqual(chatBody["reasoning_effort"] as? String, "high"); XCTAssertNil(chatBody["reasoning"])
         XCTAssertThrowsError(try parameters.requestFields(providerKind: .openAI, model: nil))

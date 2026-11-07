@@ -1,5 +1,5 @@
 import XCTest
-import SwiftAgentKit
+import AgentKit
 import ProviderCore
 @testable import PhoneAgent
 
@@ -22,6 +22,9 @@ import ProviderCore
         XCTAssertFalse(metadata.contains("Command-V"))
         let body = try catalog.result(name: "load_skill", parameters: ["id": builtin.id.uuidString, "revision": builtin.revision])
         XCTAssertTrue(body.contains("# iOS Operation"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
+        XCTAssertEqual(object["content"] as? String, builtin.documents["SKILL.md"])
+        XCTAssertTrue(object["next_offset"] is NSNull)
         XCTAssertThrowsError(try store.remove(builtin.id))
     }
     func testImportVersionsDuplicateDisableDeleteAndRestart() throws {
@@ -109,32 +112,109 @@ import ProviderCore
         XCTAssertTrue(store.packages.isEmpty)
         let item = try store.add(documents: ["SKILL.md": body])
         let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [item]), canRead: { false })
-        let context = ToolContext(callId: "stale", toolName: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision], state: AgentState())
-        do { _ = try await tool.execute(context: context); XCTFail() } catch { XCTAssertEqual(error as? AppError, .stopped) }
+        let sessionID = UUID(), turnID = UUID()
+        let arguments = String(decoding: try JSONEncoder().encode(["id": item.id.uuidString, "revision": item.revision]), as: UTF8.self)
+        let invocation = ToolInvocation(sessionID: sessionID, turnID: turnID, call: .init(id: "stale", name: "load_skill", arguments: arguments))
+        let context = ToolExecutionContext(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence())
+        do { _ = try await tool.execute(invocation, context: context); XCTFail() } catch { XCTAssertTrue(error is CancellationError) }
     }
-    func testLongSkillCanBeReadExactlyThroughVersionedPages() throws {
-        let body = document + String(repeating: "资料🙂\n", count: 1_500)
+    func testSkillAtOriginalLimitLoadsWholeDocumentInOneCall() throws {
+        let body = document + String(repeating: "a", count: 50_000 - document.unicodeScalars.count)
         let item = try SkillPackage.make(documents: ["SKILL.md": body]), catalog = SkillCatalog(packages: [item])
-        var offset = 0, restored = ""
+        let response = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        XCTAssertEqual(object["content"] as? String, body)
+        XCTAssertEqual(object["total_scalars"] as? Int, 50_000)
+        XCTAssertTrue(object["next_offset"] is NSNull)
+    }
+    func testLargeSkillLoadsWholeDocumentAndAcceptsLegacyOffsets() throws {
+        let body = document + String(repeating: "a", count: 49_999 - document.unicodeScalars.count)
+            + "🙂" + String(repeating: "b", count: 10_000)
+        let item = try SkillPackage.make(documents: ["SKILL.md": body]), catalog = SkillCatalog(packages: [item])
+        var offset = 0, restored = "", pages = 0
         while true {
             let response = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": offset])
             let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
             let page = try XCTUnwrap(object["content"] as? String)
-            XCTAssertLessThanOrEqual(page.count, 2_000); restored += page
+            XCTAssertEqual(page.unicodeScalars.count, 60_000)
+            restored += page; pages += 1
             guard let next = object["next_offset"] as? Int else { break }
             XCTAssertGreaterThan(next, offset); offset = next
         }
         XCTAssertEqual(restored, body)
-        for invalid in [-1, true, 0.5, body.count + 1] as [Any] {
+        XCTAssertEqual(pages, 1)
+        let resumed = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": 50_000])
+        let resumedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(resumed.utf8)) as? [String: Any])
+        XCTAssertEqual(resumedObject["content"] as? String, String(repeating: "b", count: 10_000))
+        XCTAssertTrue(resumedObject["next_offset"] is NSNull)
+        for invalid in [-1, true, 0.5, body.unicodeScalars.count + 1] as [Any] {
             XCTAssertThrowsError(try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": invalid]))
         }
     }
+    func testFullSkillAndMaximumResourceMetadataReachModelUnchanged() async throws {
+        let body = document + String(repeating: "\u{0001}", count: 50_001 - document.unicodeScalars.count)
+        var documents = ["SKILL.md": body]
+        for index in 0..<31 {
+            documents[String(repeating: "r", count: 228) + "/\(index).md"] = "reference"
+        }
+        let item = try SkillPackage.make(documents: documents)
+        let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [item]), canRead: { true })
+        let sessionID = UUID(), turnID = UUID()
+        let arguments = String(decoding: try JSONEncoder().encode(["id": item.id.uuidString, "revision": item.revision]), as: UTF8.self)
+        let invocation = ToolInvocation(sessionID: sessionID, turnID: turnID, call: .init(id: "page", name: "load_skill", arguments: arguments))
+        let context = ToolExecutionContext(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence())
+        let result = try await tool.execute(invocation, context: context)
+        XCTAssertEqual(result.kind, .returned)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.modelContent.utf8)) as? [String: Any])
+        XCTAssertEqual(object["content"] as? String, body)
+        XCTAssertTrue(object["next_offset"] is NSNull)
+        XCTAssertEqual((object["available_resources"] as? [String])?.count, 32)
+        XCTAssertNil(object["artifactReference"])
+    }
+    func testWholeDocumentsPreserveLongGraphemesAndEscapedUnicodeExactly() throws {
+        let samples = [
+            document + "\n" + String(repeating: "a", count: 49_000) + "b" + String(repeating: "\u{0301}", count: 2_000),
+            document + "\n" + String(repeating: "中文🙂👩‍👩‍👦‍👦\"\\\n\t\u{0001}", count: 500)
+        ]
+        for body in samples {
+            let package = try SkillPackage.make(documents: ["SKILL.md": body])
+            try assertWholeDocument(package, expected: body)
+        }
+    }
+    func testWholeDocumentPreservesLargeUnicodeNameAndEscapedResourceCatalogue() throws {
+        let name = "a" + String(repeating: "\u{0301}", count: 10_000)
+        let body = "---\nname: \(name)\ndescription: Unicode fixture\n---\n" + String(repeating: "资料🙂\"\\\n", count: 500)
+        var documents = ["SKILL.md": body]
+        for index in 0..<31 { documents[String(repeating: "\u{0001}", count: 200) + "/\(index).md"] = "reference" }
+        let package = try SkillPackage.make(documents: documents)
+        try assertWholeDocument(package, expected: body)
+    }
+    private func assertWholeDocument(_ package: SkillPackage, expected: String) throws {
+        let catalog = SkillCatalog(packages: [package])
+        let response = try catalog.result(name: "load_skill", parameters: ["id": package.id.uuidString, "revision": package.revision])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let content = try XCTUnwrap(object["content"] as? String)
+        XCTAssertEqual(object["offset_unit"] as? String, "unicode_scalar")
+        XCTAssertEqual(object["total_scalars"] as? Int, expected.unicodeScalars.count)
+        XCTAssertEqual(object["offset"] as? Int, 0)
+        XCTAssertEqual(object["skill_name"] as? String, package.name)
+        XCTAssertEqual(object["available_resources"] as? [String], package.resources)
+        XCTAssertTrue(object["next_offset"] is NSNull)
+        XCTAssertEqual(Array(content.utf8), Array(expected.utf8))
+    }
     func testActualAgentDiscoversAndLoadsSkillReferenceAndProjectsNamedIcon() async throws {
         let store = SkillStore(inMemory: true)
-        _ = try store.add(documents: ["SKILL.md": document, "references/guide.md": "REFERENCE_BODY"])
-        let provider = SkillRoundTripProvider()
+        let ending = "\nEND_OF_COMPLETE_SKILL"
+        let body = document + String(repeating: "a", count: 50_000 - document.unicodeScalars.count - ending.unicodeScalars.count) + ending
+        _ = try store.add(documents: ["SKILL.md": body, "references/guide.md": "REFERENCE_BODY"])
+        let provider = SkillRoundTripProvider(expectedSkill: body)
+        let profiles = ProviderStore(defaults: nil)
+        var profile = ProviderProfile(settings: .init(baseURL: "https://skill-fixture.invalid", model: "fixture"))
+        profile.catalog = ModelCatalog(endpoint: try profile.catalogEndpoint(), fetchedAt: Date(),
+            models: [.init(id: "fixture", name: "fixture", inputTokenLimit: 131_072)])
+        try profiles.save(profile)
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-            runServices: AgentRunServices(provider: provider, bridge: UnavailableBridge()), skills: store)
+            runServices: AgentRunServices(provider: provider, bridge: UnavailableBridge()), skills: store, providers: profiles)
         let id = model.createConversation(mode: .live)
         defer { model.stop() }
         XCTAssertTrue(model.send("Use the synthetic guide", in: id, cloudConsent: true))
@@ -153,6 +233,7 @@ import ProviderCore
 
 private struct SkillRoundTripProvider: ModelProvider {
     static let name = "skill-roundtrip-fixture"
+    let expectedSkill: String
     let configuration = ProviderConfiguration(name: name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -160,20 +241,28 @@ private struct SkillRoundTripProvider: ModelProvider {
                 let response = try respond(request)
                 for call in response.toolCalls { continuation.yield(.toolCall(call)) }
                 if !response.text.isEmpty { continuation.yield(.text(response.text)) }
-                continuation.yield(.finish(reason: response.finishReason, usage: nil)); continuation.finish()
+                continuation.yield(.terminal(response)); continuation.finish()
             } catch { continuation.finish(throwing: error) }
         }
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse { try respond(request) }
     private func respond(_ request: ModelRequest) throws -> ModelResponse {
-        let system = request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n")
+        let messages = fixtureMessages(request)
+        let system = messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n")
         XCTAssertTrue(system.contains("Synthetic Guide"))
         XCTAssertTrue(system.contains("Read synthetic fixtures"))
         XCTAssertTrue(system.contains("ios-operation"))
         XCTAssertFalse(system.contains("search_skills"))
         XCTAssertFalse(system.contains("list_skills"))
-        XCTAssertFalse(request.messages.filter { $0.role == .system }.contains { $0.content.contains("BODY_NOT_A_SUMMARY") })
-        let results = request.messages.filter { $0.role == .tool }, stage = results.count
+        XCTAssertFalse(messages.filter { $0.role == .system }.contains { $0.content.contains("BODY_NOT_A_SUMMARY") })
+        let results = messages.filter { $0.role == .tool }, stage = results.count
+        if let first = results.first {
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(first.content.utf8)) as? [String: Any])
+            XCTAssertEqual(object["content"] as? String, expectedSkill)
+            XCTAssertTrue(object["next_offset"] is NSNull)
+            XCTAssertNil(object["artifactReference"])
+            XCTAssertFalse(first.content.contains("REFERENCE_BODY"))
+        }
         let name: String, arguments: [String: String]
         if stage < 2 {
             // The SDK may append system instructions after the catalog. Read

@@ -1,6 +1,6 @@
 import XCTest
 import Combine
-import SwiftAgentKit
+import AgentKit
 import ProviderCore
 @testable import PhoneAgent
 
@@ -240,10 +240,13 @@ import ProviderCore
         store.create(mode: .demo); store.saveNow()
         XCTAssertEqual(try Data(contentsOf: file), original)
     }
-    func testLegacyMigrationRunsOnlyOnceAndPreservesDrafts() throws {
+    func testLegacyMigrationRunsOnlyOnceAndPreservesDrafts() async throws {
         let directory = try temporaryDirectory()
         let legacy = TaskRecord(goal: "旧任务", mode: .demo)
         let store = ConversationStore(directory: directory, legacy: [legacy])
+        XCTAssertTrue(store.migrationRequired)
+        await store.migrateLegacyHistory()
+        XCTAssertFalse(store.migrationRequired)
         store.setDraft("下次继续的消息", in: legacy.id); store.saveNow()
         let restored = ConversationStore(directory: directory, legacy: [legacy, legacy])
         XCTAssertEqual(restored.conversations.count, 1)
@@ -414,7 +417,7 @@ private struct ReceiptInspectionProvider: ModelProvider {
     let configuration = DemoProvider().configuration
     let inspect: @MainActor @Sendable () -> Void
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
-        if request.messages.contains(where: { $0.role == .tool }) {
+        if fixtureMessages(request).contains(where: { $0.role == .tool }) {
             await inspect()
             return ModelResponse(text: "回执验证完成", finishReason: .stop, request: request, providerName: Self.name)
         }
@@ -430,7 +433,7 @@ private struct ReceiptInspectionProvider: ModelProvider {
                     let response = try await complete(request)
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: nil)); continuation.finish()
+                    continuation.yield(.terminal(response)); continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }

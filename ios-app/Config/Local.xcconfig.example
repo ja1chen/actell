@@ -1,0 +1,3 @@
+// Copy to Local.xcconfig and set your own values.
+ACTELL_BUNDLE_ID_PREFIX = com.example.Actell
+ACTELL_DEVELOPMENT_TEAM =

@@ -19,7 +19,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-reasoning-seed", "--ui-test-reasoning-" + outcome, "--ui-test-light"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         let input = app.textViews["messageInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap(); input.typeText("Synthetic reasoning")

@@ -166,7 +166,7 @@ final class ModelDiscoveryClient: @unchecked Sendable {
                 model.generation = CapabilitySupport((architecture?["output_modalities"] as? [String]).map { $0.contains("text") })
                 model.supportedParameters = row["supported_parameters"] as? [String]
                 model.tools = CapabilitySupport(model.supportedParameters.map { $0.contains("tools") })
-                model.inputTokenLimit = positive(row["context_length"])
+                model.contextTokenLimit = positive(row["context_length"])
                 model.outputTokenLimit = positive((row["top_provider"] as? [String: Any])?["max_completion_tokens"])
                 model.pricing = row["pricing"] as? [String: String]
             }
@@ -181,7 +181,7 @@ final class ModelDiscoveryClient: @unchecked Sendable {
         result.generation = CapabilitySupport(caps.map { $0.contains("completion") })
         result.thinking = CapabilitySupport(caps.map { $0.contains("thinking") })
         if let info = value["model_info"] as? [String: Any], let architecture = info["general.architecture"] as? String {
-            result.inputTokenLimit = positive(info[architecture + ".context_length"])
+            result.contextTokenLimit = positive(info[architecture + ".context_length"])
         }
         // The serialized parameters string contains defaults, not a schema/range.
         return result

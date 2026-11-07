@@ -3,45 +3,23 @@ import CoreFoundation
 import OSLog
 import CryptoKit
 import Security
-import SwiftAgentKit
+import AgentKit
 import ProviderCore
 import OpenAIAdapter
 
-/// Agent re-encodes parameter dictionaries each turn. Stabilize only their JSON
-/// representation before checkpointing; retain call identity, metadata and values.
-enum PortableContextRequest {
-    static func normalized(_ original: ModelRequest) throws -> ModelRequest {
-        var request = original
-        request.messages = try original.messages.map { originalMessage in
-            var message = originalMessage
-            message.toolCalls = try originalMessage.toolCalls?.map { call in
-                guard let object = try JSONSerialization.jsonObject(with: Data(call.arguments.utf8)) as? [String: Any] else {
-                    throw ModelError.invalidRequest("Tool arguments must be a JSON object")
-                }
-                let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-                return ModelToolCall(id: call.id, itemID: call.itemID, name: call.name,
-                                     arguments: String(decoding: data, as: UTF8.self), providerMetadata: call.providerMetadata,
-                                     status: call.status, extra: call.extra, scope: call.scope)
-            }
-            return message
-        }
-        return request
-    }
-}
-
 /// Runtime owns continuation state; the SDK adapter only encodes/decodes each call.
-final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
+final class PrivateVisionProvider: ModelCompactingProvider, @unchecked Sendable {
     static let name = "private-openai-compatible"
     let configuration: ProviderConfiguration
+    var replayScope: ProviderReplayScope { codec.scope }
     private let codec: OpenAIWireCodec
     private let transport: ResponsesTransport
-    private let context: ContextCoordinator?
     private let providerKind: ProviderKind
     private let parameterFields: [String: Any]
     init(settings: ProviderSettings, apiKey: String, limits: AgentLimits,
          providerKind: ProviderKind = .openAI, parameters: ModelParameters = ModelParameters(), metadata: DiscoveredModel? = nil,
          inferenceAPI: InferenceAPI = .chatCompletions, contextPolicy: ProviderContextPolicy = .stateless, accountReference: String = "",
-         runID: UUID = UUID(), branchID: UUID = UUID(), checkpointFile: URL? = nil, transport: ResponsesTransport? = nil) throws {
+         sessionID: UUID, transport: ResponsesTransport? = nil) throws {
         // A plain bearer/API key must never impersonate a subscription grant.
         guard providerKind != .chatGPTSubscription else { throw AppError.unavailable(ChatGPTSubscriptionPolicy.mobileLoginNotice) }
         let endpoint = try providerKind.inferenceBase(settings.baseURL)
@@ -59,24 +37,30 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         }
         parameterFields = fields
         configuration = ProviderConfiguration(name: Self.name, baseURL: endpoint, apiKey: apiKey, defaultModel: settings.model)
-        let scope = ProviderScope(provider: providerKind.rawValue + ":" + Self.name, endpoint: endpoint.absoluteString, account: accountReference, model: settings.model, run: runID, branch: branchID)
-        codec = OpenAIWireCodec(configuration: configuration, wire: inferenceAPI == .responses ? .responses : .chatCompletions, scope: scope, capabilities: .init(responseChain: providerKind.supportsResponseChain))
+        let scope = ProviderScope(provider: providerKind.rawValue + ":" + Self.name + ":" + inferenceAPI.rawValue, endpoint: endpoint.absoluteString, account: accountReference, model: settings.model, session: sessionID)
+        // Official DeepSeek thinking-mode tool continuation requires the original
+        // reasoning_content field. Do not infer this contract for other gateways.
+        let deepSeekChat = inferenceAPI == .chatCompletions && endpoint.host?.lowercased() == "api.deepseek.com"
+            && (endpoint.path.isEmpty || endpoint.path == "/v1") && (endpoint.port == nil || endpoint.port == 443)
+        codec = OpenAIWireCodec(configuration: configuration, wire: inferenceAPI == .responses ? .responses : .chatCompletions, scope: scope, capabilities: .init(responseChain: providerKind.supportsResponseChain, compaction: inferenceAPI == .responses && providerKind == .openAI && endpoint.absoluteString == "https://api.openai.com/v1", chatReasoningContentReplay: deepSeekChat))
         self.transport = transport ?? ResponsesTransport()
-        context = inferenceAPI == .responses ? try ContextCoordinator(scope: scope, storage: contextPolicy == .responseChain ? .responseChain : .none, checkpointFile: checkpointFile) : nil
     }
     func capabilities(for model: String) async throws -> ProviderCapabilities {
         guard model == configuration.defaultModel else { throw ModelError.unsupportedCapability(String(localized: "Model capabilities have not been verified")) }
-        return .init(responseChain: codec.wire == .responses && providerKind.supportsResponseChain)
+        return .init(responseChain: codec.wire == .responses && providerKind.supportsResponseChain, compaction: codec.capabilities.compaction, chatReasoningContentReplay: codec.capabilities.chatReasoningContentReplay)
+    }
+    func compact(_ request: ModelCompactionRequest) async throws -> ModelCompactionResponse {
+        let outgoing = try codec.prepareCompaction(request)
+        let data = try await transport.complete(outgoing)
+        try Task.checkCancellation()
+        return try codec.parseCompaction(data)
     }
     func cancel() {
-        // A persistence failure still cancels transport; the App's durable action
-        // journal independently fences dispatch and forbids restart replay.
-        try? context?.cancel()
+        // The runtime fences dispatch before cancellation of active network tasks.
         transport.cancel()
     }
     func prepareRequest(_ request: ModelRequest, stream: Bool) throws -> URLRequest {
-        let actual = try context?.prepare(PortableContextRequest.normalized(request)).request ?? request
-        return try wireRequest(actual, stream: stream)
+        return try wireRequest(request, stream: stream)
     }
     private func wireRequest(_ request: ModelRequest, stream: Bool) throws -> URLRequest {
         var explicit = request
@@ -85,7 +69,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         if let data = value.httpBody, var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if providerKind == .ollama { object.removeValue(forKey: "parallel_tool_calls") }
             for (key, field) in parameterFields { object[key] = field }
-            value.httpBody = try JSONSerialization.data(withJSONObject: object)
+            value.httpBody = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
             guard (value.httpBody?.count ?? 0) <= 24 * 1024 * 1024 else { throw AppError.invalid(String(localized: "The model request exceeds the 24 MiB limit")) }
         }
         return value
@@ -97,8 +81,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                 var stage = "context.prepare", shape = "event=none"
                 do {
                     try Task.checkCancellation()
-                    let prepared = try context?.prepare(PortableContextRequest.normalized(request))
-                    let actual = prepared?.request ?? request
+                    let actual = request
                     stage = "request.encode"
                     let outgoing = try wireRequest(actual, stream: true)
                     LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=request.send bodyBytes=\(outgoing.httpBody?.count ?? 0) toolCount=\(actual.tools.count)")
@@ -111,8 +94,7 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                             stage = "event.reduce"
                             try Task.checkCancellation()
                             let events: [ModelEvent]
-                            do { events = try reducer.consume(payload: payload); try context?.recordStream(reducer.checkpoint, force: reducer.retainedExtensionEvent) }
-                            catch { try? context?.recordStream(reducer.checkpoint, force: true); throw error }
+                            events = try reducer.consume(payload: payload)
                             if reducer.retainedUnknownEvent {
                                 LLMDiagnostics.warning(LLMDiagnostics.retainedEvent(attempt: attempt, shape: shape))
                             }
@@ -121,15 +103,13 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                                     stage = "terminal.validate"
                                     try ResponsesReducer.requireExecutable(response)
                                     try Task.checkCancellation()
-                                    if let prepared { try context?.commit(response, prepared: prepared) }
-                                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=context.commit outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
+                                    LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=terminal.validated outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
                                 }
                                 if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation(String(localized: "The model output buffer exceeds the limit")) }
                             }
                             if reducer.response != nil { break }
                             stage = "stream.receive"
                         }
-                        try context?.recordStream(reducer.checkpoint, force: true)
                         stage = "stream.finish"
                         _ = try reducer.finish()
                     } else {
@@ -139,7 +119,9 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
                             shape = LLMDiagnostics.eventShape(payload)
                             LLMDiagnostics.traceEvent(payload, attempt: attempt)
                             stage = "event.decode"
-                            for event in try decoder.consume(line: "data: " + payload, request: request) { continuation.yield(event) }
+                            for event in try decoder.consume(line: "data: " + payload, request: request) {
+                                if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation("Chat stream buffer exceeded") }
+                            }
                             if decoder.sawDone { break }
                             stage = "stream.receive"
                         }
@@ -161,18 +143,15 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         var stage = "context.prepare"
         do {
             try Task.checkCancellation()
-            let prepared = try context?.prepare(PortableContextRequest.normalized(request))
-            let actual = prepared?.request ?? request
+            let actual = request
             stage = "request.encode"
             let outgoing = try wireRequest(actual, stream: false)
             stage = "request.receive"
             let data = try await transport.complete(outgoing)
             stage = "response.decode"
             let result = try parseResponse(data, request: actual)
-            if let prepared {
-                try ResponsesReducer.requireExecutable(result); try Task.checkCancellation()
-                try context?.commit(result, prepared: prepared)
-            }
+            if codec.wire == .responses { try ResponsesReducer.requireExecutable(result) }
+            try Task.checkCancellation()
             return result
         } catch {
             LLMDiagnostics.log(error, stage: stage, attempt: attempt)
@@ -188,16 +167,22 @@ final class PrivateVisionProvider: ModelProvider, @unchecked Sendable {
         return ModelError.interrupted
     }
     func parseResponse(_ data: Data, request: ModelRequest) throws -> ModelResponse {
-        guard codec.wire == .chatCompletions else { return try codec.parseResponse(data, request: request) }
-        guard var o = try JSONSerialization.jsonObject(with: data) as? [String: Any], var choices = o["choices"] as? [[String: Any]], !choices.isEmpty, let m = choices[0]["message"] as? [String: Any] else { throw AppError.invalid(String(localized: "Incompatible Chat Completions response format")) }
-        choices[0]["message"] = ReadableReasoningDecoder.removingFields(from: m); o["choices"] = choices
-        let parsed = try codec.parseResponse(JSONSerialization.data(withJSONObject: o), request: request)
-        let details = try (m["reasoning_details"] as? [[String: Any]])?.map { try ProviderCore.JSONValue(any: $0) }
-        return ModelResponse(text: parsed.text, reasoning: ReadableReasoningDecoder.text(in: m), finishReason: parsed.finishReason, usage: parsed.usage, toolCalls: parsed.toolCalls, request: request, providerName: Self.name, replayState: details.map { .init(scope: codec.scope, reasoningDetails: $0) })
+        try codec.parseResponse(data, request: request)
     }
 }
 final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+}
+/// Synthetic providers consume the same prepared context contract as network adapters.
+private enum FixtureInput {
+    static func calls(_ request: ModelRequest) -> [ModelToolCall] {
+        if let input = request.input { return input.compactMap { if case .replay(.functionCall(let call)) = $0 { return call }; return nil } }
+        return request.messages.flatMap { $0.toolCalls ?? [] }
+    }
+    static func results(_ request: ModelRequest) -> [(id: String, content: String)] {
+        if let input = request.input { return input.compactMap { if case .functionResult(let id, let output) = $0 { return (id, output) }; return nil } }
+        return request.messages.compactMap { if $0.role == .tool, let id = $0.toolCallId { return (id, $0.content) }; return nil }
+    }
 }
 // Deterministic in-process test provider. It does not make HTTP requests and
 // only controls DemoBridge's synthetic image. Never presents itself as a model.
@@ -212,7 +197,7 @@ struct DemoProvider: ModelProvider {
                     // One honest scripted message, not a simulated token stream.
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: nil))
+                    continuation.yield(.terminal(response))
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
@@ -221,7 +206,12 @@ struct DemoProvider: ModelProvider {
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
         try Task.checkCancellation(); try await Task.sleep(nanoseconds: 350_000_000)
-        let calls = request.messages.flatMap { $0.toolCalls ?? [] }
+        var current = request
+        if let input = request.input, let start = input.lastIndex(where: { item in
+            if case .message(role: .user, let content) = item { return content.contains { if case .text(let text) = $0 { return !text.isEmpty }; return false } }
+            return false
+        }) { current.input = Array(input.dropFirst(start + 1)) }
+        let calls = FixtureInput.calls(current)
         let stage = calls.count
         if stage >= 3, !request.tools.contains(where: { $0.name == "finish" }) {
             return ModelResponse(text: String(localized: "The simulated test is complete."), finishReason: .stop, request: request, providerName: Self.name)
@@ -264,7 +254,7 @@ struct ReasoningFixtureProvider: ModelProvider {
                     if outcome == "paused" { try await Task.sleep(for: .seconds(60)) }
                     if outcome == "failed" { throw ModelError.invalidRequest("合成服务中断") }
                     continuation.yield(.text("合成答复。"))
-                    continuation.yield(.finish(reason: .stop, usage: nil)); continuation.finish()
+                    continuation.yield(.terminal(try await complete(request))); continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -280,16 +270,16 @@ struct SkillFixtureProvider: ModelProvider {
                 let response = try response(request)
                 for call in response.toolCalls { continuation.yield(.toolCall(call)) }
                 if !response.text.isEmpty { continuation.yield(.text(response.text)) }
-                continuation.yield(.finish(reason: response.finishReason, usage: nil)); continuation.finish()
+                continuation.yield(.terminal(response)); continuation.finish()
             } catch { continuation.finish(throwing: error) }
         }
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse { try response(request) }
     private func response(_ request: ModelRequest) throws -> ModelResponse {
-        let results = request.messages.filter { $0.role == .tool }
+        let results = FixtureInput.results(request)
         let call: ModelToolCall
         if results.isEmpty {
-            let system = request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n")
+            let system = request.instructions ?? request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n")
             guard let metadata = system.components(separatedBy: "\n").first(where: { $0.hasPrefix("[{") }),
                   let skills = try JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [[String: String]],
                   let skill = skills.first(where: { $0["name"] == "Synthetic Guide" }) ?? skills.first,
@@ -317,7 +307,7 @@ struct ToolErrorFixtureProvider: ModelProvider {
                     let response = try await complete(request)
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: nil))
+                    continuation.yield(.terminal(response))
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
@@ -326,11 +316,9 @@ struct ToolErrorFixtureProvider: ModelProvider {
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
         try Task.checkCancellation()
-        if request.messages.contains(where: { $0.role == .tool }) {
-            guard request.messages.contains(where: {
-                $0.role == .tool && $0.toolCallId == "fixture-screenshot" &&
-                $0.content == "[Tool: screenshot] ERROR\n" + UnavailableBridge.screenshotMessage
-            }) else { throw AppError.invalid("测试未收到对应工具的完整失败结果") }
+        let results = FixtureInput.results(request)
+        if !results.isEmpty {
+            guard results.contains(where: { $0.id == "fixture-screenshot" && $0.content.contains(UnavailableBridge.screenshotMessage) }) else { throw AppError.invalid("测试未收到对应工具的完整失败结果") }
             return ModelResponse(text: finalReply, finishReason: .stop, request: request, providerName: Self.name)
         }
         return ModelResponse(text: initialText, finishReason: .toolCalls,
@@ -358,12 +346,12 @@ struct TaskPiPProbeProvider: ModelProvider {
                             continuation.yield(.reasoning("离线流式验证。"))
                         }
                         continuation.yield(.text("离线后台流式验证已结束"))
-                        continuation.yield(.finish(reason: .stop, usage: nil)); continuation.finish()
+                        continuation.yield(.terminal(ModelResponse(text: "离线后台流式验证已结束", finishReason: .stop, request: request, providerName: Self.name))); continuation.finish()
                         return
                     }
                     let response = try await complete(request)
                     continuation.yield(.text(response.text))
-                    continuation.yield(.finish(reason: .stop, usage: nil)); continuation.finish()
+                    continuation.yield(.terminal(response)); continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -767,30 +755,13 @@ enum LLMDiagnostics {
             case .networkError(let s): kind = "networkError"; reason = s
             case .unsupportedOperation(let s): kind = "unsupportedOperation"; reason = s
             case .unknownProvider(let s): kind = "unknownProvider"; reason = s
+            case .rejectedBeforeAcceptance(let rejection): kind = "rejectedBeforeAcceptance"; reason = rejection.rawValue
             case .httpError(let status, _): kind = "httpError(\(status))"; reason = nil
             case .interrupted: kind = "interrupted"; reason = nil
             case .cancelledLocally: kind = "cancelledLocally"; reason = nil
 
             }
             detail = "error=ModelError." + kind + " reason=" + (reason.map { safeReason($0) } ?? "none")
-        } else if let agent = error as? AgentError {
-            let kind: String
-            switch agent {
-            case .providerError: kind = "providerError"
-            case .providerRefused: kind = "providerFailure wrapper=providerRefused"
-            case .toolExecutionFailed: kind = "toolExecutionFailed"
-            case .toolNotFound: kind = "toolNotFound"
-            case .toolCancelled: kind = "toolCancelled"
-            case .cancelled: kind = "cancelled"
-            case .noProviderConfigured: kind = "noProviderConfigured"
-            case .planningFailed: kind = "planningFailed"
-            case .repairRetryExhausted(let n): kind = "repairRetryExhausted attempts=\(n)"
-            case .maxTurnsReached(let n), .maxTurnsReachedWithSummary(let n, _): kind = "maxTurnsReached turns=\(n)"
-            case .runInProgress: kind = "runInProgress"
-            case .loopDetected(_, let n): kind = "loopDetected count=\(n)"
-            case .unknown: kind = "unknown"
-            }
-            detail = "error=AgentError." + kind
         } else if let app = error as? AppError {
             detail = "error=AppError reason=" + safeReason(app.localizedDescription)
         } else if let stalled = error as? ModelStreamStalled {

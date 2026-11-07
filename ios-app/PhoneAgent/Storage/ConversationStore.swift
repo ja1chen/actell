@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+import AgentKit
+import ProviderCore
 
 /// UI history contains public text, resource references, tool results
 /// and explicit readable provider reasoning; no image bytes, opaque reasoning,
@@ -8,9 +10,12 @@ import Combine
     // Execution and persistence continue in background, but a hidden chat must
     // not rebuild its entire SwiftUI tree for every streamed reasoning fragment.
     private var records: [AgentConversation] = [] {
-        willSet { if presentationActive { objectWillChange.send() } }
+        willSet { if presentationActive && !loadingHistory { objectWillChange.send() } }
     }
     private var draftIDs: Set<UUID> = []
+    private var unloadedIDs: Set<UUID> = []
+    private var pendingRecoveries: [UUID: [RunCheckpoint]] = [:]
+    private var loadingHistory = false
     /// Temporary composer drafts stay out of history and durable archives.
     var conversations: [AgentConversation] { records.filter { !draftIDs.contains($0.id) } }
     func isDraft(_ id: UUID) -> Bool { draftIDs.contains(id) }
@@ -18,61 +23,173 @@ import Combine
     @Published private(set) var activeRuns: [UUID: RunIdentity] = [:]
     var activeRun: RunIdentity? { activeRuns.values.first }
     @Published private(set) var warning: String?
-    private let file: URL?
+    @Published private(set) var migrationRequired = false
+    @Published private(set) var isMigrating = false
+    @Published private(set) var migrationError: String?
+    private let directory: URL?
+    private let legacyDirectory: URL?
+    var storageRoot: URL? { directory }
+    var storageReady: Bool { canWrite && !migrationRequired }
+    func sessionDirectory(_ id: UUID) throws -> URL {
+        guard storageReady, let directory else { throw SessionCommandError.unavailableStorage }
+        let layout = SessionStorageLayout(root: directory)
+        if let record = records.first(where: { $0.id == id }) {
+            return try layout.ensureDirectory(for: id, createdAt: record.createdAt)
+        }
+        return try layout.directory(for: id)
+    }
+    private var journal: ConversationJournal?
+    private var ephemeralEngineStores: [UUID: JSONLSessionStore] = [:]
+    private let ephemeralEngineRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ActellAgent-" + UUID().uuidString)
+    func engineStore(for id: UUID) throws -> JSONLSessionStore {
+        saveNow()
+        if let journal { return try journal.engineStore(id) }
+        guard directory == nil, canWrite else { throw SessionCommandError.unavailableStorage }
+        if let value = ephemeralEngineStores[id] { return value }
+        let value = JSONLSessionStore(root: ephemeralEngineRoot.appendingPathComponent(id.uuidString), sessionID: id)
+        if let conversation = conversation(id) {
+            _ = try value.appendPresentationSync(SessionTransaction(sessionID: id, kind: .presentationUpdated,
+                displayItems: try conversation.messages.map { try AgentSessionPersistence.display($0) },
+                metadata: try AgentSessionPersistence.metadata(conversation)))
+        }
+        ephemeralEngineStores[id] = value
+        return value
+    }
+    private var dirtyIDs: Set<UUID> = []
+    private var historyFullyReadable = true
+    var canCleanAttachments: Bool { historyFullyReadable && !migrationRequired && canWrite && dirtyIDs.isSubset(of: draftIDs) }
     private var canWrite = true
     private var saveTask: Task<Void, Never>?
     private struct Archive: Codable { var version = 1; var conversations: [AgentConversation] }
 
-    init(directory: URL? = nil, inMemory: Bool = false, legacy: [TaskRecord] = []) {
-        if inMemory { file = nil; return }
+    init(directory: URL? = nil, legacyDirectory: URL? = nil, inMemory: Bool = false, legacy: [TaskRecord] = []) {
+        self.legacyDirectory = legacyDirectory ?? directory ?? SessionStorageLayout.defaultLegacyRoot
+        if inMemory { self.directory = nil; return }
         do {
-            let folder = try directory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("PhoneAgent", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            var folderURL = folder
-            var values = URLResourceValues(); values.isExcludedFromBackup = true
-            try folderURL.setResourceValues(values)
-            file = folder.appendingPathComponent("conversations-v1.json")
-        } catch { file = nil; canWrite = false; warning = String(localized: "Conversations can only be kept in memory for now"); return }
+            let folder = directory ?? SessionStorageLayout.defaultRoot
+            try SessionStorageLayout.createProtectedDirectory(folder)
+            self.directory = folder
+        } catch { self.directory = nil; canWrite = false; warning = String(localized: "Conversations can only be kept in memory for now"); return }
         do {
-            if let file, FileManager.default.fileExists(atPath: file.path) {
-                let data = try Data(contentsOf: file)
-                guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Conversation file is too large")) }
-                let archive = try JSONDecoder().decode(Archive.self, from: data)
-                guard archive.version == 1 else { throw AppError.invalid(String(localized: "Conversation file version is incompatible")) }
-                records = archive.conversations
-                for index in records.indices {
-                    if [.running, .awaitingApproval].contains(records[index].phase) {
-                        records[index].phase = .interrupted
-                    }
-                    closePendingMessages(at: index)
+            guard let directory = self.directory, let legacyDirectory = self.legacyDirectory else { return }
+            let folder = directory.appendingPathComponent(ConversationJournal.directoryName, isDirectory: true)
+            let legacyFile = legacyDirectory.appendingPathComponent("conversations-v1.json")
+            if SessionStorageLayout(root: directory).isInstalled {
+                let journal = ConversationJournal(directory: folder)
+                records = try journal.loadSummaries(); self.journal = journal
+                unloadedIDs = Set(records.filter { !journal.isLoaded($0.id) }.map(\.id))
+                if !journal.unreadableIDs.isEmpty {
+                    historyFullyReadable = false
+                    warning = String(localized: "Some conversations could not be read. Their files have been kept. Other conversations can still be saved.")
+                } else if journal.recoveredTail {
+                    warning = String(localized: "An interrupted save was found. Conversations were restored through their last complete save.")
                 }
-            } else {
+            } else if FileManager.default.fileExists(atPath: legacyFile.path) {
+                let size = try legacyFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= ConversationJournal.maximumBytes else { throw ConversationJournal.Failure.tooLarge }
+                let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: legacyFile))
+                guard archive.version == 1, Set(archive.conversations.map(\.id)).count == archive.conversations.count else {
+                    throw ConversationJournal.Failure.invalidFormat
+                }
+                records = archive.conversations
+                migrationRequired = true; canWrite = false
+            } else if !legacy.isEmpty {
                 records = legacy.map { record in
                     var conversation = AgentConversation(mode: record.mode)
                     conversation.id = record.id; conversation.title = String(record.goal.prefix(48))
+                    conversation.createdAt = record.receipts.first?.date ?? record.updatedAt
                     conversation.updatedAt = record.updatedAt
-                    conversation.phase = [.running, .awaitingApproval].contains(record.phase) ? .interrupted : record.phase
+                    conversation.phase = record.phase
                     conversation.messages = [ChatMessage(role: .user, text: record.goal)]
                     conversation.messages += record.receipts.map { ChatMessage(role: .notice, text: $0.message, date: $0.date) }
                     if !record.result.isEmpty { conversation.messages.append(ChatMessage(role: .notice, text: String(localized: "Previous run result:\n\(record.result)"))) }
                     return conversation
                 }
+                migrationRequired = true; canWrite = false
+            } else if try SessionStorageMigration.hasLegacyResources(in: legacyDirectory) {
+                migrationRequired = true; canWrite = false
+            } else {
+                try ConversationJournal.install([], in: directory)
+                journal = ConversationJournal(directory: folder)
+            }
+            for index in records.indices where !unloadedIDs.contains(records[index].id) {
+                let previous = records[index]
+                if [.running, .awaitingApproval].contains(records[index].phase) { records[index].phase = .interrupted }
+                closePendingMessages(at: index)
+                if previous != records[index] { dirtyIDs.insert(records[index].id) }
             }
             saveNow()
         } catch {
-            canWrite = false // Preserve an unreadable original; never replace it with [].
+            canWrite = false; historyFullyReadable = false
             warning = String(localized: "Conversation history could not be read. The original file was kept. This conversation will not be saved to disk for now.")
         }
     }
 
-    func conversation(_ id: UUID) -> AgentConversation? { records.first { $0.id == id } }
+    func migrateLegacyHistory() async {
+        guard migrationRequired, !isMigrating, let directory, let legacyDirectory else { return }
+        isMigrating = true; migrationError = nil
+        defer { isMigrating = false }
+        let snapshot = conversations
+        do {
+            let result = try await Task.detached(priority: .userInitiated) {
+                try SessionStorageMigration.install(snapshot, in: directory, legacyRoot: legacyDirectory)
+            }.value
+            let journal = ConversationJournal(directory: directory.appendingPathComponent(ConversationJournal.directoryName))
+            _ = try journal.loadSummaries()
+            guard journal.unreadableIDs.isEmpty else { throw ConversationJournal.Failure.invalidFormat }
+            let layout = SessionStorageLayout(root: directory)
+            let recoveries = try conversations.flatMap {
+                try SessionStorageMigration.readCheckpoints(in: layout.directory(for: $0.id))
+            }
+            self.journal = journal
+            canWrite = true; migrationRequired = false
+            if result.unavailableAttachments {
+                warning = String(localized: "Some saved attachments are missing or damaged. Their references and any existing files were kept.")
+            }
+            for saved in recoveries { reconcileRecovery(saved.recovered()) }
+            // Include any recovery reconciliation that arrived while migration ran.
+            dirtyIDs.formUnion(conversations.map(\.id)); saveNow()
+        } catch {
+            migrationError = String(localized: "History could not be migrated. Your original data is unchanged. Check available storage and try again.")
+        }
+    }
+
+    func conversation(_ id: UUID) -> AgentConversation? {
+        guard let index = index(id) else { return nil }
+        return records[index]
+    }
+    private func loadHistory(_ id: UUID) {
+        guard unloadedIDs.contains(id), let journal, let position = records.firstIndex(where: { $0.id == id }) else { return }
+        loadingHistory = true
+        defer { loadingHistory = false }
+        do {
+            records[position] = try journal.conversation(id)
+            unloadedIDs.remove(id)
+            if !journal.unreadableIDs.isEmpty {
+                historyFullyReadable = false
+                warning = String(localized: "Some conversations could not be read. Their files have been kept. Other conversations can still be saved.")
+            } else if journal.recoveredTail {
+                warning = String(localized: "An interrupted save was found. Conversations were restored through their last complete save.")
+            }
+            let previous = records[position]
+            if [.running, .awaitingApproval].contains(records[position].phase) { records[position].phase = .interrupted }
+            closePendingMessages(at: position)
+            if previous != records[position] { dirtyIDs.insert(id) }
+            for checkpoint in pendingRecoveries.removeValue(forKey: id) ?? [] { reconcileTools(checkpoint) }
+            saveNow()
+        } catch {
+            historyFullyReadable = false
+            warning = String(localized: "Some conversations could not be read. Their files have been kept. Other conversations can still be saved.")
+        }
+    }
     func setPresentationActive(_ active: Bool) {
         guard active != presentationActive else { return }
         presentationActive = active
         if active { objectWillChange.send() }
     }
     var referencedAttachments: [StoredAttachment] {
-        records.flatMap { ($0.draftAttachments ?? []) + $0.messages.flatMap { $0.attachments ?? [] } }
+        for id in Array(unloadedIDs) { loadHistory(id) }
+        return records.flatMap { ($0.draftAttachments ?? []) + $0.messages.flatMap { $0.attachments ?? [] } }
     }
     func attach(_ attachment: StoredAttachment, to messageID: UUID, in conversationID: UUID) {
         guard attachment.conversationID == conversationID, let index = index(conversationID),
@@ -84,7 +201,7 @@ import Combine
             references.removeAll { $0.sourceURL == sourceURL }
         } else if references.contains(where: { $0.id == attachment.id && $0.sourceURL == nil }) { return }
         references.append(attachment); records[index].messages[message].attachments = references
-        saveNow()
+        dirtyIDs.insert(conversationID); saveNow()
     }
     @discardableResult func attach(_ attachment: StoredAttachment, toTool callID: String, identity: RunIdentity) -> Bool {
         guard accepts(identity), let message = conversation(identity.conversationID)?.messages.last(where: { $0.runID == identity.runID && $0.tool?.callID == callID }) else { return false }
@@ -92,13 +209,81 @@ import Combine
     }
     @discardableResult func create(mode: RunMode) -> UUID {
         let conversation = AgentConversation(mode: mode)
-        records.insert(conversation, at: 0); saveNow()
+        records.insert(conversation, at: 0); dirtyIDs.insert(conversation.id); saveNow()
         return conversation.id
+    }
+    /// A damaged journal remains untouched; only its verified visible prefix
+    /// can be used as the source for a separate, explicitly requested session.
+    func hasRecoverableHistory(_ id: UUID) -> Bool {
+        guard journal?.unreadableIDs.contains(id) == true,
+              let conversation = records.first(where: { $0.id == id }) else { return false }
+        return !conversation.messages.isEmpty
+    }
+    @discardableResult func recoverReadableHistory(_ id: UUID) async throws -> UUID {
+        guard storageReady, activeRuns[id] == nil, let journal, let directory,
+              journal.unreadableIDs.contains(id) else { throw SessionCommandError.unavailableStorage }
+        let source = try journal.conversation(id)
+        guard !source.messages.isEmpty else { throw SessionCommandError.unavailableStorage }
+        var recovered = AgentConversation(mode: source.mode)
+        recovered.title = source.title
+        // Provider choice, pending entry, draft and execution authorization are
+        // deliberately not transferred from a damaged execution history.
+        let attachments = AttachmentStore(directory: directory)
+        for sourceMessage in source.messages {
+            var message = sourceMessage
+            message.id = UUID(); message.runID = nil
+            if message.state == .streaming { message.state = .interrupted }
+            if message.reasoning?.state == .streaming { message.reasoning?.state = .interrupted }
+            if var tool = message.tool, !tool.state.isTerminal { tool.state = .outcomeUnknown; message.tool = tool }
+            var copied: [StoredAttachment] = []
+            for original in sourceMessage.attachments ?? [] {
+                if let data = try? await attachments.read(original, conversationID: id),
+                   let stored = try? await attachments.store(data, name: original.name, conversationID: recovered.id) {
+                    copied.append(stored)
+                } else {
+                    // Keep a missing placeholder owned by the new session; do
+                    // not reopen an external URL or impersonate existing bytes.
+                    var missing = original; missing.conversationID = recovered.id; missing.sourceURL = nil
+                    copied.append(missing)
+                }
+            }
+            message.attachments = copied.isEmpty ? nil : copied
+            recovered.messages.append(message)
+        }
+        var context: [ModelInputItem] = [.message(role: .assistant, content: [.text(
+            "This conversation was reconstructed from a verified readable prefix. The original history has a gap; later facts and tool outcomes may be missing. Historical actions were not replayed."
+        )])]
+        for message in recovered.messages {
+            switch message.role {
+            case .user, .assistant:
+                guard message.state == .complete, !message.text.isEmpty else { continue }
+                context.append(.message(role: message.role == .user ? .user : .assistant, content: [.text(message.text)]))
+            case .tool:
+                guard let tool = message.tool else { continue }
+                let fact = "Historical tool record: name=\(tool.name), call_id=\(tool.callID), state=\(tool.state.rawValue), recorded_result=\(tool.result). This is a historical fact, not a pending call."
+                context.append(.message(role: .assistant, content: [.text(fact)]))
+            case .notice: break
+            }
+        }
+        let newRoot = try SessionStorageLayout(root: directory).ensureDirectory(for: recovered.id, createdAt: recovered.createdAt)
+        let store = JSONLSessionStore(root: newRoot, sessionID: recovered.id)
+        let transaction = try SessionTransaction(sessionID: recovered.id, kind: .legacyImported,
+            contextItems: context, displayItems: recovered.messages.map { try AgentSessionPersistence.display($0, legacy: true) },
+            metadata: AgentSessionPersistence.metadata(recovered))
+        _ = try store.appendSync(transaction, expecting: 0)
+        // Install in the normal registry only after the durable transaction.
+        _ = try journal.engineStore(recovered.id)
+        try? journal.adoptCommittedSession(recovered.id)
+        records.insert(recovered, at: 0)
+        return recovered.id
     }
     @discardableResult func createDraft(mode: RunMode) -> UUID {
         let draft = AgentConversation(mode: mode)
         draftIDs.insert(draft.id)
         records.insert(draft, at: 0)
+        if directory != nil, storageReady {
+            do { _ = try sessionDirectory(draft.id) } catch { reportSaveFailure() }
+        }
         return draft.id
     }
     func discardDraft(_ id: UUID) {
@@ -119,51 +304,58 @@ import Combine
         conversation.title = String(text.prefix(48)); conversation.draft = text
         conversation.entry = SessionEntry(commandID: command.commandID, sessionID: conversation.id,
             source: command.source, createdAt: command.createdAt, updatedAt: command.createdAt)
-        try commit([conversation] + records)
+        try commit(conversation)
+        records.insert(conversation, at: 0)
         return conversation.id
     }
     func dismissPreparedTask(in id: UUID) throws {
         guard let index = index(id), records[index].entry?.state == .pendingConfirmation else { return }
-        var next = records
-        next[index].entry?.state = .dismissed; next[index].entry?.routePending = false
-        next[index].entry?.updatedAt = Date(); next[index].draft = ""
+        var next = records[index]
+        next.entry?.state = .dismissed; next.entry?.routePending = false
+        next.entry?.updatedAt = Date(); next.draft = ""
         try commit(next)
+        records[index] = next
     }
-    private func commit(_ next: [AgentConversation]) throws {
+    private func commit(_ conversation: AgentConversation) throws {
         guard canWrite else { throw SessionCommandError.unavailableStorage }
         do {
-            if let file {
-                let data = try JSONEncoder().encode(Archive(conversations: next.filter { !draftIDs.contains($0.id) }))
-                guard data.count <= 64 * 1_024 * 1_024 else { throw SessionCommandError.unavailableStorage }
-                try data.write(to: file, options: [.atomic, .completeFileProtection])
-            }
-            records = next
+            try journal?.save(conversation)
+            dirtyIDs.remove(conversation.id)
         } catch { throw SessionCommandError.unavailableStorage }
     }
     func setDraft(_ text: String, in id: UUID) {
         guard let index = index(id) else { return }
-        records[index].draft = String(text.prefix(2_000)); scheduleSave()
+        records[index].draft = String(text.prefix(2_000)); dirtyIDs.insert(id); scheduleSave()
     }
     func addDraftAttachment(_ attachment: StoredAttachment, in id: UUID) {
         guard attachment.conversationID == id, activeRuns[id] == nil, let index = index(id) else { return }
         var references = records[index].draftAttachments ?? []
         guard !references.contains(where: { $0.id == attachment.id }) else { return }
-        references.append(attachment); records[index].draftAttachments = references; saveNow()
+        references.append(attachment); records[index].draftAttachments = references; dirtyIDs.insert(id); saveNow()
     }
     func removeDraftAttachment(_ attachmentID: UUID, in id: UUID) {
         guard activeRuns[id] == nil, let index = index(id) else { return }
-        records[index].draftAttachments?.removeAll { $0.id == attachmentID }; saveNow()
+        records[index].draftAttachments?.removeAll { $0.id == attachmentID }; dirtyIDs.insert(id); saveNow()
     }
     func delete(_ id: UUID) {
-        guard activeRuns[id] == nil else { return }
-        records.removeAll { $0.id == id }; draftIDs.remove(id); saveNow()
+        guard activeRuns[id] == nil, !migrationRequired else { return }
+        do {
+            guard canWrite || isDraft(id) else { throw SessionCommandError.unavailableStorage }
+            if canWrite { try journal?.delete(id) }
+            records.removeAll { $0.id == id }; draftIDs.remove(id); dirtyIDs.remove(id); unloadedIDs.remove(id); pendingRecoveries.removeValue(forKey: id)
+        } catch {
+            if journal?.unreadableIDs.isEmpty == false {
+                historyFullyReadable = false
+                warning = String(localized: "Some conversations could not be read. Their files have been kept. Other conversations can still be saved.")
+            } else { reportSaveFailure() }
+        }
     }
     func clear() {
-        guard activeRuns.isEmpty else { return }
-        records = []; draftIDs = []; saveNow()
+        guard activeRuns.isEmpty, !migrationRequired else { return }
+        for id in records.map(\.id) { delete(id) }
     }
     func begin(in id: UUID, query: String, attachments: [StoredAttachment] = []) -> RunIdentity? {
-        guard activeRuns[id] == nil, let index = index(id) else { return nil }
+        guard !migrationRequired, activeRuns[id] == nil, let index = index(id) else { return nil }
         draftIDs.remove(id)
         let identity = RunIdentity(conversationID: id, runID: UUID())
         activeRuns[id] = identity
@@ -181,35 +373,41 @@ import Combine
         return identity
     }
     func accepts(_ identity: RunIdentity) -> Bool { activeRuns[identity.conversationID] == identity }
-    func beginAssistantTurn(_ identity: RunIdentity) {
+    func reloadPresentation(_ id: UUID) {
+        guard let journal, let index = records.firstIndex(where: { $0.id == id }) else { return }
+        do { records[index] = try journal.reload(id) }
+        catch { reportSaveFailure() }
+    }
+    func beginAssistantTurn(_ identity: RunIdentity, itemID: UUID = UUID()) {
         guard accepts(identity), let index = index(identity.conversationID) else { return }
-        records[index].messages.append(ChatMessage(runID: identity.runID, role: .assistant, text: "", state: .streaming))
+        guard !records[index].messages.contains(where: { $0.id == itemID }) else { return }
+        records[index].messages.append(ChatMessage(id: itemID, runID: identity.runID, role: .assistant, text: "", state: .streaming))
         touch(index); scheduleSave()
     }
-    func appendText(_ text: String, identity: RunIdentity) {
+    func appendText(_ text: String, identity: RunIdentity, itemID: UUID? = nil) {
         guard accepts(identity), let index = index(identity.conversationID),
-              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming }) else { return }
-        records[index].messages[message].text = String((records[index].messages[message].text + text).prefix(16_000))
+              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming && (itemID == nil || $0.id == itemID) }) else { return }
+        records[index].messages[message].text += text
         touch(index); scheduleSave()
     }
-    func appendReasoning(_ text: String, identity: RunIdentity) {
+    func appendReasoning(_ text: String, identity: RunIdentity, itemID: UUID? = nil) {
         guard !text.isEmpty, accepts(identity), let index = index(identity.conversationID),
-              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming }) else { return }
+              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming && (itemID == nil || $0.id == itemID) }) else { return }
         if records[index].messages[message].reasoning == nil {
             records[index].messages[message].reasoning = ReasoningMessage(text: "")
         }
         records[index].messages[message].reasoning?.text += text
         touch(index); scheduleSave()
     }
-    func completeAssistantTurn(_ text: String, reasoning: String? = nil, identity: RunIdentity) {
+    func completeAssistantTurn(_ text: String, reasoning: String? = nil, identity: RunIdentity, itemID: UUID? = nil) {
         guard accepts(identity), let index = index(identity.conversationID),
-              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming }) else { return }
+              let message = records[index].messages.lastIndex(where: { $0.runID == identity.runID && $0.role == .assistant && $0.state == .streaming && (itemID == nil || $0.id == itemID) }) else { return }
         if let reasoning, !reasoning.isEmpty {
             records[index].messages[message].reasoning = ReasoningMessage(text: reasoning, state: .complete)
         }
         if text.isEmpty && records[index].messages[message].reasoning == nil { records[index].messages.remove(at: message) }
         else {
-            records[index].messages[message].text = String(text.prefix(16_000))
+            records[index].messages[message].text = text
             records[index].messages[message].state = .complete
             records[index].messages[message].reasoning?.state = .complete
         }
@@ -232,13 +430,19 @@ import Combine
             if let skillName { records[index].messages[message].tool?.skillName = String(skillName.prefix(80)) }
         } else {
             let tool = ToolStep(callID: callID, name: name, state: state, detail: String(detail.prefix(500)), result: result, arguments: arguments.map { String($0.prefix(4_000)) }, skillName: skillName.map { String($0.prefix(80)) })
-            records[index].messages.append(ChatMessage(runID: identity.runID, role: .tool, text: "", tool: tool))
+            let itemID = ToolInvocation(sessionID: identity.conversationID, turnID: identity.runID,
+                call: ModelToolCall(id: callID, name: name, arguments: "{}")).displayItemID
+            records[index].messages.append(ChatMessage(id: itemID, runID: identity.runID, role: .tool, text: "", tool: tool))
         }
         if state == .awaitingApproval { records[index].phase = .awaitingApproval }
         else if [.approved, .executing, .succeeded, .failed].contains(state) { records[index].phase = .running }
         touch(index); saveNow()
     }
     func reconcileRecovery(_ checkpoint: RunCheckpoint) {
+        if unloadedIDs.contains(checkpoint.conversationID) {
+            pendingRecoveries[checkpoint.conversationID, default: []].append(checkpoint)
+            return
+        }
         reconcileTools(checkpoint)
     }
     func selectProvider(_ providerID: UUID?, model: String?, in id: UUID) {
@@ -261,25 +465,21 @@ import Combine
         }
         activeRuns.removeValue(forKey: identity.conversationID); touch(index); saveNow()
     }
-    /// Only public text from this conversation is used as context. Historical
-    /// tools/images are never re-enqueued or used to authorize new input.
+    /// Presentation query only. AgentKit builds model context from committed session facts.
     func history(in id: UUID) -> [ChatMessage] {
-        Array((conversation(id)?.messages ?? []).filter { ($0.role == .user || $0.role == .assistant) && $0.state == .complete && !$0.text.isEmpty }.suffix(16)).map {
+        (conversation(id)?.messages ?? []).filter { ($0.role == .user || $0.role == .assistant) && $0.state == .complete && !$0.text.isEmpty }.map {
             var message = $0; message.reasoning = nil; return message
         }
     }
-    private func index(_ id: UUID) -> Int? { records.firstIndex { $0.id == id } }
+    private func index(_ id: UUID) -> Int? {
+        loadHistory(id)
+        guard !unloadedIDs.contains(id) else { return nil }
+        return records.firstIndex { $0.id == id }
+    }
     private func touch(_ index: Int) {
+        dirtyIDs.insert(records[index].id)
         records[index].updatedAt = Date()
-        // Keep durable image/file references until the user deletes their history.
-        // The normal 200-message trim must not orphan historical originals.
-        var excess = records[index].messages.count - 200
-        if excess > 0 {
-            records[index].messages.removeAll { message in
-                guard excess > 0, message.attachments?.isEmpty != false else { return false }
-                excess -= 1; return true
-            }
-        }
+        // Durable history is independent of the bounded context sent to a model.
     }
     private func closePendingMessages(at index: Int, state terminalState: MessageState = .interrupted, cancelled: Bool = false) {
         for message in records[index].messages.indices {
@@ -321,7 +521,7 @@ import Combine
                 records[index].messages[message].tool = recovered; changed = true
             }
         }
-        if changed { saveNow() }
+        if changed { dirtyIDs.insert(checkpoint.conversationID); saveNow() }
     }
     private func scheduleSave() {
         guard saveTask == nil else { return }
@@ -332,11 +532,14 @@ import Combine
     }
     func saveNow() {
         saveTask?.cancel(); saveTask = nil
-        guard let file, canWrite else { return }
-        do {
-            let data = try JSONEncoder().encode(Archive(conversations: conversations))
-            guard data.count <= 64 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Conversation storage is full. Delete old conversations.")) }
-            try data.write(to: file, options: [.atomic, .completeFileProtection])
-        } catch { warning = String(localized: "The conversation could not be saved. Check available storage. Your current content is still in memory.") }
+        guard canWrite else { return }
+        for id in dirtyIDs {
+            guard !draftIDs.contains(id), let conversation = records.first(where: { $0.id == id }), !unloadedIDs.contains(id) else { continue }
+            do { try journal?.save(conversation); dirtyIDs.remove(id) }
+            catch { reportSaveFailure() }
+        }
+    }
+    private func reportSaveFailure() {
+        warning = String(localized: "The conversation could not be saved. Check available storage. Your current content is still in memory.")
     }
 }

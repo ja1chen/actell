@@ -80,6 +80,12 @@ class SigningHookTests(unittest.TestCase):
         self.write_project(staged.replace("org.example.App", "org.private.LocalApp"))
         self.assertEqual(self.hook().returncode, 0)
 
+    def test_shared_signing_variables_are_allowed(self):
+        self.write_project(BASE.replace('DEVELOPMENT_TEAM = ""', 'DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)"').replace('org.example.App', '"$(ACTELL_BUNDLE_ID_PREFIX)"'))
+        self.git("add", PROJECT)
+        result = self.hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_formatting_does_not_change_signing_identity(self):
         self.write_project(BASE.replace('DEVELOPMENT_TEAM = "";', 'DEVELOPMENT_TEAM="";').replace('org.example.App;', '"org.example.App";'))
         self.git("add", PROJECT)

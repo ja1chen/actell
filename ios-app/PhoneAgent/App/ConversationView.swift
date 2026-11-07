@@ -5,10 +5,13 @@ struct ConversationView: View {
     @State private var browsingModels = false
     @State private var showingModelSettings = false
     @StateObject private var presentation: AgentPresentationAdapter
-    init(model: AgentViewModel, conversationID: UUID) {
+    private let onRecovered: (UUID) -> Void
+    init(model: AgentViewModel, conversationID: UUID, onRecovered: @escaping (UUID) -> Void = { _ in }) {
+        self.onRecovered = onRecovered
         _presentation = StateObject(wrappedValue: AgentPresentationAdapter(model: model, sessionID: conversationID))
     }
     @State private var draft = ""
+    @State private var recoveringHistory = false
     @State private var followLatest = true
     @State private var userScrolling = false
     @State private var lastMessageVisible = false
@@ -25,7 +28,7 @@ struct ConversationView: View {
     private var session: AgentConversation? { presentation.session }
     private var running: Bool { presentation.running }
     private var canSend: Bool {
-        !running && !presentation.stopping && !importingAttachments && !sendingAttachments &&
+        !running && !presentation.stopping && !recoveringHistory && !presentation.canRecoverHistory && !importingAttachments && !sendingAttachments &&
         (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session?.draftAttachments?.isEmpty == false) && draft.count <= 2_000
     }
     var body: some View {
@@ -353,6 +356,22 @@ struct ConversationView: View {
                 }.id(request.id)
             }
             if let warning = presentation.warning { Text(warning).font(.caption).foregroundStyle(.orange) }
+            if presentation.canRecoverHistory {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "Only part of this history could be read. Continue with the readable messages in a new conversation; the original is kept."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button(String(localized: "Continue in a new conversation")) {
+                        recoveringHistory = true
+                        Task {
+                            if let id = await presentation.recoverHistory() { onRecovered(id) }
+                            recoveringHistory = false
+                        }
+                    }
+                    .disabled(recoveringHistory)
+                    .accessibilityIdentifier("recoverConversationHistory")
+                }
+            }
+
             if let attachmentFailure { Text(attachmentFailure).font(.caption).foregroundStyle(.orange).accessibilityIdentifier("attachmentFailure") }
             if importingAttachments || sendingAttachments {
                 HStack {

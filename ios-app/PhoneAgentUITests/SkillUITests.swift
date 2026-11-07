@@ -26,7 +26,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["暂无本地技能"].waitForExistence(timeout: 5))
         importSkill(app); XCTAssertTrue(title.waitForExistence(timeout: 8))
         app.navigationBars["技能"].buttons.firstMatch.tap(); app.buttons["关闭"].tap()
-        app.staticTexts["新会话"].tap()
+        app.staticTexts["新建会话"].tap()
         let input = app.textViews["messageInput"]
         input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5)); input.typeText("Use synthetic guide")
@@ -41,8 +41,9 @@ import XCTest
         app.buttons["importSkill"].tap()
         let file = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "SKILL")).firstMatch
         if !file.waitForExistence(timeout: 2) {
-            let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
-            if browse.waitForExistence(timeout: 2) { browse.tap() }
+            let browse = app.tabBars["DOC.browsingModeTabBar"].buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
+            XCTAssertTrue(browse.waitForExistence(timeout: 10), app.debugDescription)
+            browse.tap()
             let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             if local.waitForExistence(timeout: 2) { local.tap() }
             let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
