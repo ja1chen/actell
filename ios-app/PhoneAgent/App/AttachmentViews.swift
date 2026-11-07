@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Photos
 
 /// Largest size within the bounds that keeps this size's aspect ratio.
@@ -79,19 +80,11 @@ private struct AttachmentPreview: View {
     @Environment(\.dismiss) private var dismiss
     @State private var data: Data?
     @State private var failure: String?
-    @State private var scale: CGFloat = 1
     var body: some View {
         NavigationStack {
             Group {
                 if let data, attachment.kind == .image, let image = UIImage(data: data) {
-                    GeometryReader { geometry in
-                        ScrollView([.horizontal, .vertical]) {
-                            Image(uiImage: image).resizable().scaledToFit()
-                                .frame(width: max(1, geometry.size.width - 32) * scale)
-                                .accessibilityLabel(String(localized: "Local original image"))
-                        }
-                        .gesture(MagnifyGesture().onEnded { scale = min(6, max(1, scale * $0.magnification)) })
-                    }
+                    ZoomableImageView(image: image)
                 } else if let data, let text = String(data: data, encoding: .utf8) {
                     ScrollView { Text(text).font(.body.monospaced()).textSelection(.enabled).padding() }
                 } else if let failure { ContentUnavailableView(String(localized: "Could not read the attachment"), systemImage: "exclamationmark.triangle", description: Text(failure)) }
@@ -109,6 +102,116 @@ private struct AttachmentPreview: View {
                 catch { failure = String(localized: "The local file is missing or temporarily inaccessible. Retry remote sources from the message, or select other attachments again.") }
             }
         }
+    }
+}
+
+/// Scroll-view-backed image viewer: opens centered at a fit-to-screen scale,
+/// and supports pinch zooming that follows the fingers past the limits and
+/// springs back on release, finger-midpoint anchoring, panning while zoomed,
+/// and a double-tap toggle between the fitted and an enlarged scale. All of
+/// this is native UIScrollView behavior; this wrapper only keeps the image
+/// centered in dimensions it does not overflow.
+private struct ZoomableImageView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = ZoomableScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.imageView.image = image
+        scrollView.imageView.isAccessibilityElement = true
+        scrollView.imageView.accessibilityLabel = String(localized: "Local original image")
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.toggleZoom(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            (scrollView as? ZoomableScrollView)?.imageView
+        }
+
+        func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+            (scrollView as? ZoomableScrollView)?.isZoomGestureActive = true
+        }
+
+        func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            (scrollView as? ZoomableScrollView)?.isZoomGestureActive = false
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            (scrollView as? ZoomableScrollView)?.centerVisibleImage()
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            (scrollView as? ZoomableScrollView)?.centerVisibleImage()
+        }
+
+        @objc func toggleZoom(_ sender: UITapGestureRecognizer) {
+            guard let scrollView = sender.view as? ZoomableScrollView else { return }
+            let enlarged = scrollView.minimumZoomScale * 3
+            if scrollView.zoomScale >= enlarged {
+                scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            } else {
+                // The rect to enlarge, in image coordinates, is the visible
+                // area rescaled to the target zoom, centered on the tap.
+                let factor = scrollView.zoomScale / enlarged
+                let size = CGSize(width: scrollView.bounds.width * factor, height: scrollView.bounds.height * factor)
+                let point = sender.location(in: scrollView.imageView)
+                let rect = CGRect(origin: .zero, size: size)
+                    .offsetBy(dx: point.x - size.width / 2, dy: point.y - size.height / 2)
+                scrollView.zoom(to: rect, animated: true)
+            }
+        }
+    }
+}
+
+private final class ZoomableScrollView: UIScrollView {
+    let imageView = UIImageView()
+    var isZoomGestureActive = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        imageView.contentMode = .scaleAspectFit
+        addSubview(imageView)
+        minimumZoomScale = 1
+        maximumZoomScale = 8
+        bouncesZoom = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Establish the base frame only when fully at rest: touching the
+        // zooming view mid-gesture breaks the scroll view's pinch anchor and
+        // its bounce past the zoom limits.
+        guard !isZoomGestureActive, zoomScale <= minimumZoomScale + .leastNormalMagnitude,
+            bounds.width > 0, bounds.height > 0, let image = imageView.image, image.size.width > 0 else { return }
+        if imageView.frame.size != bounds.size {
+            imageView.frame = CGRect(origin: .zero, size: bounds.size)
+            contentSize = bounds.size
+        }
+        let fitScale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        maximumZoomScale = max(8, 1 / fitScale)
+    }
+
+    /// Centers the image in any dimension where it fits within the visible
+    /// area, by offset alone; dimensions it overflows keep native panning and
+    /// the pinch anchor. The image is centered inside its frame by the aspect
+    /// fit, so centering the frame centers the image.
+    func centerVisibleImage() {
+        let visible = bounds.size
+        guard visible.width > 0, visible.height > 0, let image = imageView.image, image.size.width > 0 else { return }
+        let fitted = image.size.fitted(maxWidth: visible.width, maxHeight: visible.height)
+        let content = CGSize(width: visible.width * zoomScale, height: visible.height * zoomScale)
+        var offset = contentOffset
+        if fitted.width * zoomScale <= visible.width { offset.x = (content.width - visible.width) / 2 }
+        if fitted.height * zoomScale <= visible.height { offset.y = (content.height - visible.height) / 2 }
+        if offset != contentOffset { contentOffset = offset }
     }
 }
 
