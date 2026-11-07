@@ -31,7 +31,7 @@ enum CoreDeviceAdmissionError: LocalizedError {
     var connectionStopID: UUID? { get }
     func connectIfNeeded() throws
     func agentCapture(owner: UUID, session: UUID) async throws -> Data
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?)
     func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws
     func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws
@@ -39,7 +39,8 @@ enum CoreDeviceAdmissionError: LocalizedError {
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws
     func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws
     func agentApplications(owner: UUID, session: UUID) async throws -> Data
-    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws
+    func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data?
+    @discardableResult func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws -> NativeApplicationLaunch?
     func canActivateApplication(owner: UUID, session: UUID) -> Bool
     func retainConnection(owner: UUID)
     func awaitControlRelease() async
@@ -50,8 +51,9 @@ enum CoreDeviceAdmissionError: LocalizedError {
 }
 
 extension CoreDeviceControlConnection {
+    func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data? { nil }
     func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?) { releaseAgent(owner: owner, session: session) }
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
 
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
     func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
@@ -68,7 +70,7 @@ extension CoreDeviceControlConnection {
     }
     var connectionFailure: String? { nil }
     func agentApplications(owner: UUID, session: UUID) async throws -> Data { throw AppError.unavailable(String(localized: "This connection does not support app queries")) }
-    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
+    @discardableResult func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws -> NativeApplicationLaunch? { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
     func awaitControlRelease() async {}
     func retainConnection(owner: UUID) {}
     func releaseConnection(owner: UUID) {}
@@ -76,10 +78,13 @@ extension CoreDeviceControlConnection {
 }
 
 extension DeviceControlCoordinator: CoreDeviceControlConnection {
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+    func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data? {
+        try await agentOperation(owner: owner, session: session) { try await $0.accessibilitySnapshotAtCenter(fallbackPID: fallbackPID) }
+    }
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry {
         try await agentOperation(owner: owner, session: session) { services in
             try await self.prepareAgentInput(services)
-            return try await services.inputDisplayGeometry()
+            return try await services.inputDisplaySnapshot()
         }
     }
 
@@ -117,16 +122,17 @@ extension DeviceControlCoordinator: CoreDeviceControlConnection {
     func agentApplications(owner: UUID, session: UUID) async throws -> Data {
         try await agentOperation(owner: owner, session: session) { try await $0.installedApplications() }
     }
-    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws {
+    @discardableResult func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws -> NativeApplicationLaunch? {
         try await agentOperation(owner: owner, session: session) { services in
             if name == "home" || name == "type_text" { try await self.prepareAgentInput(services) }
             try Task.checkCancellation(); try validate()
             switch name {
             case "home": try await services.home()
             case "type_text": try await services.typeText(text)
-            case "launch_app": try await services.launchApplication(bundleID: text, arguments: arguments)
+            case "launch_app": return try await services.launchApplication(bundleID: text, arguments: arguments)
             default: throw AppError.invalid(String(localized: "Unregistered system action"))
             }
+            return nil
         }
     }
     func agentCapture(owner: UUID, session: UUID) async throws -> Data {
@@ -182,6 +188,7 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
     private var imageID: String?
     private var approvedImageID: String?
     private var systemAuthorizationID: String?
+    private var launchedApplication: NativeApplicationLaunch?
     private let connectionTimeout: Duration
     private let mediaRetentionGeneration: UUID?
     private let remoteExclusive: Bool
@@ -256,7 +263,7 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
                 guard !flow.agentReserved else { throw CoreDeviceAdmissionError.reserved }
             }
             if let session { flow.releaseAgent(owner: owner, session: session) }
-            imageID = nil; approvedImageID = nil; systemAuthorizationID = nil
+            imageID = nil; approvedImageID = nil; systemAuthorizationID = nil; launchedApplication = nil
             session = flow.controlSessionID
             flow.registerAgent(owner: owner, session: flow.controlSessionID)
         }
@@ -286,18 +293,19 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
     func inputDisplaySnapshot() async throws -> InputDisplaySnapshot {
         try await prepareConnection()
         let session = try requireSession()
-        let token: String
-        do { token = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
+        let geometry: NativeInputDisplayGeometry
+        do { geometry = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
         catch {
             if error is CancellationError || (error as? AppError) == .stopped { throw error }
             throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable", underlying: error)
         }
         try check()
-        return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: token, sampledAt: Date())
+        return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: geometry.token, sampledAt: Date(), logicalBounds: geometry.logicalBounds)
     }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws {
         let current = try await inputDisplaySnapshot()
-        guard current.context == snapshot.context, current.token == snapshot.token else { throw RemoteRPCError("geometry_changed", "Input display changed before dispatch") }
+        guard current.context == snapshot.context, current.token == snapshot.token,
+              current.logicalBounds == snapshot.logicalBounds else { throw RemoteRPCError("geometry_changed", "Input display changed before dispatch") }
         independentGrant = authorizationID
     }
     func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) async throws {
@@ -343,6 +351,21 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
         let id = UUID().uuidString
         imageID = id; approvedImageID = nil
         return FrameImage(id: id, png: png, width: width, height: height, capturedAt: Date(), isDemo: false, remoteGeometryToken: geometryToken)
+    }
+    func accessibilityObservation() async throws -> Data? {
+        try await prepareConnection()
+        let session = try requireSession()
+        do {
+            let observation = try await perform { try await flow.agentAccessibilityObservation(owner: owner, session: session, fallbackPID: launchedApplication?.pid) }
+            // A successful observation of another process invalidates the old target.
+            if let observation, let value = try? JSONSerialization.jsonObject(with: observation) as? [String: Any],
+               let application = value["application"] as? [String: Any], let pid = application["pid"] as? Int,
+               pid != launchedApplication.map({ Int($0.pid) }) { launchedApplication = nil }
+            return observation
+        } catch {
+            launchedApplication = nil
+            throw error
+        }
     }
     func validateRemoteObservation(_ frame: FrameImage) async throws {
         try await prepareConnection()
@@ -405,7 +428,7 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
         _ = try requireSession()
         systemAuthorizationID = authorizationID
     }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws {
+    @discardableResult func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? {
         try check()
         if systemAuthorizationID == imageID {
             systemAuthorizationID = nil
@@ -415,7 +438,10 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
             try consumeInputApproval(imageID, coordinates: [])
         }
         let session = try requireSession()
-        try await perform { try await flow.agentSystemAction(owner: owner, session: session, name: name, text: text, arguments: arguments, validate: { try self.check() }) }
+        if name == "launch_app" || name == "home" { launchedApplication = nil }
+        let receipt = try await perform { try await flow.agentSystemAction(owner: owner, session: session, name: name, text: text, arguments: arguments, validate: { try self.check() }) }
+        if name == "launch_app" { launchedApplication = receipt }
+        return receipt
     }
     /// Completion handoff uses the existing authenticated app service. It does
     /// not capture a frame, reconnect, or wait behind another task's control lease.
@@ -423,7 +449,7 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
         try Task.checkCancellation(); try fence.check()
         guard flow.ready, flow.canActivateApplication(owner: owner, session: session ?? flow.controlSessionID) else { return false }
         let session = try requireSession()
-        try await perform {
+        _ = try await perform {
             try await flow.agentSystemAction(owner: owner, session: session, name: "launch_app", text: bundleID, arguments: [], validate: { try self.check() })
         }
         return true
@@ -454,7 +480,7 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
     func finishRemoteRun() async { await release(retainingMedia: remoteExclusive) }
     func stop() async { await release(retainingMedia: false) }
     private func release(retainingMedia: Bool) async {
-        fence.cancel(); imageID = nil; approvedImageID = nil; systemAuthorizationID = nil
+        fence.cancel(); imageID = nil; approvedImageID = nil; systemAuthorizationID = nil; launchedApplication = nil
         if let session {
             if retainingMedia { flow.finishRemoteAgent(owner: owner, session: session, retentionGeneration: mediaRetentionGeneration) }
             else { flow.releaseAgent(owner: owner, session: session) }

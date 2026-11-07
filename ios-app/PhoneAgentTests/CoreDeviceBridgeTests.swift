@@ -18,6 +18,15 @@ import ProviderCore
     var agentReserved = false
     var controlSessionID = UUID()
     var activationError: AppError?
+    var launchPID: Int32 = 7001
+    var fallbackPIDs: [Int32?] = []
+    var accessibilityData: Data?
+    var accessibilityError: Error?
+    func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data? {
+        fallbackPIDs.append(fallbackPID)
+        if let accessibilityError { throw accessibilityError }
+        return accessibilityData
+    }
     var launchedBundles: [String] = []
     var launchReleaseCounts: [Int] = []
     var systemActions: [String] = []
@@ -29,12 +38,13 @@ import ProviderCore
     var reservations = 0
     var captures = 0
     var geometryToken: String?
+    var logicalBounds: NativeDisplayBounds?
     var geometryError: Error?
     var geometryChecks = 0
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry {
         if let geometryError { throw geometryError }
         guard let geometryToken else { throw RemoteRPCError("geometry_unavailable", "No synthetic geometry") }
-        return geometryToken
+        return NativeInputDisplayGeometry(token: geometryToken, logicalBounds: logicalBounds)
     }
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?) {
         (try await agentCapture(owner: owner, session: session), geometryToken)
@@ -79,12 +89,14 @@ import ProviderCore
         appQueries += 1
         return Data("[{\"name\":\"Fixture\",\"bundle_id\":\"example.fixture\"}]".utf8)
     }
-    func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws {
+    @discardableResult func agentSystemAction(owner: UUID, session: UUID, name: String, text: String, arguments: [String], validate: () throws -> Void) async throws -> NativeApplicationLaunch? {
         try validate(); systemActions.append(name)
         if name == "launch_app" {
             launchedBundles.append(text); launchReleaseCounts.append(releases)
             if let activationError { throw activationError }
+            return NativeApplicationLaunch(bundleID: text, pid: launchPID)
         }
+        return nil
     }
     func registerAgent(owner: UUID, session: UUID) { reservations += 1 }
     func agentCapture(owner: UUID, session: UUID) async throws -> Data { captures += 1; if let captureError { throw captureError }; return png }
@@ -105,6 +117,78 @@ import ProviderCore
 }
 
 @MainActor final class CoreDeviceBridgeTests: XCTestCase {
+    private func launch(_ bridge: CoreDeviceBridge) async throws -> NativeApplicationLaunch? {
+        _ = try await bridge.systemActionContext()
+        try await bridge.authorizeSystemAction(authorizationID: "fixture-launch", taskScoped: true)
+        return try await bridge.systemAction(name: "launch_app", text: "example.fixture", arguments: [], imageID: "fixture-launch")
+    }
+
+    func testLaunchedPIDIsScopedToTaskAndConnectionAndReplacedOnLaunch() async throws {
+        let flow = CoreDeviceConnectionSpy(), bridge = try CoreDeviceBridge(flow: flow)
+        let receipt = try await launch(bridge)
+        XCTAssertEqual(receipt?.pid, 7001)
+        _ = try await bridge.accessibilityObservation()
+        XCTAssertEqual(flow.fallbackPIDs, [7001])
+        flow.launchPID = 7002
+        _ = try await launch(bridge)
+        _ = try await bridge.accessibilityObservation()
+        XCTAssertEqual(flow.fallbackPIDs.last!, 7002)
+        let other = try CoreDeviceBridge(flow: flow)
+        _ = try await other.accessibilityObservation()
+        XCTAssertNil(flow.fallbackPIDs.last!)
+        flow.controlSessionID = UUID()
+        _ = try await bridge.accessibilityObservation()
+        XCTAssertNil(flow.fallbackPIDs.last!)
+        await bridge.stop(); await other.stop()
+    }
+
+    func testOldPIDClearsAfterHomeFailedLaunchChangedProcessAndAXFailure() async throws {
+        for reason in ["home", "failed-launch", "changed-process", "ax-failure"] {
+            let flow = CoreDeviceConnectionSpy(), bridge = try CoreDeviceBridge(flow: flow)
+            _ = try await launch(bridge)
+            switch reason {
+            case "home":
+                try await bridge.authorizeSystemAction(authorizationID: "home", taskScoped: true)
+                try await bridge.systemAction(name: "home", text: "", arguments: [], imageID: "home")
+            case "failed-launch":
+                flow.activationError = .unknownOutcome
+                do { _ = try await launch(bridge); XCTFail("Expected launch failure") } catch {}
+            case "changed-process":
+                flow.accessibilityData = Data(#"{"application":{"pid":7002},"selection":{"method":"hit-test"}}"#.utf8)
+                _ = try await bridge.accessibilityObservation()
+            default:
+                flow.accessibilityError = NativeBackendError.accessibilityFailure(stage: 29, cause: 19)
+                do { _ = try await bridge.accessibilityObservation(); XCTFail("Expected AX failure") } catch {}
+                flow.accessibilityError = nil
+            }
+            _ = try await bridge.accessibilityObservation()
+            XCTAssertNil(flow.fallbackPIDs.last!, reason)
+            XCTAssertTrue(flow.ready)
+            await bridge.stop()
+            let reads = flow.fallbackPIDs.count
+            do { _ = try await bridge.accessibilityObservation(); XCTFail("Stopped task cannot read") } catch {}
+            XCTAssertEqual(flow.fallbackPIDs.count, reads)
+        }
+    }
+
+    func testPIDFallbackMetadataReachesModelAndFailureDoesNotBlockNextAction() async throws {
+        let flow = CoreDeviceConnectionSpy(), bridge = try CoreDeviceBridge(flow: flow)
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .screenshotAndAccessibility)
+        _ = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "purpose": "fixture"], callID: "launch")
+        flow.accessibilityData = Data(#"{"status":"available","application":{"pid":7001,"bundleId":"example.fixture"},"selection":{"method":"explicit-pid","reason":"center_hit_unavailable","scope":"requested-application"},"nodes":[{"label":"fixture content"}]}"#.utf8)
+        let observation = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fallback")
+        XCTAssertTrue(observation.content.contains("requested-application"))
+        XCTAssertTrue(observation.content.contains("fixture content"))
+        XCTAssertEqual(flow.fallbackPIDs.last!, 7001)
+        flow.accessibilityError = NativeBackendError.accessibilityFailure(stage: 28, cause: 2)
+        let failure = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "timeout")
+        XCTAssertEqual(failure.kind, .returned)
+        XCTAssertTrue(failure.content.contains("unavailable"))
+        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "after-ax-failure")
+        XCTAssertEqual(flow.taps, 1); XCTAssertTrue(flow.ready)
+        await bridge.stop()
+    }
+
     func testGeometryFailurePreservesReasonWithoutInputAndCancellationIsNotRewritten() async throws {
         let flow = CoreDeviceConnectionSpy()
         let bridge = try CoreDeviceBridge(flow: flow)
@@ -181,6 +265,22 @@ import ProviderCore
             XCTFail("Final geometry fence must reject")
         } catch {}
         XCTAssertEqual(flow.taps, 0)
+        XCTAssertEqual(flow.captures, 0)
+        await bridge.stop()
+    }
+    func testLogicalDisplayScaleChangeRejectsOldCoordinatesAndFreshObservationCanDrag() async throws {
+        let flow = CoreDeviceConnectionSpy(); flow.geometryToken = "stable-video"
+        flow.logicalBounds = .init(x: 0, y: 0, width: 390, height: 844)
+        let bridge = try CoreDeviceBridge(flow: flow)
+        let previous = try await bridge.inputDisplaySnapshot()
+        XCTAssertEqual(previous.logicalBounds, flow.logicalBounds)
+        flow.logicalBounds = .init(x: 0, y: 0, width: 320, height: 693)
+        do { try await bridge.authorizeIndependentInput(previous, authorizationID: "old"); XCTFail("Logical scale changed") }
+        catch { XCTAssertEqual((error as? RemoteRPCError)?.code, "geometry_changed") }
+        let current = try await bridge.inputDisplaySnapshot()
+        try await bridge.authorizeIndependentInput(current, authorizationID: "fresh")
+        try await bridge.independentInput(name: "drag", coordinates: [32768, 50000, 32768, 10000], durationMS: 300, snapshot: current, authorizationID: "fresh")
+        XCTAssertEqual(flow.drags, [32768, 50000, 32768, 10000, 300])
         XCTAssertEqual(flow.captures, 0)
         await bridge.stop()
     }

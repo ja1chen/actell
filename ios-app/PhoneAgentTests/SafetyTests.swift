@@ -1,7 +1,28 @@
 import XCTest
 import AgentKit
 import ProviderCore
+import OpenAIAdapter
 @testable import PhoneAgent
+
+private final class AccessibilityReplayProvider: ModelProvider, @unchecked Sendable {
+    static let name = "accessibility-replay-fixture"
+    let configuration = ProviderConfiguration(name: name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
+    private let lock = NSLock()
+    private var captured: [ModelRequest] = []
+    private let observationArguments: [String]
+    init(observationArguments: [String] = ["{}"]) { self.observationArguments = observationArguments }
+    var requests: [ModelRequest] { lock.withLock { captured } }
+    func complete(_ request: ModelRequest) async throws -> ModelResponse { throw ModelError.interrupted }
+    func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
+        let count = lock.withLock { captured.append(request); return captured.count }
+        return AsyncThrowingStream { continuation in
+            let calls: [ModelToolCall] = count <= observationArguments.count
+                ? [.init(id: count == 1 ? "ax-screenshot" : "screen-\(count)", name: "screenshot", arguments: observationArguments[count - 1])] : []
+            continuation.yield(.terminal(.init(text: calls.isEmpty ? "observed" : "", toolCalls: calls, request: request, providerName: Self.name)))
+            continuation.finish()
+        }
+    }
+}
 
 private actor SpyBridge: DeviceBridge {
     private(set) var taps = 0
@@ -10,26 +31,281 @@ private actor SpyBridge: DeviceBridge {
     private(set) var systemActions: [String] = []
     private(set) var insertedText = ""
     private(set) var launchArguments: [String] = []
+    private(set) var accessibilityReads = 0
+    private(set) var screenshotReads = 0
+    private(set) var geometryReads = 0
+    private(set) var coordinateDeliveries: [[Int]] = []
+    var geometryError: Error?
+    var geometryToken = "portrait"
+    var logicalBounds: NativeDisplayBounds? = .init(x: 0, y: 0, width: 393, height: 852)
+    private var independentGrant: String?
+    var accessibilityData: Data?
+    var accessibilityError: NativeBackendError?
     let tapError: AppError?
     let capturedAt: Date
     init(tapError: AppError? = nil, capturedAt: Date = Date()) { self.tapError = tapError; self.capturedAt = capturedAt }
-    func screenshot() async throws -> FrameImage { FrameImage(id: "fresh", png: Data(), width: 390, height: 844, capturedAt: capturedAt, isDemo: true) }
+    func screenshot() async throws -> FrameImage { screenshotReads += 1; return FrameImage(id: "fresh", png: Data(), width: 390, height: 844, capturedAt: capturedAt, isDemo: true) }
+    func configureAccessibility(data: Data? = nil, error: NativeBackendError? = nil) { accessibilityData = data; accessibilityError = error }
+    func accessibilityObservation() async throws -> Data? {
+        accessibilityReads += 1
+        if let accessibilityError { throw accessibilityError }
+        return accessibilityData
+    }
+    func configureGeometry(token: String = "portrait", bounds: NativeDisplayBounds? = .init(x: 0, y: 0, width: 393, height: 852), error: Error? = nil) {
+        geometryToken = token; logicalBounds = bounds; geometryError = error
+    }
+    func inputDisplaySnapshot() throws -> InputDisplaySnapshot {
+        geometryReads += 1
+        if let geometryError { throw geometryError }
+        return .init(context: "synthetic-system-session", token: geometryToken, sampledAt: Date(), logicalBounds: logicalBounds)
+    }
+    func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) throws {
+        guard snapshot.token == geometryToken, snapshot.logicalBounds == logicalBounds else { throw RemoteRPCError("geometry_changed", "Fixture geometry changed") }
+        independentGrant = authorizationID
+    }
+    func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) throws {
+        guard independentGrant == authorizationID, snapshot.token == geometryToken else { throw AppError.stopped }
+        independentGrant = nil
+        coordinateDeliveries.append(coordinates)
+        if name == "tap" { taps += 1; if let tapError { throw tapError } }
+        else { drags += 1 }
+    }
     func tap(x: Int, y: Int, imageID: String) async throws { taps += 1; if let tapError { throw tapError } }
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws { drags += 1 }
     func systemActionContext() async throws -> String { "synthetic-system-session" }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws {}
+    func setRemoteDeadline(_ deadline: Date) throws { if deadline <= Date() { throw AppError.stopped } }
     func installedApplications() async throws -> Data { Data("[{\"name\":\"Fixture\",\"bundle_id\":\"example.fixture\",\"path\":\"PRIVATE_PATH\"}]".utf8) }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws {
+    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? {
         systemActions.append(name); insertedText = text; launchArguments = arguments
+        return name == "launch_app" ? NativeApplicationLaunch(bundleID: text, pid: 7001) : nil
     }
     func stop() async { stopped = true }
 }
 final class SafetyTests: XCTestCase {
+    func testModelCanChooseTextThenImageAfterUnavailableAccessibilityWithinOneRun() async throws {
+        let bridge = SpyBridge(), provider = AccessibilityReplayProvider(observationArguments: [#"{"mode":"accessibility"}"#, #"{"mode":"screenshot"}"#])
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .automatic)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), sessionID = UUID()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = JSONLSessionStore(root: root, sessionID: sessionID)
+        let runtime = AgentRuntime(store: store, provider: provider, configuration: AgentConfiguration(model: "fixture", instructions: "Choose useful observations."),
+            tools: [DeviceTool(name: "screenshot", coordinator: coordinator)])
+        _ = try await runtime.createSession(id: sessionID)
+        let run = try await runtime.startTurn(in: sessionID, input: .init(text: "Read this page"))
+        let result = await run.result(); XCTAssertEqual(result.status, .completed)
+        let records = try await store.readTransactions(sessionID).flatMap(\.toolResults)
+        XCTAssertEqual(records.count, 2)
+        XCTAssertTrue(records.first?.outcome.content.contains("unsupported_route") == true)
+        XCTAssertFalse(records.first?.outcome.content.contains("image_id") == true)
+        XCTAssertTrue(records.last?.outcome.content.contains("image_id") == true)
+        let captures = await bridge.screenshotReads, reads = await bridge.accessibilityReads
+        XCTAssertEqual(captures, 1); XCTAssertEqual(reads, 1)
+        XCTAssertEqual(provider.requests.count, 3)
+        let schema = try XCTUnwrap(provider.requests.first?.tools.first?.schema.foundation as? [String: Any])
+        XCTAssertEqual(schema["required"] as? [String], ["mode"])
+    }
+    func testFixedAndAutomaticObservationsReadOnlyTheSelectedSources() async throws {
+        for configured in ScreenInformationMode.allCases {
+            let choices: [ScreenInformationMode] = configured == .automatic ? [.screenshot, .accessibility, .screenshotAndAccessibility] : [configured]
+            for choice in choices {
+                let bridge = SpyBridge()
+                await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[{"label":"Visible fixture"}]}"#.utf8))
+                let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
+                    onImage: { _, _ in XCTAssertTrue(choice.includesScreenshot) }, onReceipt: { _ in }, screenInformationMode: configured)
+                let result = try await coordinator.execute(name: "screenshot", parameters: configured == .automatic ? ["mode": choice.rawValue] : [:], callID: "observe")
+                let captures = await bridge.screenshotReads, reads = await bridge.accessibilityReads
+                XCTAssertEqual(captures, choice.includesScreenshot ? 1 : 0)
+                XCTAssertEqual(reads, choice.includesAccessibility ? 1 : 0)
+                XCTAssertEqual(result.images.count, choice.includesScreenshot ? 1 : 0)
+                let value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any])
+                XCTAssertEqual(value["accessibility"] != nil, choice.includesAccessibility)
+                XCTAssertEqual(value["image_id"] != nil, choice.includesScreenshot)
+            }
+        }
+    }
+    func testAutomaticRequiresModelChoiceAndFixedModeCannotBeOverridden() async throws {
+        for mode in ScreenInformationMode.allCases {
+            let bridge = SpyBridge()
+            let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: mode)
+            let invalid: [[String: Any]] = mode == .automatic ? [[:], ["mode": "automatic"], ["mode": "unknown"], ["mode": true]] : [["mode": "screenshot"]]
+            for parameters in invalid {
+                do { _ = try await coordinator.execute(name: "screenshot", parameters: parameters, callID: UUID().uuidString); XCTFail("Expected invalid mode") }
+                catch { XCTAssertNotNil(error as? AppError) }
+            }
+            let captures = await bridge.screenshotReads, reads = await bridge.accessibilityReads
+            XCTAssertEqual(captures, 0); XCTAssertEqual(reads, 0)
+            let next = try await coordinator.execute(name: "screenshot", parameters: mode == .automatic ? ["mode": "screenshot"] : [:], callID: "next")
+            XCTAssertEqual(next.kind, .returned)
+        }
+    }
+    func testAccessibilityOnlyFailureDoesNotCaptureOrBlockSystemActions() async throws {
+        let bridge = SpyBridge()
+        await bridge.configureAccessibility(error: .accessibilityFailure(stage: 29, cause: 14))
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in XCTFail("No image expected") }, onReceipt: { _ in }, screenInformationMode: .accessibility)
+        let result = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "unavailable")
+        XCTAssertEqual(result.kind, .returned); XCTAssertTrue(result.images.isEmpty)
+        XCTAssertTrue(result.content.contains("selection_unavailable"))
+        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "next-action")
+        let captures = await bridge.screenshotReads, actions = await bridge.systemActions
+        XCTAssertEqual(captures, 0); XCTAssertEqual(actions, ["home"])
+    }
+    func testAccessibilityOnlyInvalidatesOldPixelReferenceUntilModelChoosesScreenshot() async throws {
+        let bridge = SpyBridge()
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .automatic)
+        _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "screenshot"], callID: "image")
+        _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "accessibility"], callID: "text")
+        do { _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "stale"); XCTFail("Old screenshot must not survive text-only observation") } catch {}
+        let before = await bridge.taps; XCTAssertEqual(before, 0)
+        _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "screenshot"], callID: "fresh")
+        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "valid")
+        let after = await bridge.taps; XCTAssertEqual(after, 1)
+    }
+    func testAccessibilityOnlyTapAndDragUseFractionalLogicalPointsWithoutImages() async throws {
+        for mode: ScreenInformationMode in [.accessibility, .automatic] {
+            let bridge = SpyBridge()
+            await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[{"label":"Button","frame":{"x":180,"y":400,"width":33,"height":52}}]}"#.utf8))
+            let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
+                onImage: { _, _ in XCTFail("No screenshot") }, onReceipt: { _ in }, screenInformationMode: mode)
+            let result = try await coordinator.execute(name: "screenshot", parameters: mode == .automatic ? ["mode": "accessibility"] : [:], callID: "observe")
+            XCTAssertTrue(result.images.isEmpty); XCTAssertTrue(result.content.contains("logical-point"))
+            _ = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "purpose": "fixture"])
+            _ = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "drag", parameters: ["from_x": 196.5, "from_y": 639, "to_x": 98.25, "to_y": 213, "duration_ms": 300, "purpose": "fixture"])
+            let coordinates = await bridge.coordinateDeliveries, captures = await bridge.screenshotReads
+            XCTAssertEqual(coordinates, [[32768, 32768], [32768, 49151, 16384, 16384]])
+            XCTAssertEqual(captures, 0)
+        }
+    }
+    func testAccessibilityInputFailureCanRecoverWithNewObservationAndNeverReplays() async throws {
+        let bridge = SpyBridge(tapError: .unknownOutcome)
+        await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[]}"#.utf8))
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in XCTFail("No screenshot") }, onReceipt: { _ in }, screenInformationMode: .accessibility)
+        let tap = DeviceTool(name: "tap", coordinator: coordinator)
+        _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "observe")
+        await bridge.configureGeometry(token: "changed")
+        let stale = try await invoke(tap, callID: "stale", parameters: ["x": 100, "y": 100, "purpose": "fixture"])
+        XCTAssertFalse(stale.kind == .returned)
+        var count = await bridge.taps; XCTAssertEqual(count, 0)
+        _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fresh")
+        let unknown = try await invoke(tap, callID: "uncertain", parameters: ["x": 100, "y": 100, "purpose": "fixture"])
+        XCTAssertEqual(unknown.kind, .outcomeUnknown)
+        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "home")
+        _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "again")
+        let drag = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "next", parameters: ["from_x": 100, "from_y": 500, "to_x": 100, "to_y": 100, "duration_ms": 300, "purpose": "fixture"])
+        XCTAssertEqual(drag.kind, .returned)
+        count = await bridge.taps; let captures = await bridge.screenshotReads, stopped = await bridge.stopped
+        XCTAssertEqual(count, 1); XCTAssertEqual(captures, 0); XCTAssertFalse(stopped)
+    }
+    func testAccessibilityInputRejectsOffscreenAndBooleanPointsBeforeDelivery() async throws {
+        let bridge = SpyBridge()
+        await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[]}"#.utf8))
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .accessibility)
+        for x: Any in [-1, 393, true, "100"] {
+            _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "observe")
+            let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "invalid", parameters: ["x": x, "y": 200, "purpose": "fixture"])
+            XCTAssertEqual(result.kind, .validationFailed)
+        }
+        let taps = await bridge.taps, captures = await bridge.screenshotReads
+        XCTAssertEqual(taps, 0); XCTAssertEqual(captures, 0)
+    }
+    func testUnavailableInputGeometryKeepsAccessibilityTextAndAllowsFreshObservation() async throws {
+        let bridge = SpyBridge()
+        await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[{"label":"Read me"}]}"#.utf8))
+        await bridge.configureGeometry(error: NativeInputGeometryError(.framePending))
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .accessibility)
+        let unavailable = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "text")
+        XCTAssertTrue(unavailable.content.contains("Read me")); XCTAssertTrue(unavailable.content.contains("geometry_unavailable"))
+        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "home")
+        await bridge.configureGeometry()
+        _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fresh")
+        let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "purpose": "fixture"])
+        XCTAssertEqual(result.kind, .returned)
+        let captures = await bridge.screenshotReads; XCTAssertEqual(captures, 0)
+    }
+    func testRemoteScreenshotsKeepImageContractRegardlessOfLocalMode() async throws {
+        for mode in ScreenInformationMode.allCases {
+            let bridge = SpyBridge()
+            let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: mode)
+            let result = try await coordinator.executeRemote(name: "screenshot", parameters: [:], callID: "remote", expectedImageID: nil, deadline: Date().addingTimeInterval(10))
+            XCTAssertEqual(result.kind, .returned); XCTAssertEqual(result.images.count, 1)
+            let reads = await bridge.accessibilityReads; XCTAssertEqual(reads, 0)
+        }
+    }
     private func invoke(_ tool: any AgentTool, callID: String, parameters: [String: Any]) async throws -> ToolOutcome {
         let sessionID = UUID(), turnID = UUID()
         let call = ModelToolCall(id: callID, name: tool.descriptor.name, arguments: String(decoding: try JSONSerialization.data(withJSONObject: parameters), as: UTF8.self))
         return try await tool.execute(.init(sessionID: sessionID, turnID: turnID, call: call),
                                       context: .init(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence()))
+    }
+    func testAccessibilityObservationIsOptInAndFailureKeepsScreenshot() async throws {
+        let bridge = SpyBridge()
+        let disabled = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
+        let first = try await disabled.execute(name: "screenshot", parameters: [:], callID: "disabled")
+        XCTAssertFalse(first.content.contains("accessibility"))
+        let readsBefore = await bridge.accessibilityReads; XCTAssertEqual(readsBefore, 0)
+        await bridge.configureAccessibility(data: Data(#"{"status":"available","nodes":[{"label":"fixture"}],"atomic":false}"#.utf8))
+        let enabled = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .screenshotAndAccessibility)
+        let second = try await enabled.execute(name: "screenshot", parameters: [:], callID: "enabled")
+        XCTAssertTrue(second.content.contains("fixture")); XCTAssertTrue(second.content.contains("accessibility"))
+        await bridge.configureAccessibility(error: .accessibilityFailure(stage: 22, cause: 4))
+        let third = try await enabled.execute(name: "screenshot", parameters: [:], callID: "fallback")
+        XCTAssertEqual(third.kind, .returned); XCTAssertTrue(third.content.contains("service_unavailable"))
+        _ = try await enabled.execute(name: "tap", parameters: ["x": 10, "y": 10, "purpose": "fixture"], callID: "after-fallback")
+        let taps = await bridge.taps; XCTAssertEqual(taps, 1)
+    }
+    func testAccessibilityResultRemainsCompleteAndWirePrefixStableAfterJSONLReload() async throws {
+        for mode: ScreenInformationMode in [.screenshotAndAccessibility, .accessibility] {
+            let bridge = SpyBridge(), provider = AccessibilityReplayProvider(), sessionID = UUID()
+            let nodes = (0..<400).map { ["label": "AX_FIXTURE_\($0)_" + String(repeating: "text ", count: 30)] }
+            let observation = try JSONSerialization.data(withJSONObject: ["status": "available", "nodes": nodes, "atomic": false])
+            await bridge.configureAccessibility(data: observation)
+            let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
+                onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: mode)
+            let tool = DeviceTool(name: "screenshot", coordinator: coordinator)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let scope = ProviderReplayScope(provider: provider.identity.implementation, endpoint: provider.identity.endpoint.absoluteString,
+                account: "fixture", model: "fixture", session: sessionID)
+            let configuration = AgentConfiguration(model: "fixture", instructions: "Keep the same observation.", scope: scope,
+                budget: .init(planningTokens: 131_072), cacheKey: sessionID.uuidString)
+            let store = JSONLSessionStore(root: root, sessionID: sessionID)
+            let runtime = AgentRuntime(store: store, provider: provider, configuration: configuration, tools: [tool])
+            _ = try await runtime.createSession(id: sessionID)
+            let first = try await runtime.startTurn(in: sessionID, input: .init(text: "observe"))
+            let firstResult = await first.result(); XCTAssertEqual(firstResult.status, .completed)
+            let records = try await store.readTransactions(sessionID).flatMap(\.toolResults)
+            let receipt = try XCTUnwrap(records.first?.outcome.content)
+            XCTAssertGreaterThan(receipt.utf8.count, 12 * 1024)
+            XCTAssertEqual(receipt.contains("image_id"), mode.includesScreenshot)
+            let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(receipt.utf8)) as? [String: Any])
+            XCTAssertEqual((decoded["accessibility"] as? [String: Any])?["nodes"] as? [[String: String]], nodes)
+            let reloadedStore = JSONLSessionStore(root: root, sessionID: sessionID)
+            let reloaded = AgentRuntime(store: reloadedStore, provider: provider, configuration: configuration, tools: [tool])
+            let loaded = try await reloaded.loadSession(sessionID)
+            let outputs = loaded.context.compactMap { item -> String? in
+                if case .functionResult(let id, let output) = item, id == "ax-screenshot" { return output }; return nil
+            }
+            XCTAssertEqual(outputs, [receipt])
+            let second = try await reloaded.startTurn(in: sessionID, input: .init(text: "continue"))
+            let secondResult = await second.result(); XCTAssertEqual(secondResult.status, .completed)
+            let requests = provider.requests
+            XCTAssertEqual(requests.count, 3)
+            guard requests.count == 3 else { return }
+            XCTAssertEqual(requests[1].cachePolicy, requests[2].cachePolicy)
+            for (wire, key) in [(OpenAIWireProtocol.responses, "input"), (.chatCompletions, "messages")] {
+                let codec = OpenAIWireCodec(configuration: provider.configuration, wire: wire, scope: scope)
+                func input(_ request: ModelRequest) throws -> [Any] {
+                    let body = try XCTUnwrap(codec.prepareRequest(request, stream: true).httpBody)
+                    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                    return try XCTUnwrap(object[key] as? [Any])
+                }
+                let before = try input(requests[1]), after = try input(requests[2])
+                XCTAssertGreaterThan(after.count, before.count)
+                XCTAssertEqual(try JSONSerialization.data(withJSONObject: before, options: [.sortedKeys]),
+                    try JSONSerialization.data(withJSONObject: Array(after.prefix(before.count)), options: [.sortedKeys]))
+            }
+            let reads = await bridge.accessibilityReads; XCTAssertEqual(reads, 1)
+        }
     }
     func testSystemActionsForwardExactTextAndArgumentsWithoutScreenshotDependency() async throws {
         let bridge = SpyBridge()
@@ -37,7 +313,10 @@ final class SafetyTests: XCTestCase {
         _ = try await coordinator.execute(name: "type_text", parameters: ["text": "你好 ESP32 🌟\n ", "purpose": "insert requested whitespace"], callID: "text")
         let text = await bridge.insertedText; XCTAssertEqual(text, "你好 ESP32 🌟\n ")
         _ = try await coordinator.execute(name: "home", parameters: ["purpose": "home"], callID: "home-no-frame")
-        _ = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "purpose": "open fixture"], callID: "launch")
+        let launched = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "purpose": "open fixture"], callID: "launch")
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(launched.content.utf8)) as? [String: Any])
+        XCTAssertEqual(receipt["pid"] as? Int, 7001); XCTAssertEqual(receipt["bundle_id"] as? String, "example.fixture")
+        XCTAssertNil(receipt["foregroundAppConfirmed"])
         let arguments = await bridge.launchArguments, actions = await bridge.systemActions
         XCTAssertEqual(arguments, ["--test", "值"]); XCTAssertEqual(actions, ["type_text", "home", "launch_app"])
     }

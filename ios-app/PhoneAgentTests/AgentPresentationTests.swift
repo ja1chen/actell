@@ -4,6 +4,29 @@ import ProviderCore
 @testable import PhoneAgent
 
 @MainActor final class AgentPresentationTests: XCTestCase {
+    func testScreenshotSummaryIsDisplayOnlyAndHistoryPreservesFullResult() throws {
+        let input = #"{"image_id":"frame","width":100,"height":200,"accessibility":{"status":"available","nodes":[{"label":"PRIVATE_FIXTURE"}],"atomic":false}}"#
+        let tool = ToolStep(callID: "screen", name: "screenshot", state: .succeeded, detail: "", result: input)
+        let receipt = tool.displayResult
+        XCTAssertEqual(tool.result, input)
+        XCTAssertFalse(receipt.contains("PRIVATE_FIXTURE"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(receipt.utf8)) as? [String: Any])
+        let summary = try XCTUnwrap(object["accessibility"] as? [String: Any])
+        XCTAssertEqual(summary["status"] as? String, "available")
+        XCTAssertEqual(summary["nodeCount"] as? Int, 1)
+        XCTAssertEqual(object["image_id"] as? String, "frame")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ConversationStore(directory: directory), id = store.create(mode: .live)
+        let run = try XCTUnwrap(store.begin(in: id, query: "screen"))
+        let call = ToolInvocation(sessionID: id, turnID: run.runID, call: .init(id: "screen", name: "screenshot", arguments: "{}"))
+        AgentEventProjection.record(.toolCompleted(call, .init(content: input)), run: run, frame: nil, in: store)
+        store.finish(run, phase: .completed, summary: ""); store.saveNow()
+        let restored = ConversationStore(directory: directory)
+        let saved = try XCTUnwrap(restored.conversation(id)?.messages.compactMap(\.tool).first)
+        XCTAssertEqual(saved.result, input)
+        XCTAssertEqual(saved.displayResult, receipt)
+    }
     func testConversationReasoningChoicePersistsAndValidatesModelScope() throws {
         let defaults = UserDefaults(suiteName: "conversation-effort-\(UUID())")!
         defer { defaults.removeObject(forKey: ProviderStore.storageKey) }

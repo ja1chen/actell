@@ -83,6 +83,8 @@ def non_ui_literal(item):
     # Persisted enum values and diagnostic matching must not depend on language.
     if "enumRaw" in contexts:
         return True
+    if name == "PhoneAgentApp.swift" and "type:AccessibilityProbeFixture" in contexts:
+        return True  # Fixed multilingual device-test data, not production copy.
     if name == "Providers.swift":
         if "var:reasons" in contexts and "type:LLMDiagnostics" in contexts:
             return True

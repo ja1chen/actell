@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import CCoreDeviceBackend
+import Darwin
 
 /// Fixed, payload-free timings. The observer is inherited by child Tasks; spans
 /// capture it explicitly before crossing decoder queues. No wall-clock subtraction.
@@ -87,6 +88,7 @@ public enum NativeBackendError: Error, Equatable {
     case touchPreparationFailure(stage: UInt32, cause: UInt32)
     case applicationQueryFailure(stage: UInt32, cause: UInt32)
     case screenshotFailure(stage: UInt32, cause: UInt32)
+    case accessibilityFailure(stage: UInt32, cause: UInt32)
 }
 /// Read-only input preparation failed; no HID report has been submitted.
 /// These failures do not invalidate the authenticated control session.
@@ -117,6 +119,22 @@ public struct NativeInputGeometryError: Error, Equatable, Sendable {
 }
 public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified }
 
+/// Authenticated primary-display bounds in AX logical points, when the current
+/// display orientation and mapping are supported. Independent of app root frames.
+public struct NativeDisplayBounds: Codable, Equatable, Sendable {
+    public let x: Double, y: Double, width: Double, height: Double
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x; self.y = y; self.width = width; self.height = height
+    }
+}
+public struct NativeInputDisplayGeometry: Sendable {
+    public let token: String
+    public let logicalBounds: NativeDisplayBounds?
+    public init(token: String, logicalBounds: NativeDisplayBounds? = nil) {
+        self.token = token; self.logicalBounds = logicalBounds
+    }
+}
+
 /// Owns one native worker, its two relay streams and media. The caller closes
 /// on explicit stop, execution expiry or disconnect, rather than app visibility.
 /// Initializer is idle and never imports credentials.
@@ -124,6 +142,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     public static var linkedABIVersion: UInt32 { coredevice_backend_abi() }
     private var handle: UInt64 = 0
     private var serial: UInt64 = 0
+    public private(set) var lastAccessibilityDiagnostic: NativeAccessibilityDiagnostic?
     private var busy = false
     private var ready = false
     private var services: [String] = []
@@ -265,9 +284,13 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     /// Read authenticated display metadata and existing decoder geometry only.
     /// No JPEG encoding, screenshot request or image publication occurs here.
     public func inputDisplayGeometry() async throws -> String {
+        try await inputDisplaySnapshot().token
+    }
+    public func inputDisplaySnapshot() async throws -> NativeInputDisplayGeometry {
+        struct Metadata: Decodable { let width: Int; let height: Int; let logicalBounds: NativeDisplayBounds? }
         let data = try await operation(12, expectedKind: 15)
-        guard let size = (try? JSONSerialization.jsonObject(with: data)) as? [String: Int],
-              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
+        guard let size = try? JSONDecoder().decode(Metadata.self, from: data),
+              size.width > 1, size.height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
         let handleAtStart = handle
         let until = ContinuousClock.now.advanced(by: .seconds(3))
         while ContinuousClock.now < until {
@@ -282,10 +305,10 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                let token = await decoder.currentGeometryToken(), token == published.token {
                 let parts = token.split(separator: ":")
                 guard parts.count == 8 else { throw NativeInputGeometryError(.invalidToken) }
-                guard Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeInputGeometryError(.sizeMismatch) }
+                guard Double(parts[6]) == Double(size.width), Double(parts[7]) == Double(size.height) else { throw NativeInputGeometryError(.sizeMismatch) }
                 let result = "\(token)|\(published.credential)"
                 try await validateVideoGeometry(result)
-                return result
+                return NativeInputDisplayGeometry(token: result, logicalBounds: size.logicalBounds)
             }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -412,8 +435,38 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     }
     public func home() async throws { _ = try await operation(7) }
     public func installedApplications() async throws -> Data { try await operation(8, expectedKind: 11) }
-    public func launchApplication(bundleID: String, arguments: [String]) async throws {
-        _ = try await operation(9, payload: JSONSerialization.data(withJSONObject: ["bundle_id": bundleID, "arguments": arguments]))
+    /// Tests raw service reachability only; it does not read an accessibility tree.
+    public func probeAccessibilityTransport() async throws { _ = try await operation(13) }
+    /// Negotiates and closes a read-only accessibility session without a snapshot.
+    public func probeAccessibilityProtocol() async throws -> Data { try await operation(14, expectedKind: 17) }
+    /// Reads a single application's native snapshot; no HID actions are sent.
+    public func accessibilitySnapshot(pid: Int32) async throws -> Data {
+        lastAccessibilityDiagnostic = nil
+        guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
+        guard pid > 0 else { throw NativeBackendError.malformedEvent }
+        return try await operation(15, expectedKind: 18, payload: JSONSerialization.data(withJSONObject: ["pid": pid]))
+    }
+    public func accessibilitySnapshotAtCenter(fallbackPID: Int32? = nil) async throws -> Data {
+        lastAccessibilityDiagnostic = nil
+        guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
+        if let fallbackPID {
+            guard fallbackPID > 0 else { throw NativeBackendError.malformedEvent }
+            return try await operation(16, expectedKind: 18, payload: JSONSerialization.data(withJSONObject: ["fallback_pid": fallbackPID]))
+        }
+        return try await operation(16, expectedKind: 18)
+    }
+    private static var supportsAccessibilityProfile: Bool {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        guard version.majorVersion == 27, version.minorVersion == 0, version.patchVersion == 0 else { return false }
+        var count = 0
+        guard sysctlbyname("kern.osversion", nil, &count, nil, 0) == 0, (1...128).contains(count) else { return false }
+        var buffer = [CChar](repeating: 0, count: count)
+        guard sysctlbyname("kern.osversion", &buffer, &count, nil, 0) == 0 else { return false }
+        return String(cString: buffer) == "24A437"
+    }
+    @discardableResult public func launchApplication(bundleID: String, arguments: [String]) async throws -> NativeApplicationLaunch {
+        let data = try await operation(9, payload: JSONSerialization.data(withJSONObject: ["bundle_id": bundleID, "arguments": arguments]))
+        return try NativeApplicationLaunch.decode(data, expectedBundleID: bundleID)
     }
     public func typeText(_ text: String) async throws {
         _ = try await operation(10, payload: JSONSerialization.data(withJSONObject: ["text": text]))
@@ -429,6 +482,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         guard !busy else { throw NativeBackendError.busy }
         guard ready, handle != 0 else { throw NativeBackendError.closed }
         busy = true; defer { busy = false }; let token = handle
+        lastAccessibilityDiagnostic = nil
         serial += 1; let id = serial
         do {
             try Task.checkCancellation()
@@ -458,6 +512,8 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                [UInt32(9), 19, 20].contains(stage) {
                 throw NativeBackendError.screenshotFailure(stage: stage, cause: cause)
             }
+            if [UInt32(13), 14, 15, 16].contains(action), case NativeBackendError.protocolFailure(let stage, let cause) = error,
+               (22...29).contains(stage) { throw NativeBackendError.accessibilityFailure(stage: stage, cause: cause) }
             if case NativeBackendError.touchPreparationFailure = error { throw error }
             if case NativeBackendError.applicationQueryFailure = error { throw error }
             if handle == token { close() }; throw error
@@ -494,7 +550,12 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             }
             if event.kind == 10 { throw NativeBackendError.touchPreparationFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 12 { throw NativeBackendError.applicationQueryFailure(stage: event.stage, cause: event.cause) }
-            if event.kind == 3 { throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause) }
+            if event.kind == 3 {
+                if (22...29).contains(event.stage) {
+                    lastAccessibilityDiagnostic = NativeAccessibilityDiagnostic.decode(data, requestID: requestID)
+                }
+                throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause)
+            }
             return (event, data)
         }
         throw CoreDeviceError.timeout
@@ -502,6 +563,9 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     #if COREDEVICE_OFFLINE_FIXTURES
     /// Compiled only into the separately built host test target.
     func closeWorkerFixture() { if handle != 0 { coredevice_backend_close(handle) } }
+    func accessibilityFailureFixture() async throws {
+        _ = try await operation(16, expectedKind: 18)
+    }
     func connectMediaFailureFixture() async throws {
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         var started: UInt64 = 0

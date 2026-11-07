@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 - 可配置服务商与模型的会话、流式回复、服务商提供的可读思考、附件与用户导入的文本技能。AgentKit 保留完整会话历史，独立管理模型上下文与有预算的压缩。
 - 截图、点击、拖动和等待工具，按顺序执行；结果未知的输入不自动重放。普通聊天不要求设备连接。
+- 本地模型任务可选择截图、无障碍内容或两者；自动模式由模型每次选择观察方式，默认使用截图。所选内容会发送给模型服务商，无障碍内容可能包含屏幕外文本。所有模式都支持点击和拖动；纯无障碍模式使用所返回显示边界内的逻辑点坐标。试验性无障碍读取器仅支持已验证的系统构建，不启动 XCTest Runner；见[范围与限制](coredevice/docs/ACCESSIBILITY.md)。
 - VPN 与 NCM 共用 App 的系统配对身份和 CoreDevice 后端。受控实机已获得截图与实际点击效果；完整任务、拖动和长期后台需要单独验收。
 - 可选音频、画中画和定位后台方式。新安装默认开启音频及常驻，定位与待命实时活动默认关闭；保留已保存选择，仍受系统执行限制。
 - 可选 [Muse 伴侣接口](docs/muse-remote/README.md)，支持独立设备权限与执行环境。通用 MCP 服务仍是后续方向。
@@ -76,6 +77,7 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | [ManifoldKit](https://github.com/ManifoldKit/ManifoldKit) | 选取并适配部分工具调用展示组件，不依赖完整框架 |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5)、[esp_tinyusb](https://github.com/espressif/esp-usb)、[TinyUSB](https://github.com/hathach/tinyusb) | ESP32 固件工具链与 USB 组件，分别固定为 ESP-IDF 5.5.5、esp_tinyusb 2.2.0 和 TinyUSB 0.21.0~2 |
 | [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) | 参考协议结构并选择性转译相关行为；手机与 ESP32 均不运行其 Python 服务 |
+| [ipb](https://github.com/ipbtools/ipb) | 原始无障碍协议、归档及原生快照解析的参考来源；见[许可与版本](THIRD_PARTY.md) |
 | [LocalDevVPN](https://github.com/jkcoxson/LocalDevVPN) | 已验证的外部 VPN 回环实现，其 Network Extension 未复制到本仓库 |
 
 Swift 包版本见 [Package.resolved](ios-app/PhoneAgent.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved)；Rust 依赖见 [Cargo.toml](coredevice/rust/Cargo.toml) 与 [Cargo.lock](coredevice/rust/Cargo.lock)；固件组件由[清单](devices/esp32/firmware/main/idf_component.yml)和[锁文件](devices/esp32/firmware/dependencies.lock)固定。来源归属与本地适配范围见[许可与来源](THIRD_PARTY.md)、[iOS notices](ios-app/Licenses/)和[复用边界](coredevice/docs/REUSE.md)。

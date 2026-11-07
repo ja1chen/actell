@@ -56,9 +56,57 @@ async fn resolve_display_geometry<E>(reply: impl std::future::Future<Output = Re
     ).await?;
     display_geometry(&value, id).ok_or(error(Stage::Input, Cause::InvalidParameters))
 }
-pub(crate) async fn query_display_geometry(adapter: &mut AdapterHandle, handshake: &mut RsdHandshake) -> Result<(u32, u32), Error> {
+pub(crate) async fn query_input_display_geometry(adapter: &mut AdapterHandle, handshake: &mut RsdHandshake) -> Result<((u32, u32), Option<AxDisplayGeometry>), Error> {
     let mut info = bounded(Stage::Media, DisplayInfoClient::connect_rsd(adapter, handshake)).await?;
-    read_display_geometry(&mut info, 1).await
+    let value = crate::bounded_for(Stage::Input, Duration::from_secs(2), info.0.invoke_with_plist(
+        "com.apple.coredevice.feature.getdisplayinfo", plist::Dictionary::new(),
+    )).await?;
+    let size = display_geometry(&value, 1).ok_or(error(Stage::Input, Cause::InvalidParameters))?;
+    Ok((size, input_logical_bounds(&value)))
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AxDisplayGeometry { pub x: f64, pub y: f64, pub width: f64, pub height: f64 }
+fn input_logical_bounds(value: &plist::Value) -> Option<AxDisplayGeometry> {
+    // AX reports global logical points. Bind the primary portrait display to
+    // the same display (1) used by DisplayService/HID, never to an app root frame.
+    let logical = ax_display_geometry(value)?;
+    let displays = value.as_dictionary()?.get("displays")?.as_array()?;
+    let primary = displays.iter().filter_map(plist::Value::as_dictionary)
+        .find(|d| d.get("primary").and_then(plist::Value::as_boolean) == Some(true))?;
+    if primary.get("displayId").and_then(plist::Value::as_signed_integer) != Some(1) { return None; }
+    let scale = primary.get("pointScale")?;
+    let scale = scale.as_real().or_else(|| scale.as_signed_integer().map(|v| v as f64))?;
+    let (width, height) = display_geometry(value, 1)?;
+    if logical.x != 0.0 || logical.y != 0.0 ||
+        (logical.width * scale - f64::from(width)).abs() > 0.000001 ||
+        (logical.height * scale - f64::from(height)).abs() > 0.000001 { return None; }
+    Some(logical)
+}
+pub(crate) async fn query_ax_display_geometry(adapter: &mut AdapterHandle, handshake: &mut RsdHandshake) -> Result<AxDisplayGeometry, Error> {
+    let mut info = bounded(Stage::Media, DisplayInfoClient::connect_rsd(adapter, handshake)).await?;
+    let value = crate::bounded_for(Stage::Media, Duration::from_secs(2), info.0.invoke_with_plist(
+        "com.apple.coredevice.feature.getdisplayinfo", plist::Dictionary::new(),
+    )).await?;
+    ax_display_geometry(&value).ok_or(error(Stage::AccessibilitySelection, Cause::InvalidParameters))
+}
+fn ax_display_geometry(value: &plist::Value) -> Option<AxDisplayGeometry> {
+    fn number(v: &plist::Value) -> Option<f64> {
+        v.as_real().or_else(|| v.as_signed_integer().map(|v| v as f64)).or_else(|| v.as_unsigned_integer().map(|v| v as f64))
+    }
+    let root = value.as_dictionary()?;
+    if root.get("current").and_then(plist::Value::as_boolean) != Some(true) { return None; }
+    let mut primary = root.get("displays")?.as_array()?.iter().filter_map(plist::Value::as_dictionary)
+        .filter(|d| d.get("primary").and_then(plist::Value::as_boolean) == Some(true));
+    let d = primary.next()?; if primary.next().is_some() { return None; }
+    if d.get("nativeOrientation").and_then(plist::Value::as_string) != Some("rot0") ||
+        d.get("currentOrientation").and_then(plist::Value::as_string) != Some("rot0") { return None; }
+    let bounds = d.get("bounds")?.as_array()?; if bounds.len() != 2 { return None; }
+    let origin = bounds[0].as_array()?; let size = bounds[1].as_array()?;
+    if origin.len() != 2 || size.len() != 2 { return None; }
+    let scale = number(d.get("pointScale")?)?;
+    let (x, y, w, h) = (number(&origin[0])?, number(&origin[1])?, number(&size[0])?, number(&size[1])?);
+    if [scale,x,y,w,h].iter().any(|v| !v.is_finite()) || scale <= 0.0 || w <= 0.0 || h <= 0.0 || w/scale > 16384.0 || h/scale > 16384.0 { return None; }
+    Some(AxDisplayGeometry { x:x/scale, y:y/scale, width:w/scale, height:h/scale })
 }
 fn display_geometry(value: &plist::Value, id: i64) -> Option<(u32, u32)> {
     let root = value.as_dictionary()?;
@@ -674,6 +722,48 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn accessibility_geometry_requires_unique_portrait_primary_display() {
+        use plist::Value as V;
+        let mut display = plist::Dictionary::new();
+        display.insert("primary".into(), V::Boolean(true));
+        display.insert("nativeOrientation".into(), V::String("rot0".into()));
+        display.insert("currentOrientation".into(), V::String("rot0".into()));
+        display.insert("pointScale".into(), V::Real(3.0));
+        display.insert("bounds".into(), V::Array(vec![V::Array(vec![V::Real(0.0), V::Real(0.0)]), V::Array(vec![V::Real(1179.0), V::Real(2556.0)])]));
+        let root = |displays: Vec<V>| V::Dictionary(plist::Dictionary::from_iter([(String::from("current"), V::Boolean(true)), (String::from("displays"), V::Array(displays))]));
+        let result = ax_display_geometry(&root(vec![V::Dictionary(display.clone())])).unwrap();
+        assert_eq!((result.width, result.height), (393.0, 852.0));
+        assert!(ax_display_geometry(&root(vec![V::Dictionary(display.clone()), V::Dictionary(display.clone())])).is_none());
+        display.insert("currentOrientation".into(), V::String("rot90".into()));
+        assert!(ax_display_geometry(&root(vec![V::Dictionary(display)])).is_none());
+    }
+    #[test]
+    fn logical_input_bounds_bind_primary_portrait_points_to_the_hid_display() {
+        use plist::Value as V;
+        let rect = |w: f64, h: f64| V::Array(vec![V::Array(vec![V::Real(0.0), V::Real(0.0)]), V::Array(vec![V::Real(w), V::Real(h)])]);
+        let mut display = plist::Dictionary::from_iter([
+            ("displayId", V::Integer(1.into())), ("primary", V::Boolean(true)),
+            ("nativeOrientation", V::String("rot0".into())), ("currentOrientation", V::String("rot0".into())),
+            ("pointScale", V::Real(3.0)), ("bounds", rect(1179.0, 2556.0)),
+            // Numeric representations need not match across plist fields.
+            ("frame", V::Array(vec![V::Array(vec![V::Integer(0.into()), V::Integer(0.into())]), V::Array(vec![V::Integer(1179.into()), V::Integer(2556.into())])])),
+        ]);
+        let root = |d: plist::Dictionary| V::Dictionary(plist::Dictionary::from_iter([
+            ("current", V::Boolean(true)), ("displays", V::Array(vec![V::Dictionary(d)])),
+        ]));
+        assert_eq!(input_logical_bounds(&root(display.clone())), Some(AxDisplayGeometry { x:0.0, y:0.0, width:393.0, height:852.0 }));
+        for (key, value) in [
+            ("displayId", V::Integer(2.into())), ("currentOrientation", V::String("rot90".into())),
+            ("pointScale", V::Real(0.0)), ("bounds", rect(1080.0, 2556.0)),
+        ] {
+            let mut changed = display.clone(); changed.insert(key.into(), value);
+            assert!(input_logical_bounds(&root(changed)).is_none(), "{key}");
+        }
+        display.insert("currentOrientation".into(), V::String("rot90".into()));
+        assert_eq!(display_geometry(&root(display.clone()), 1), Some((1179,2556)));
+        assert!(input_logical_bounds(&root(display)).is_none()); // Pixel/remote input remains independent.
+    }
     #[test]
     fn media_admission_keeps_authenticated_identity_without_assuming_source_port() {
         let expected = idevice::core_device::display_stream::negotiation::ScreenVideoStream {

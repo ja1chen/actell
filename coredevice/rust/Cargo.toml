@@ -15,7 +15,7 @@ libc = "0.2"
 zeroize = "1.9"
 serde_json = "1.0"
 ed25519-dalek = "2.2"
-plist = "1.10"
+plist = { version = "1.10", features = ["enable_unstable_features_that_may_break_with_minor_version_bumps"] }
 uuid = { version = "1.24", features = ["v4"] }
 crc32fast = "1.5"
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
@@ -24,6 +24,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring"]
 tracing = { version = "0.1.41", features = ["max_level_off", "release_max_level_off"] }
 [dev-dependencies]
 ed25519-dalek = "2.2"
+tokio = { version = "1.53", features = ["test-util"] }
 [features]
 # Test-only exports accept loopback peers and public fixtures; absent from iOS builds.
 offline-fixtures = []

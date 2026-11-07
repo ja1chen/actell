@@ -215,6 +215,11 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
     }
     func restoreConnection() {
         hasRecord = store.exists
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") {
+            NSLog("AX probe: restore paired=%d running=%d ready=%d", hasRecord, running, ready)
+        }
+        #endif
         if hasRecord, !pairingActive, !running, !ready { verify() }
     }
     /// Called only by a device tool or App startup, never by normal chat.
@@ -242,6 +247,9 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
                 var identity = try store.load().identity(); defer { identity.clearSeed() }
                 let authorization = ExistingSessionAuthorization(verifyExistingIdentity: true, screen: true, screenVideoStream: true, input: true)
                 if route == .vpnLoopback {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") { NSLog("AX probe: discovering VPN service") }
+                    #endif
                     message = String(localized: "Finding this phone's RemotePairing service. Keep the VPN loopback connection on.")
                     let configuration = vpnConfiguration
                     let port = try await NativePerformanceTrace.measure(.discovery) { try await localDiscovery.discoverPort(configuration: configuration) }
@@ -249,6 +257,9 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
                     message = String(localized: "Verifying identity and opening the CoreDevice tunnel through VPN loopback")
                     try await backend.connectLocalVPN(identity: identity, authorization: authorization, pairingPort: port, configuration: configuration)
                 } else {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") { NSLog("AX probe: discovering NCM service") }
+                    #endif
                     message = String(localized: "Finding the phone's RemotePairing service through ESP32")
                     let discovery = try await NativePerformanceTrace.measure(.discovery) {
                         var discovery = try await client.request(.discoverIPv4)
@@ -266,12 +277,116 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
                 }
                 try await NativePerformanceTrace.measure(.developerReadiness) { try await backend.checkDeveloperReadiness() }
                 try Task.checkCancellation(); guard generation == epoch else { return }
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") {
+                    do {
+                        try await backend.probeAccessibilityTransport()
+                        NSLog("AX probe: raw service connection succeeded; DTX not attempted")
+                        let report = try await backend.probeAccessibilityProtocol()
+                        guard let text = String(data: report, encoding: .utf8) else { throw NativeBackendError.malformedEvent }
+                        NSLog("AX probe: protocol report %@", text)
+                        let snapshot = try await backend.accessibilitySnapshot(pid: ProcessInfo.processInfo.processIdentifier)
+                        guard let parsed = try JSONSerialization.jsonObject(with: snapshot) as? [String: Any],
+                              let nodes = parsed["nodes"] as? [[String: Any]],
+                              let cleanup = parsed["cleanup"] as? [String: Any] else { throw NativeBackendError.malformedEvent }
+                        NSLog("AX probe: snapshot pid=self nodes=%d stopConfirmed=%@ localWriteShutdown=%@", nodes.count,
+                              String(describing: cleanup["subscriptionStopConfirmed"] ?? "unknown"),
+                              String(describing: cleanup["localWriteShutdownCompleted"] ?? "unknown"))
+                        for (identifier, expected) in [("ax-probe-heading", "AX test heading"), ("ax-probe-button", "AX test button"), ("ax-probe-chinese", AccessibilityProbeFixture.chinese)] {
+                            let matches = nodes.filter { $0["identifier"] as? String == identifier }
+                            let hasLabel = matches.contains { $0["label"] as? String == expected }
+                            let hasFrame = matches.contains { $0["frameStatus"] as? String == "available" }
+                            NSLog("AX probe: fixture %@ count=%d label=%d frame=%d", identifier, matches.count, hasLabel, hasFrame)
+                        }
+                        let selected = try await backend.accessibilitySnapshotAtCenter()
+                        guard let hit = try JSONSerialization.jsonObject(with: selected) as? [String: Any],
+                              let application = hit["application"] as? [String: Any], let hitPID = application["pid"] as? Int,
+                              let hitNodes = hit["nodes"] as? [[String: Any]] else { throw NativeBackendError.malformedEvent }
+                        NSLog("AX probe: hit selection samePID=%d nodes=%d", hitPID == Int(ProcessInfo.processInfo.processIdentifier), hitNodes.count)
+                        if ProcessInfo.processInfo.arguments.contains("--accessibility-repeat-probe") {
+                            var elapsed: [Double] = []
+                            var failures = 0
+                            for _ in 0..<30 {
+                                let started = ProcessInfo.processInfo.systemUptime
+                                do {
+                                    _ = try await backend.accessibilitySnapshot(pid: ProcessInfo.processInfo.processIdentifier)
+                                    elapsed.append((ProcessInfo.processInfo.systemUptime - started) * 1000)
+                                } catch { failures += 1 }
+                            }
+                            elapsed.sort()
+                            let p95 = elapsed.isEmpty ? -1 : elapsed[min(elapsed.count - 1, Int(ceil(Double(elapsed.count) * 0.95)) - 1)]
+                            NSLog("AX probe: repeat success=%d failures=%d endToEndP95ms=%.0f", elapsed.count, failures, p95)
+                        }
+                        if ProcessInfo.processInfo.arguments.contains("--accessibility-background-probe") {
+                            NSLog("AX probe: background target switch window open")
+                            try await Task.sleep(for: .seconds(20))
+                            let backgroundTree = try await backend.accessibilitySnapshotAtCenter()
+                            guard let backgroundObject = try JSONSerialization.jsonObject(with: backgroundTree) as? [String: Any],
+                                  let app = backgroundObject["application"] as? [String: Any], let pid = app["pid"] as? Int,
+                                  let backgroundNodes = backgroundObject["nodes"] as? [[String: Any]] else { throw NativeBackendError.malformedEvent }
+                            NSLog("AX probe: background read active=%d selectedPID=%d differentPID=%d nodes=%d", isBackground,
+                                  pid, pid != Int(ProcessInfo.processInfo.processIdentifier), backgroundNodes.count)
+                        }
+                    } catch {
+                        NSLog("AX probe: validation failed: %@", String(describing: error))
+                    }
+                }
+                #endif
                 ready = true; startHeartbeat(); message = String(localized: "\(route.connectionName) authentication, tunnel, and service checks succeeded. You can test screenshots and input.")
-            } catch { guard generation == epoch else { return }; backend.close(); message = failure(error); lastFailure = message }
+            } catch {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") {
+                    NSLog("AX probe: prerequisite failed: %@", String(describing: error))
+                }
+                #endif
+                guard generation == epoch else { return }; backend.close(); message = failure(error); lastFailure = message
+            }
         }
     }
     #if DEBUG
     func videoDiagnosticKeyframe() async -> Data? { await backend.videoDiagnosticKeyframe() }
+    func runAccessibilityAgentProbe() async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while running && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard ready else { NSLog("AX probe: agent path unavailable: connection not ready"); return }
+        do {
+            let bridge = try CoreDeviceBridge(flow: self)
+            let action = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in false }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .screenshotAndAccessibility)
+            do {
+                let result = try await action.execute(name: "screenshot", parameters: [:], callID: "ax-fixture")
+                guard let object = try JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any],
+                      let tree = object["accessibility"] as? [String: Any] else { throw NativeBackendError.malformedEvent }
+                let nodes = tree["nodes"] as? [[String: Any]] ?? []
+                let fixturePresent = nodes.contains { $0["identifier"] as? String == "ax-probe-button" && $0["label"] as? String == "AX test button" }
+                NSLog("AX probe: agent screenshot success=%d treeAvailable=%d fixture=%d nodes=%d",
+                      result.kind == .returned, tree["status"] as? String == "available", fixturePresent, nodes.count)
+                if ProcessInfo.processInfo.arguments.contains("--accessibility-overlay-probe"),
+                   let image = result.images.first.flatMap({ UIImage(data: $0.data) }),
+                   let node = nodes.first(where: { $0["identifier"] as? String == "ax-probe-button" }),
+                   let rect = node["frame"] as? [String: Double], let x = rect["x"], let y = rect["y"],
+                   let width = rect["width"], let height = rect["height"],
+                   let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+                   scene.interfaceOrientation == .portrait {
+                    let bounds = scene.screen.bounds
+                    let sx = image.size.width / bounds.width, sy = image.size.height / bounds.height
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                    let overlay = UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+                        image.draw(at: .zero)
+                        context.cgContext.setStrokeColor(UIColor.systemRed.cgColor)
+                        context.cgContext.setLineWidth(4)
+                        context.cgContext.stroke(CGRect(x: CGFloat(x) * sx, y: CGFloat(y) * sy, width: CGFloat(width) * sx, height: CGFloat(height) * sy))
+                    }
+                    if let png = overlay.pngData() {
+                        try png.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ax-fixture-overlay.png"), options: .atomic)
+                        NSLog("AX probe: candidate overlay saved; mapping requires visual inspection")
+                    }
+                }
+            } catch { NSLog("AX probe: agent path failed: %@", String(describing: error)) }
+            await action.stop()
+        } catch { NSLog("AX probe: agent setup failed: %@", String(describing: error)) }
+    }
     #endif
     func capture() { operation(capturing: true) {
         try await self.prepareAgentInput(self.backend)
@@ -380,6 +495,13 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
             if case NativeBackendError.applicationQueryFailure(let stage, let cause) = error {
                 BackgroundExecutionTrace.record("apps.query.failed stage=\(stage) cause=\(cause)")
                 throw CoreDeviceControlError.unavailable(String(localized: "Could not list installed apps. Try again later."))
+            }
+            if case NativeBackendError.accessibilityFailure(let stage, let cause) = error {
+                let details = backend.lastAccessibilityDiagnostic.map { " " + $0.logFields } ?? ""
+                let event = "accessibility.failed stage=\(stage) cause=\(cause) connectionRetained=true" + details
+                BackgroundExecutionTrace.record(event)
+                NSLog("%@", event)
+                throw error
             }
             if error is CancellationError || (error as? CoreDeviceControlError) != nil {
                 cancel(); throw CoreDeviceControlError.stopped

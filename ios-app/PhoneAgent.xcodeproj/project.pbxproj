@@ -47,6 +47,7 @@
 		2FE0D3C3E917DA54004428CF /* PhoneAgent/Remote/RemoteConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715A60DF0B72F2A503CF508A /* PhoneAgent/Remote/RemoteConnectionStore.swift */; };
 		313D0B5478E0CEDBFA9E9B71 /* PhoneAgent/Storage/SessionStorageLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6979B9BDC5B271C00CE2CAB /* PhoneAgent/Storage/SessionStorageLayout.swift */; };
 		3226F254C94F2E664262ED69 /* PhoneAgent/Security/SecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1E758FF42CDB29F962E4FC8 /* PhoneAgent/Security/SecretStore.swift */; };
+		342629EF2F5F581D82BB84FE /* PhoneAgent/Models/ScreenInformationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B1189E1FC6D30FB8D48BD2 /* PhoneAgent/Models/ScreenInformationMode.swift */; };
 		34BA5EFE97541AC5036697EA /* Shared/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8EC61FEADD2004C905EE02FB /* Shared/Localizable.xcstrings */; };
 		34FEBE102332829F2B681601 /* PhoneAgent/Remote/RemoteGeneratedIdentityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0511A0341109E8A6DE44FFC6 /* PhoneAgent/Remote/RemoteGeneratedIdentityProvider.swift */; };
 		35D12AC19B4AD2ABEA5440B7 /* PhoneAgent/Storage/SessionRunCheckpointStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A4AFFE7534554D2B27AFAA /* PhoneAgent/Storage/SessionRunCheckpointStore.swift */; };
@@ -67,6 +68,7 @@
 		47A2FC8A295DB63FF5231CE8 /* PhoneAgentUITests/ReasoningUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E879BE15CC4AD61BF27EC176 /* PhoneAgentUITests/ReasoningUITests.swift */; };
 		47B8DC97A414AEAFEA465BF6 /* ../coredevice/swift/Sources/CoreDeviceBackend/Diagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9080E2FF7277D46ABA66A29D /* ../coredevice/swift/Sources/CoreDeviceBackend/Diagnostic.swift */; };
 		47DD86C42CD7D8FEEB120D71 /* PhoneAgentTests/CoreDeviceBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138E5DDFB95DA1D0072A7249 /* PhoneAgentTests/CoreDeviceBridgeTests.swift */; };
+		4A05F72184A63B3D79DB6D4B /* PhoneAgentTests/ScreenInformationModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0546C46AB261CBC8ECB91F3B /* PhoneAgentTests/ScreenInformationModeTests.swift */; };
 		4AC923A4EDA4156E3947641A /* PhoneAgentTests/ModelStreamTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CCFEFD11FF214F89212117 /* PhoneAgentTests/ModelStreamTests.swift */; };
 		4F6C2C9E88CC0DF3A0804311 /* PhoneAgentTests/ConversationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BD0F356D152AC2B11057B5 /* PhoneAgentTests/ConversationTests.swift */; };
 		516757BFF7A88E3ABF25E25B /* PhoneAgent/Background/RunLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F0FAE84FD8109E8E5583C4 /* PhoneAgent/Background/RunLifecycleCoordinator.swift */; };
@@ -82,6 +84,7 @@
 		5BA43531FF54F5AD68EE8380 /* PhoneAgent/SessionCommands/PhoneAgentRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 697DE2CF47AB3F1D0B5C2B97 /* PhoneAgent/SessionCommands/PhoneAgentRuntime.swift */; };
 		5C002E69838A232F5E06C0BB /* PhoneAgent/Status/StatusPiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95168A03D4952BC1BBCD531D /* PhoneAgent/Status/StatusPiPController.swift */; };
 		5F74A67C311B57D8F98D2B6D /* PhoneAgentUITests/ComposerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81EA463BCA3E05B03C8B4BE /* PhoneAgentUITests/ComposerUITests.swift */; };
+		5FF4FA6A606C6EE029D4C35F /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A61C6E1916A1295EF90380 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift */; };
 		6188A0D1AFC882A1EB96B395 /* Shared/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = BBEEC0A6B658597D9F10BC41 /* Shared/Localizable.xcstrings */; };
 		6279EBF847F3ED314DEEA7B2 /* PhoneAgent/Bridge/Bridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710338E51099F83DDCF6EC37 /* PhoneAgent/Bridge/Bridge.swift */; };
 		6496EE54E44F4EE525F3D38B /* PhoneAgent/App/AttachmentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA5A915E5D4E446BFF4B272 /* PhoneAgent/App/AttachmentPicker.swift */; };
@@ -165,6 +168,7 @@
 		DC6462714803BE2C3F6BABBE /* PhoneAgentTests/SessionStorageMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165C12AEE5F0B7D26C3B7112 /* PhoneAgentTests/SessionStorageMigrationTests.swift */; };
 		E048981165AA9CF1D8C76DB3 /* ../coredevice/swift/Sources/CoreDeviceBackend/RemotePairRecordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DF426691920F3429AE60AC /* ../coredevice/swift/Sources/CoreDeviceBackend/RemotePairRecordStore.swift */; };
 		E3334FD6FC15C96EF2904DBF /* PhoneAgentTests/BackgroundConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12F2FFCD3A376EC5BD16A8A4 /* PhoneAgentTests/BackgroundConfigurationTests.swift */; };
+		E3C502FFF66322C4F9BE904F /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0958F683FB19A3ADAB34BF8 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift */; };
 		E4AA8C4D6BE00337EE8FE5F9 /* PhoneAgentTests/RemoteTransportTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D591EDBBBF74E41384AAB4 /* PhoneAgentTests/RemoteTransportTraceTests.swift */; };
 		E56C94C85E54B135335CE387 /* PhoneAgent/LiveActivity/ApprovalRecordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BC501C2040A17622F665ED /* PhoneAgent/LiveActivity/ApprovalRecordStore.swift */; };
 		E57164F2AE788E7734AD3658 /* PhoneAgent/Background/RunExecutionScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6D0655D860C1A453236F3B /* PhoneAgent/Background/RunExecutionScheduler.swift */; };
@@ -226,6 +230,8 @@
 
 /* Begin PBXFileReference section */
 		0511A0341109E8A6DE44FFC6 /* PhoneAgent/Remote/RemoteGeneratedIdentityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Remote/RemoteGeneratedIdentityProvider.swift; sourceTree = SOURCE_ROOT; };
+		0546C46AB261CBC8ECB91F3B /* PhoneAgentTests/ScreenInformationModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/ScreenInformationModeTests.swift; sourceTree = SOURCE_ROOT; };
+		07A61C6E1916A1295EF90380 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift"; sourceTree = SOURCE_ROOT; };
 		09B322AEE6801E7A2C2BD178 /* PhoneAgent/Remote/RemoteImageGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Remote/RemoteImageGeometry.swift; sourceTree = SOURCE_ROOT; };
 		0A275FCEE01CEBFF98F915EE /* Shared/AppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/AppIdentity.swift; sourceTree = SOURCE_ROOT; };
 		0A46F90B5F11FB80CBD14B20 /* PhoneAgent/Models/ProviderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Models/ProviderModels.swift; sourceTree = SOURCE_ROOT; };
@@ -338,6 +344,7 @@
 		92D26316BCEBB943F05D9B33 /* PhoneAgent/Models/ConversationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Models/ConversationModels.swift; sourceTree = SOURCE_ROOT; };
 		94C46C134583D47F363F4BEE /* PhoneAgent/Background/BackgroundExecutionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Background/BackgroundExecutionRegistry.swift; sourceTree = SOURCE_ROOT; };
 		95168A03D4952BC1BBCD531D /* PhoneAgent/Status/StatusPiPController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Status/StatusPiPController.swift; sourceTree = SOURCE_ROOT; };
+		97B1189E1FC6D30FB8D48BD2 /* PhoneAgent/Models/ScreenInformationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Models/ScreenInformationMode.swift; sourceTree = SOURCE_ROOT; };
 		984D98C7222C096760657D9F /* PhoneAgentTests/LocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/LocalizationTests.swift; sourceTree = SOURCE_ROOT; };
 		9C5E290536118A1A8AD380B6 /* PhoneAgent/Security/ChatGPTOAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Security/ChatGPTOAuth.swift; sourceTree = SOURCE_ROOT; };
 		A0F53341C0C90C85283739D3 /* PhoneAgent/Bridge/InputCoordinates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Bridge/InputCoordinates.swift; sourceTree = SOURCE_ROOT; };
@@ -391,6 +398,7 @@
 		ED47CCAC59CBEFBB5DFAB812 /* PhoneAgentTests/SimpleLANRPCTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/SimpleLANRPCTests.swift; sourceTree = SOURCE_ROOT; };
 		EDC1B3B212C203035864B3A3 /* PhoneAgent/DeviceControl/DeviceConnectionSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/DeviceControl/DeviceConnectionSection.swift; sourceTree = SOURCE_ROOT; };
 		EF14D593E4691D0F69B631A5 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeDeveloperServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../coredevice/swift/Sources/CoreDeviceBackend/NativeDeveloperServices.swift"; sourceTree = SOURCE_ROOT; };
+		F0958F683FB19A3ADAB34BF8 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift"; sourceTree = SOURCE_ROOT; };
 		F24D73DC116942FF937BCAB8 /* Shared/AgentActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/AgentActivityAttributes.swift; sourceTree = SOURCE_ROOT; };
 		F64AEEB11F68E3603DED0C7A /* PhoneAgentUITests/LocalizationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentUITests/LocalizationUITests.swift; sourceTree = SOURCE_ROOT; };
 		F719B9A9D0B5218F07123E00 /* PhoneAgent/Background/BackgroundConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Background/BackgroundConfiguration.swift; sourceTree = SOURCE_ROOT; };
@@ -484,6 +492,7 @@
 				29B03D7085C40F1A259A7A6B /* PhoneAgentTests/ResponsesProviderTests.swift */,
 				516119005D4C3238AD9A2440 /* PhoneAgentTests/RunLifecycleTests.swift */,
 				CB922EF7EC8951DF7B2EACD8 /* PhoneAgentTests/SafetyTests.swift */,
+				0546C46AB261CBC8ECB91F3B /* PhoneAgentTests/ScreenInformationModeTests.swift */,
 				79B329454CF7941FB1DBA2D8 /* PhoneAgentTests/ScreenUSBBackgroundTests.swift */,
 				4334A7AE8091BCE5FDB730F7 /* PhoneAgentTests/SessionCommandTests.swift */,
 				78ABD11A787CF98AEB4BCA4B /* PhoneAgentTests/SessionListIndexTests.swift */,
@@ -557,6 +566,7 @@
 				92D26316BCEBB943F05D9B33 /* PhoneAgent/Models/ConversationModels.swift */,
 				8528C5233E3E258C57B0AFCC /* PhoneAgent/Models/Models.swift */,
 				0A46F90B5F11FB80CBD14B20 /* PhoneAgent/Models/ProviderModels.swift */,
+				97B1189E1FC6D30FB8D48BD2 /* PhoneAgent/Models/ScreenInformationMode.swift */,
 				E6ECFA33A64F6A4826DFCFD0 /* PhoneAgent/Muse/MuseCompanionProtocol.swift */,
 				D2460BFFB18B6C8815F5644E /* PhoneAgent/Remote/MuseDiagnosticsLog.swift */,
 				257FD3DC3522EA2351B4AFBC /* PhoneAgent/Remote/RemoteAuthentication.swift */,
@@ -593,6 +603,8 @@
 				19B9C240FD57FFCDA0F8001B /* ../coredevice/swift/Sources/CoreDeviceBackend/LocalVPNDiscovery.swift */,
 				51CF1F1216BF1AA132809D97 /* ../coredevice/swift/Sources/CoreDeviceBackend/NCMDiagnosticClient.swift */,
 				FC269ED1BA37C602B6809E0A /* ../coredevice/swift/Sources/CoreDeviceBackend/NCMInterfaceBinding.swift */,
+				07A61C6E1916A1295EF90380 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift */,
+				F0958F683FB19A3ADAB34BF8 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift */,
 				EF14D593E4691D0F69B631A5 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeDeveloperServices.swift */,
 				5839F9DC3CBED5F0E7963280 /* ../coredevice/swift/Sources/CoreDeviceBackend/NetworkInterfaces.swift */,
 				80DF426691920F3429AE60AC /* ../coredevice/swift/Sources/CoreDeviceBackend/RemotePairRecordStore.swift */,
@@ -925,6 +937,7 @@
 				535B6CAB0DFA3859F6193693 /* PhoneAgent/Models/ConversationModels.swift in Sources */,
 				922766ABA61B76E96347CC0A /* PhoneAgent/Models/Models.swift in Sources */,
 				1C2B0AAABE8A227E4BD06783 /* PhoneAgent/Models/ProviderModels.swift in Sources */,
+				342629EF2F5F581D82BB84FE /* PhoneAgent/Models/ScreenInformationMode.swift in Sources */,
 				A5A7B647C4FACF530F93079A /* PhoneAgent/Muse/MuseCompanionProtocol.swift in Sources */,
 				680DE408ED40DD774CEC0E59 /* PhoneAgent/Remote/MuseDiagnosticsLog.swift in Sources */,
 				74B8834EF36C1725153CC825 /* PhoneAgent/Remote/RemoteAuthentication.swift in Sources */,
@@ -961,6 +974,8 @@
 				6B64ACFC7935F1ECAED4E717 /* ../coredevice/swift/Sources/CoreDeviceBackend/LocalVPNDiscovery.swift in Sources */,
 				3C7863C3BE3BC26C6D7B0B9F /* ../coredevice/swift/Sources/CoreDeviceBackend/NCMDiagnosticClient.swift in Sources */,
 				8442674C54CF31EC044A8E20 /* ../coredevice/swift/Sources/CoreDeviceBackend/NCMInterfaceBinding.swift in Sources */,
+				5FF4FA6A606C6EE029D4C35F /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeAccessibilityDiagnostic.swift in Sources */,
+				E3C502FFF66322C4F9BE904F /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeApplicationLaunch.swift in Sources */,
 				1195C614FCDBE36A18F38715 /* ../coredevice/swift/Sources/CoreDeviceBackend/NativeDeveloperServices.swift in Sources */,
 				580E31105A744AF249475138 /* ../coredevice/swift/Sources/CoreDeviceBackend/NetworkInterfaces.swift in Sources */,
 				E048981165AA9CF1D8C76DB3 /* ../coredevice/swift/Sources/CoreDeviceBackend/RemotePairRecordStore.swift in Sources */,
@@ -1023,6 +1038,7 @@
 				04568343D1E86C7E964C6B10 /* PhoneAgentTests/ResponsesProviderTests.swift in Sources */,
 				9F190995264AC1D926F8D8EE /* PhoneAgentTests/RunLifecycleTests.swift in Sources */,
 				96FF39CA3F3AA1D17C39C97D /* PhoneAgentTests/SafetyTests.swift in Sources */,
+				4A05F72184A63B3D79DB6D4B /* PhoneAgentTests/ScreenInformationModeTests.swift in Sources */,
 				F667998D4FCC03F5C7B72874 /* PhoneAgentTests/ScreenUSBBackgroundTests.swift in Sources */,
 				7FCBD041B0DC1BCFBF19D9D8 /* PhoneAgentTests/SessionCommandTests.swift in Sources */,
 				70F98602A86D8ABA203D6FAD /* PhoneAgentTests/SessionListIndexTests.swift in Sources */,

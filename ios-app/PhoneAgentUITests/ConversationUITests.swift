@@ -563,6 +563,34 @@ import XCTest
         XCTAssertFalse(app.buttons["startScreenCapture"].exists)
         capture("device-panel")
     }
+    func testScreenInformationModeOffersFourChoicesAndPersists() {
+        let app = launch()
+        func openSettings() {
+            app.buttons["设置"].tap()
+            app.buttons["esp32ControlSettings"].tap()
+            XCTAssertTrue(app.navigationBars["手机操控"].waitForExistence(timeout: 5))
+        }
+        openSettings()
+        let mode = app.buttons["screenInformationMode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.switches["accessibilityTreeEnabled"].exists)
+        for choice in ["截图", "无障碍内容", "截图+无障碍内容", "自动"] {
+            mode.tap()
+            for option in ["截图", "无障碍内容", "截图+无障碍内容", "自动"] {
+                XCTAssertTrue(app.buttons[option].waitForExistence(timeout: 3), app.debugDescription)
+            }
+            if choice == "自动" { capture("screen-information-options") }
+            app.buttons[choice].tap()
+            capture("screen-information-selected-\(choice)")
+            // Native menu pickers expose their selection in the combined label.
+            XCTAssertTrue(mode.label.hasSuffix(choice), mode.debugDescription)
+        }
+        capture("screen-information-automatic")
+        app.terminate(); app.launch(); openSettings()
+        XCTAssertTrue(mode.label.hasSuffix("自动"), mode.debugDescription)
+        // Restore the default so later UI tests do not inherit this choice.
+        mode.tap(); app.buttons["截图"].tap()
+    }
     func testVPNLoopbackModePersistsAndShowsEditableAddresses() {
         let app = launch()
         app.buttons["设置"].tap()

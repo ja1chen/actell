@@ -46,8 +46,24 @@ struct ToolStep: Codable, Sendable, Equatable {
     var arguments: String?
     var skillName: String?
     var displayArguments: String? { Self.nonemptyArguments(arguments) }
+    var expectsScreenshotPreview: Bool {
+        guard name == "screenshot" else { return false }
+        let object = (try? JSONSerialization.jsonObject(with: Data(result.utf8))) as? [String: Any]
+        return object?["screen_information_mode"] as? String != ScreenInformationMode.accessibility.rawValue
+    }
     var displayResult: String {
-        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return result }
+        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard name == "screenshot",
+                  var object = (try? JSONSerialization.jsonObject(with: Data(result.utf8))) as? [String: Any],
+                  let observation = object["accessibility"] as? [String: Any],
+                  let nodes = observation["nodes"] as? [[String: Any]] else { return result }
+            // Derive display details without changing the persisted tool result or model context.
+            var summary: [String: Any] = ["status": observation["status"] as? String ?? "unavailable", "nodeCount": nodes.count]
+            if let reason = observation["reason"] as? String { summary["reason"] = reason }
+            object["accessibility"] = summary
+            guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return result }
+            return String(decoding: data, as: UTF8.self)
+        }
         switch state {
         case .cancelled: return String(localized: "This call was canceled. Its result was not saved.")
         case .interrupted: return String(localized: "Execution was interrupted. Its result was not saved.")

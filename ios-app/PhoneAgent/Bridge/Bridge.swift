@@ -1,10 +1,11 @@
 import Foundation
 
-struct InputDisplaySnapshot: Sendable {
+struct InputDisplaySnapshot: Equatable, Sendable {
     static let contract = "normalized-display-v1"
     let context: String
     let token: String
     let sampledAt: Date
+    var logicalBounds: NativeDisplayBounds? = nil
     func normalized(_ value: Int) throws -> Int {
         guard (0...1000).contains(value) else { throw RemoteRPCError("coordinate_out_of_bounds", "Coordinates must be integers from 0 to 1000") }
         return (value * 65535 + 500) / 1000
@@ -23,13 +24,14 @@ protocol DeviceBridge: Sendable {
     func acceptApproval(imageID: String) async throws
     func authorizeTaskInput(imageID: String) async throws
     func screenshot() async throws -> FrameImage
+    func accessibilityObservation() async throws -> Data?
     func validateRemoteObservation(_ frame: FrameImage) async throws
     func tap(x: Int, y: Int, imageID: String) async throws
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws
     func installedApplications() async throws -> Data
     func systemActionContext() async throws -> String
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws
+    @discardableResult func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch?
     func bringApplicationToForeground(bundleID: String) async throws -> Bool
     func cancelTransport()
     func stop() async
@@ -37,6 +39,7 @@ protocol DeviceBridge: Sendable {
 }
 
 extension DeviceBridge {
+    func accessibilityObservation() async throws -> Data? { nil }
     func finishRemoteRun() async { await stop() }
     func inputDisplaySnapshot() async throws -> InputDisplaySnapshot { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws { throw RemoteRPCError("geometry_unavailable", "Independent input is unavailable on this route") }
@@ -48,7 +51,7 @@ extension DeviceBridge {
     func systemActionContext() async throws -> String { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
     func installedApplications() async throws -> Data { throw AppError.unavailable(String(localized: "This connection does not support app queries")) }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
+    @discardableResult func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
     var executionContext: ScreenUSBExecutionContext? { nil }
     func cancelTransport() {}
     func supportsBackgroundExecution(tool: String) async -> Bool { false }

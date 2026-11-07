@@ -26,6 +26,7 @@ import Darwin
                     if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
                     else if ProcessInfo.processInfo.arguments.contains("--coredevice-video-geometry-probe") { CoreDeviceVideoGeometryProbeView(statusPiP: statusPiP) }
                     else if ProcessInfo.processInfo.arguments.contains("--coredevice-tools-probe") { CoreDeviceToolsProbeView(statusPiP: statusPiP) }
+                    else if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") { AccessibilityProbeView() }
                     #endif
                 }
                 .onAppIntentExecution(PrepareAgentTaskIntent.self) { _ in
@@ -50,6 +51,9 @@ import Darwin
                     model.liveActivities.setBackgroundResident(settings.reservesStandbyActivity)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--accessibility-transport-probe") {
+                        await DeviceControlCoordinator.shared.runAccessibilityAgentProbe()
+                    }
                     if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
                         if streamProbe { background.applySelection([.audio]) }
                         model.start()
@@ -126,6 +130,24 @@ import Darwin
         return nil
     }
 }
+
+#if DEBUG
+enum AccessibilityProbeFixture { static let chinese = "执言 AX 测试" }
+/// Synthetic, non-sensitive content for the real-device AX acceptance probe.
+private struct AccessibilityProbeView: View {
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemBackground).ignoresSafeArea()
+            VStack(spacing: 24) {
+                Text(verbatim: "AX test heading").accessibilityIdentifier("ax-probe-heading")
+                Button(action: {}, label: { Text(verbatim: "AX test button") })
+                    .accessibilityIdentifier("ax-probe-button")
+                Text(verbatim: AccessibilityProbeFixture.chinese).accessibilityIdentifier("ax-probe-chinese")
+            }
+        }
+    }
+}
+#endif
 
 #if DEBUG
 /// Explicit on-device acceptance: one screenshot, one tap on this harmless
