@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 ## Capabilities
 
-- Conversations with configurable providers and models, streaming replies, readable reasoning supplied by providers, attachments and imported text skills.
+- Conversations with configurable providers and models, streaming replies, readable reasoning supplied by providers, attachments and imported text skills. AgentKit preserves complete session history and manages a separate model context with budgeted compaction.
 - Screenshot, tap, drag and wait tools. Tool calls run in order; uncertain inputs are never automatically replayed. Ordinary chat does not require a device connection.
 - Optional accessible screen content can accompany screenshots for local model tasks. It is off by default, may include off-screen text, and is sent to the selected model provider. The experimental reader is limited to a verified system build and does not use XCTest Runner; [scope and limitations](coredevice/docs/ACCESSIBILITY.md).
 - VPN and NCM share an App-owned system pairing identity and CoreDevice backend. Controlled device tests have demonstrated screenshots and actual taps; complete tasks, drag and long-running background operation need separate acceptance.
@@ -42,10 +42,16 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 # Optional ESP32 route; ESP-IDF 5.5.5 must be installed. Does not flash.
 bash devices/esp32/tools/build.sh ncm
 
+# Independent model and runtime package tests
+swift test --package-path ios-app/ProviderKit
+swift test --package-path ios-app/AgentKit
+
 # Loopback protocol tests and isolated simulator tests
 CC=clang bash devices/esp32/tools/test_usb.sh
 SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <isolated-simulator-UDID>
 ```
+
+Provider continuation is capability-specific: supported Responses services can use an explicit stored response chain; ChatGPT subscription HTTP inference sends the effective context window with each request, including a summary and retained items after compaction. It does not resend the entire JSONL history. Native compact is enabled only for supported OpenAI Responses configurations; other providers use tool-free summary compaction. See [AgentKit](ios-app/AgentKit/README.md) and [ProviderKit](ios-app/ProviderKit/README.md) for responsibilities and limits.
 
 Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic providers and temporary storage; they do not replace device acceptance. Add `RUN_UI_TESTS=1` to include UI tests. Core protocol, authorization, isolation, unknown-result, migration and stop/release coverage stays in the default target.
 
@@ -54,6 +60,8 @@ Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic provider
 | Path | Purpose |
 | --- | --- |
 | `ios-app/` | App, tests, resources and project generation |
+| `ios-app/AgentKit/` | App-owned runtime, durable session transactions and context management |
+| `ios-app/ProviderKit/` | Model protocol contracts, streaming adapters and explicit provider capabilities |
 | `coredevice/` | App-side Swift/Rust backend |
 | `devices/esp32/` | Firmware, configurations, shared platform modules and tests |
 | `tools/` | Backend and cross-module build/test tools |
@@ -63,8 +71,7 @@ Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic provider
 
 | Project | Current usage |
 | --- | --- |
-| [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) | Local source snapshot of the agent core and macros, with iOS storage compatibility patches; does not include the upstream MCP module |
-| [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | Swift Package dependency for model API integration |
+| [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | Remote Swift Package dependency used by ProviderKit for model protocol encoding and decoding |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package dependency for Markdown message rendering |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | Reuses the patched idevice source and PNG validator pinned by Device Hub, with local adaptations; does not integrate the entire Device Hub app |
 | [ManifoldKit](https://github.com/ManifoldKit/ManifoldKit) | Selected and adapted tool-call presentation components, not a package dependency on the entire framework |

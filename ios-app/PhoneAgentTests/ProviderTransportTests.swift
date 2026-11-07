@@ -47,7 +47,7 @@ final class ProviderTransportTests: XCTestCase {
         }
         frames.append("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
         ProviderURLProtocol.fixture.reset(body: Data(frames.joined().utf8))
-        let p = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
+        let p = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), sessionID: UUID(), transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
         defer { p.cancel() }
         var terminals: [ModelResponse] = []
         for try await event in p.stream(request) {
@@ -96,7 +96,7 @@ final class ProviderTransportTests: XCTestCase {
     }
     private var request: ModelRequest { .init(model: "fixture", messages: [.system("instructions"), .user("task")]) }
     private func provider() throws -> PrivateVisionProvider {
-        try PrivateVisionProvider(settings: .init(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), inferenceAPI: .responses, transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
+        try PrivateVisionProvider(settings: .init(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), inferenceAPI: .responses, sessionID: UUID(), transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
     }
     private func completed() -> Data {
         Data("{\"id\":\"r1\",\"model\":\"fixture\",\"status\":\"completed\",\"output\":[{\"id\":\"m1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\",\"annotations\":[]}]}]}".utf8)
@@ -146,7 +146,7 @@ final class ProviderTransportTests: XCTestCase {
         """.utf8)
         for kind in [ProviderKind.openAI, .openRouter] {
             ProviderURLProtocol.fixture.reset(body: body)
-            let p = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: kind, transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
+            let p = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/api/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), providerKind: kind, sessionID: UUID(), transport: ResponsesTransport(protocolClasses: [ProviderURLProtocol.self]))
             defer { p.cancel() }
             var text = "", terminals: [ModelResponse] = []
             for try await event in p.stream(request) {

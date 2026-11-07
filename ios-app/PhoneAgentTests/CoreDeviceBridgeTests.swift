@@ -215,7 +215,7 @@ import ProviderCore
         let receipt = BackgroundSourceToken(mechanism: .audio, owner: UUID())
         background.registry.publish(receipt)
         let result = try await runtime.executeRemoteTool(name: "list_apps", arguments: [:], callID: "apps", imageID: nil, deadline: Date().addingTimeInterval(5))
-        XCTAssertFalse(result.isError, result.result)
+        XCTAssertEqual(result.kind, .returned, result.content)
         XCTAssertEqual(connection.appQueries, 1)
         XCTAssertEqual(connection.reservations, 1)
         XCTAssertEqual(stages, ["control.connection_wait", "control.connection_ready"])
@@ -252,7 +252,7 @@ import ProviderCore
         for index in 0..<2 {
             let result = try await coordinator.executeRemote(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "Muse action"],
                 callID: "tap\(index)", expectedImageID: frameID, deadline: deadline)
-            XCTAssertFalse(result.isError, result.result)
+            XCTAssertEqual(result.kind, .returned, result.content)
         }
         XCTAssertEqual(connection.taps, 2)
         await coordinator.stop()
@@ -847,10 +847,10 @@ import ProviderCore
             _ = try await coordinator.execute(name: "home", parameters: ["purpose": "home"], callID: "home")
             _ = try await coordinator.execute(name: "drag", parameters: ["from_x": 1, "from_y": 2, "to_x": 5, "to_y": 10, "duration_ms": 200, "purpose": "drag"], callID: "drag")
             _ = try await coordinator.execute(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "next"], callID: "tap2")
-            XCTAssertFalse(tap.isError)
-            XCTAssertEqual(tap.result, "Command delivery acknowledged.")
-            XCTAssertFalse(wait.isError)
-            XCTAssertEqual(wait.result, "Wait completed.")
+            XCTAssertEqual(tap.kind, .returned)
+            XCTAssertEqual(tap.content, "Command delivery acknowledged.")
+            XCTAssertEqual(wait.kind, .returned)
+            XCTAssertEqual(wait.content, "Wait completed.")
             XCTAssertEqual(connection.captures, 1)
             XCTAssertEqual(connection.taps, 2)
             XCTAssertEqual(connection.drags.count, 5)
@@ -1039,7 +1039,7 @@ private struct DisconnectedChatProvider: ModelProvider {
     let configuration = ProviderConfiguration(name: Self.name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     let requestsScreenshot: Bool
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
-        let result = request.messages.first { $0.role == .tool }
+        let result = fixtureMessages(request).first { $0.role == .tool }
         if requestsScreenshot && result == nil {
             return ModelResponse(text: "", finishReason: .toolCalls,
                 toolCalls: [ModelToolCall(id: "screen", name: "screenshot", arguments: "{}")], request: request, providerName: Self.name)
@@ -1056,7 +1056,7 @@ private struct DisconnectedChatProvider: ModelProvider {
                     let response = try await complete(request)
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: nil)); continuation.finish()
+                    continuation.yield(.terminal(response)); continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }

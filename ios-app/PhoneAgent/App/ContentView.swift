@@ -23,6 +23,10 @@ struct ContentView: View {
     }
     var body: some View {
         NavigationStack(path: $path) { conversationScreen }
+            .sheet(isPresented: Binding(get: { sessions.migrationRequired }, set: { _ in })) {
+                historyMigration
+                    .interactiveDismissDisabled()
+            }
             .onOpenURL { url in
                 if url == URL(string: "phoneagent://home") {
                     consumedActivityNavigationID = model.activityNavigation?.id
@@ -77,7 +81,7 @@ struct ContentView: View {
         .environment(\.editMode, editModeBinding)
         .toolbar { conversationToolbar }
         .navigationDestination(for: UUID.self) { id in
-            ConversationView(model: model, conversationID: id).id(id)
+            ConversationView(model: model, conversationID: id, onRecovered: { path = [$0] }).id(id)
         }
         .sheet(item: $panel) { item in
             switch item {
@@ -87,6 +91,10 @@ struct ContentView: View {
     }
     private var emptyLibrary: some View {
         VStack(spacing: 12) {
+            if let warning = sessions.warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.footnote).foregroundStyle(.orange)
+            }
             Spacer()
             Image(systemName: "sparkle").font(.system(size: 46, weight: .light)).foregroundStyle(.blue)
                 .frame(width: 98, height: 98).background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 30))
@@ -97,6 +105,32 @@ struct ContentView: View {
             Spacer()
             Spacer()
         }.padding(28).frame(maxWidth: .infinity)
+    }
+    private var historyMigration: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text(String(localized: "Convert saved conversations and attachments to the new storage format. Your original data will be kept."))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    if let error = sessions.migrationError {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    if sessions.isMigrating {
+                        ProgressView(String(localized: "Migrating data…"))
+                    } else {
+                        Button(String(localized: "Start migration")) {
+                            Task { await sessions.migrateLegacyHistory() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("migrateConversationHistory")
+                    }
+                }.frame(maxWidth: .infinity).padding(24)
+            }
+            .navigationTitle(String(localized: "Data storage format migration"))
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
     private func routeActivityNavigation() {
         // A completion can arrive while UIKit is still displaying another app.

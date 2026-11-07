@@ -54,8 +54,8 @@ struct BackgroundConfiguration: Equatable, Sendable, Codable {
             return BackgroundSettingsStore(defaults: defaults, domain: domain)
         }
         #endif
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("PhoneAgent")
-        let installed = root.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("conversations-v1.json").path) } ?? false
+        let installed = SessionStorageLayout(root: SessionStorageLayout.defaultRoot).isInstalled
+            || FileManager.default.fileExists(atPath: SessionStorageLayout.defaultLegacyRoot.appendingPathComponent("conversations-v1.json").path)
         return BackgroundSettingsStore(existingInstallation: installed)
     }()
     @Published private(set) var configuration = BackgroundConfiguration(selected: [])

@@ -356,12 +356,12 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
             let action = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in false }, onImage: { _, _ in }, onReceipt: { _ in }, includeAccessibilityTree: true)
             do {
                 let result = try await action.execute(name: "screenshot", parameters: [:], callID: "ax-fixture")
-                guard let object = try JSONSerialization.jsonObject(with: Data(result.result.utf8)) as? [String: Any],
+                guard let object = try JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any],
                       let tree = object["accessibility"] as? [String: Any] else { throw NativeBackendError.malformedEvent }
                 let nodes = tree["nodes"] as? [[String: Any]] ?? []
                 let fixturePresent = nodes.contains { $0["identifier"] as? String == "ax-probe-button" && $0["label"] as? String == "AX test button" }
                 NSLog("AX probe: agent screenshot success=%d treeAvailable=%d fixture=%d nodes=%d",
-                      !result.isError, tree["status"] as? String == "available", fixturePresent, nodes.count)
+                      result.kind == .returned, tree["status"] as? String == "available", fixturePresent, nodes.count)
                 if ProcessInfo.processInfo.arguments.contains("--accessibility-overlay-probe"),
                    let image = result.images.first.flatMap({ UIImage(data: $0.data) }),
                    let node = nodes.first(where: { $0["identifier"] as? String == "ax-probe-button" }),

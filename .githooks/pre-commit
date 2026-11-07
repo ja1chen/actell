@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reject staged Xcode bundle identifier and signing team changes."""
 import json
+import re
 import subprocess
 import sys
 
@@ -38,7 +39,10 @@ def main():
         before = settings("HEAD", path)
         after = settings(None, path)
         changed = {key.split("[", 1)[0] for identity, key in before.keys() | after.keys()
-                   if before.get((identity, key)) != after.get((identity, key))}
+                   if before.get((identity, key)) != after.get((identity, key))
+                   and not (key == "DEVELOPMENT_TEAM" and after.get((identity, key)) == "$(ACTELL_DEVELOPMENT_TEAM)")
+                   and not (key == "PRODUCT_BUNDLE_IDENTIFIER" and isinstance(after.get((identity, key)), str)
+                            and re.fullmatch(r"\$\(ACTELL_BUNDLE_ID_PREFIX\)(?:Tests|UITests|\.LiveActivity)?", after[(identity, key)]))}
         if changed:
             blocked.append((path, changed))
     if not blocked:

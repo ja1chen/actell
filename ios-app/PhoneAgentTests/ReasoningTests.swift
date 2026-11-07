@@ -1,5 +1,5 @@
 import XCTest
-import SwiftAgentKit
+import AgentKit
 import ProviderCore
 import OpenAIAdapter
 @testable import PhoneAgent
@@ -46,7 +46,7 @@ final class ReasoningParsingTests: XCTestCase {
         _ = try decoder.finish()
     }
     func testCompleteResponsesUseSameAllowlistWithoutOpaqueRawData() throws {
-        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits())
+        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits(), sessionID: UUID())
         defer { provider.cancel() }
         for payload: [String: Any] in [
             ["reasoning": "readable"], ["reasoning_content": "readable"],
@@ -98,7 +98,7 @@ final class ReasoningParsingTests: XCTestCase {
         store.finish(run, phase: .stopped, summary: "")
         let other = store.create(mode: .live), next = try XCTUnwrap(store.begin(in: other, query: "other"))
         store.beginAssistantTurn(next)
-        AgentEventProjection.record(.reasoningChunk("LATE"), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.reasoningDelta(itemID: UUID(), text: "LATE"), run: run, frame: nil, in: store)
         XCTAssertNil(store.conversation(other)?.messages.last?.reasoning)
         XCTAssertEqual(store.conversation(id)?.messages.last?.reasoning?.text, "partial")
     }
@@ -148,8 +148,9 @@ private struct ReasoningBatchProvider: ModelProvider {
     func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
         AsyncThrowingStream { continuation in
             do {
-                XCTAssertFalse(request.messages.contains { $0.content.contains("READABLE_") || $0.content.contains("OPAQUE_") })
-                let results = request.messages.filter { $0.role == .tool }
+                let messages = fixtureMessages(request)
+                XCTAssertFalse(messages.contains { $0.content.contains("READABLE_") || $0.content.contains("OPAQUE_") })
+                let results = messages.filter { $0.role == .tool }
                 let delta: [String: Any], finish: String
                 if results.isEmpty {
                     delta = ["reasoning_content": "READABLE_FIRST", "tool_calls": (0...1).map { index in
@@ -165,7 +166,11 @@ private struct ReasoningBatchProvider: ModelProvider {
                 let line = "data: " + String(decoding: try JSONSerialization.data(withJSONObject: ["id": "fixture", "choices": [["delta": delta, "finish_reason": finish]]]), as: UTF8.self)
                 var decoder = ModelStreamDecoder()
                 for chunk in try decoder.consume(line: line, request: request) { continuation.yield(chunk) }
-                for chunk in try decoder.finish(previousCallIDs: Set(request.messages.flatMap { $0.toolCalls ?? [] }.map(\.id))) { continuation.yield(chunk) }
+                let fixtureScope = ProviderReplayScope(provider: Self.name, endpoint: configuration.baseURL.absoluteString, account: "fixture", model: request.model, session: UUID())
+                let parsed = try decoder.finalResponse(request: request, providerName: Self.name, scope: fixtureScope)
+                // This fixture has public synthetic reasoning blocks, without a live service replay identity.
+                continuation.yield(.terminal(ModelResponse(text: parsed.text, reasoning: parsed.reasoning, finishReason: parsed.finishReason,
+                    usage: parsed.usage, toolCalls: parsed.toolCalls, request: request, providerName: Self.name)))
                 continuation.finish()
             } catch { continuation.finish(throwing: error) }
         }

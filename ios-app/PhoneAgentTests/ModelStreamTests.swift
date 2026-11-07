@@ -75,11 +75,11 @@ final class ModelStreamTests: XCTestCase {
         XCTAssertThrowsError(try decoder.consume(line: line(["role": "assistant", "content": ""], finish: "length"), request: request))
         var truncated = ModelStreamDecoder()
         _ = try truncated.consume(line: line(["role": "assistant", "content": "partial"]), request: request)
-        _ = try truncated.consume(line: "data: [DONE]", request: request)
+        XCTAssertThrowsError(try truncated.consume(line: "data: [DONE]", request: request))
         XCTAssertThrowsError(try truncated.finish())
     }
     func testStreamingRequestUsesActualStreamFlag() throws {
-        let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic-test-only", limits: AgentLimits())
+        let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic-test-only", limits: AgentLimits(), sessionID: UUID())
         defer { provider.cancel() }
         let body = try XCTUnwrap(provider.prepareRequest(request, stream: true).httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -87,7 +87,7 @@ final class ModelStreamTests: XCTestCase {
         XCTAssertEqual(json["parallel_tool_calls"] as? Bool, true)
     }
     func testNonStreamingBatchPreservesIDsAndRejectsMissingOrRepeatedIdentity() throws {
-        let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits())
+        let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits(), sessionID: UUID())
         defer { provider.cancel() }
         func data(_ ids: [String?]) throws -> Data {
             let calls = ids.map { id -> [String: Any] in

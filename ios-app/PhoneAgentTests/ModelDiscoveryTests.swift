@@ -185,7 +185,8 @@ final class ModelDiscoveryTests: XCTestCase {
             return (200, #"{"capabilities":["vision","tools","completion"],"model_info":{"general.architecture":"sample","sample.context_length":2048},"parameters":"temperature 0.8"}"#)
         }
         let result = try await client.fetch(profile: profile(.ollama, base: "https://fixture.invalid/team"), key: "")
-        XCTAssertEqual(result.models[0].vision, .supported); XCTAssertEqual(result.models[0].inputTokenLimit, 2048)
+        XCTAssertEqual(result.models[0].vision, .supported); XCTAssertEqual(result.models[0].contextTokenLimit, 2048)
+        XCTAssertNil(result.models[0].inputTokenLimit, "A total context window is not an independent input maximum")
         XCTAssertNil(result.models[0].supportedParameters, "Defaults are not a parameter support schema")
         XCTAssertEqual(result.models[1].tools, .unknown); XCTAssertNotNil(result.models[1].detailNotice)
         XCTAssertTrue(ModelHTTPStub.requests.allSatisfy { !$0.url!.path.contains("chat") && $0.value(forHTTPHeaderField: "Authorization") == nil })
@@ -229,21 +230,21 @@ final class ModelDiscoveryTests: XCTestCase {
     func testInferenceUsesOnlyExplicitCompatibleParametersAndCorrectEndpoint() throws {
         let parameters = ModelParameters(values: ["temperature":"0.4", "max_tokens":"150", "seed":"2", "unknown":"private"])
         let metadata = DiscoveredModel(id: "a", name: "a", supportedParameters: ["temperature", "max_tokens"])
-        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/proxy/api/v1/", model: "a"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter, parameters: parameters, metadata: metadata)
+        let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/proxy/api/v1/", model: "a"), apiKey: "synthetic", limits: .init(), providerKind: .openRouter, parameters: parameters, metadata: metadata, sessionID: UUID())
         let request = try provider.prepareRequest(.init(model: "a", messages: [.user("test")], temperature: 1, maxTokens: 999, topP: 0.9), stream: false)
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
         XCTAssertEqual(request.url?.path, "/proxy/api/v1/chat/completions")
         XCTAssertEqual(body["temperature"] as? Double, 0.4); XCTAssertEqual(body["max_tokens"] as? Int, 150)
         XCTAssertNil(body["seed"]); XCTAssertNil(body["top_p"]); XCTAssertNil(body["unknown"])
         XCTAssertEqual(body["parallel_tool_calls"] as? Bool, true)
-        let ollama = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/proxy/api", model: "a"), apiKey: "", limits: .init(), providerKind: .ollama)
+        let ollama = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/proxy/api", model: "a"), apiKey: "", limits: .init(), providerKind: .ollama, sessionID: UUID())
         let o = try ollama.prepareRequest(.init(model: "a", messages: [.user("test")]), stream: false)
         XCTAssertEqual(o.url?.path, "/proxy/v1/chat/completions"); XCTAssertNil(o.value(forHTTPHeaderField: "Authorization"))
     }
     func testNativeProtocolsNeverFallBackToOpenAIInferenceAndUnknownIsNotFalse() throws {
         for kind in [ProviderKind.anthropic, .gemini] {
             XCTAssertThrowsError(try profile(kind).requireInference(model: "a"))
-            XCTAssertThrowsError(try PrivateVisionProvider(settings: profile(kind).settings, apiKey: "fixture", limits: .init(), providerKind: kind))
+            XCTAssertThrowsError(try PrivateVisionProvider(settings: profile(kind).settings, apiKey: "fixture", limits: .init(), providerKind: kind, sessionID: UUID()))
         }
         XCTAssertNoThrow(try profile().requireInference(model: "unknown-manual"))
         XCTAssertEqual(ModelParameter.temperature.support(providerKind: .openAI, model: nil), .unknown)

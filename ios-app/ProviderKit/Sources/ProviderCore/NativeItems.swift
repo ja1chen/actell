@@ -73,11 +73,16 @@ public enum JSONValue: Sendable, Equatable, Codable {
     }
     public func encode(to encoder: any Encoder) throws { var c = encoder.singleValueContainer(); switch self { case .null: try c.encodeNil(); case .bool(let b): try c.encode(b); case .number(let n): try c.encode(n); case .string(let s): try c.encode(s); case .array(let a): try c.encode(a); case .object(let o): try c.encode(o) } }
 }
-public struct ProviderScope: Sendable, Equatable, Codable {
+/// Stable replay identity. Request attempts and context epochs are separate identities.
+public struct ProviderReplayScope: Sendable, Equatable, Codable {
     public let provider: String, endpoint: String, account: String, project: String, model: String
-    public let run: UUID, branch: UUID
-    public init(provider: String, endpoint: String, account: String, project: String = "", model: String, run: UUID = UUID(), branch: UUID = UUID()) { self.provider = provider; self.endpoint = endpoint; self.account = account; self.project = project; self.model = model; self.run = run; self.branch = branch }
+    public let session: UUID
+    public init(provider: String, endpoint: String, account: String, project: String = "", model: String, session: UUID) {
+        self.provider = provider; self.endpoint = endpoint; self.account = account; self.project = project; self.model = model; self.session = session
+    }
+
 }
+public typealias ProviderScope = ProviderReplayScope
 public struct ScopedResponseID: Sendable, Equatable, Codable { public let value: String; public let scope: ProviderScope; public init(_ value: String, scope: ProviderScope) { self.value = value; self.scope = scope } }
 public enum ContextMode: Sendable, Equatable, Codable { case stateless, previousResponse(ScopedResponseID), conversation(String) }
 public enum StoragePolicy: String, Sendable, Codable { case none, responseChain }
@@ -85,8 +90,10 @@ public enum ExecutionMode: String, Sendable, Codable { case foreground, backgrou
 public enum ResponseStatus: String, Sendable, Codable { case queued, inProgress = "in_progress", completed, incomplete, failed, cancelled, unknown }
 public struct ProviderCapabilities: Sendable {
     public var foreground: Bool, streaming: Bool, stateless: Bool, responseChain: Bool
-    public let conversations = false, background = false, compaction = false, hostedTools = false, remoteCancel = false
-    public init(foreground: Bool = true, streaming: Bool = true, stateless: Bool = true, responseChain: Bool = true) { self.foreground = foreground; self.streaming = streaming; self.stateless = stateless; self.responseChain = responseChain }
+    public var compaction: Bool
+    public var chatReasoningContentReplay: Bool
+    public let conversations = false, background = false, hostedTools = false, remoteCancel = false
+    public init(foreground: Bool = true, streaming: Bool = true, stateless: Bool = true, responseChain: Bool = false, compaction: Bool = false, chatReasoningContentReplay: Bool = false) { self.chatReasoningContentReplay = chatReasoningContentReplay; self.compaction = compaction; self.foreground = foreground; self.streaming = streaming; self.stateless = stateless; self.responseChain = responseChain }
 }
 public struct APIErrorInfo: Sendable, Equatable, Codable { public let code: String; public let message: String; public init(code: String, message: String) { self.code = code; self.message = message } }
 public enum ModelOutputContent: Sendable, Equatable, Codable { case text(String, annotations: [JSONValue]), refusal(String) }
@@ -107,10 +114,21 @@ public struct ReasoningItem: Sendable, Equatable, Codable {
     public var encryptedContentForReplay: String? { opaque }
 }
 public struct ProviderOwnedItem: Sendable, Equatable, Codable { public let type: String; public let payload: JSONValue; public let scope: ProviderScope; public init(type: String, payload: JSONValue, scope: ProviderScope) { self.type = type; self.payload = payload; self.scope = scope } }
+public struct CompactionItem: Sendable, Equatable, Codable {
+    public let id: String?
+    public let scope: ProviderScope
+    public let extra: [String: JSONValue]
+    private let opaque: String
+    public var encryptedContentForReplay: String { opaque }
+    public init(id: String?, encryptedContent: String, scope: ProviderScope, extra: [String: JSONValue] = [:]) {
+        self.id = id; self.opaque = encryptedContent; self.scope = scope; self.extra = extra
+    }
+}
 public enum ModelOutputItem: Sendable, Equatable, Codable {
-    case message(OutputMessage), functionCall(ModelToolCall), reasoning(ReasoningItem), providerOwned(ProviderOwnedItem), unknown(ProviderOwnedItem)
+    case message(OutputMessage), functionCall(ModelToolCall), reasoning(ReasoningItem), compaction(CompactionItem), providerOwned(ProviderOwnedItem), unknown(ProviderOwnedItem)
     public func asReplayInput(scope: ProviderScope) throws -> ModelInputItem {
-        switch self { case .message(let m): guard m.scope == nil || m.scope == scope else { throw ModelError.protocolViolation("Message scope mismatch") }; return .replay(self)
+        switch self { case .compaction(let c): guard c.scope == scope else { throw ModelError.protocolViolation("Compaction scope mismatch") }; return .replay(self)
+        case .message(let m): guard m.scope == nil || m.scope == scope else { throw ModelError.protocolViolation("Message scope mismatch") }; return .replay(self)
         case .functionCall(let c): guard c.scope == nil || c.scope == scope else { throw ModelError.protocolViolation("Function scope mismatch") }; return .replay(self)
         case .reasoning(let r): guard r.scope == nil || r.scope == scope else { throw ModelError.protocolViolation("Reasoning scope mismatch") }; return .replay(self)
         case .providerOwned(let i), .unknown(let i): guard i.scope == scope else { throw ModelError.protocolViolation("Opaque scope mismatch") }; throw ModelError.unsupportedCapability("Unknown output cannot be replayed") }
@@ -121,6 +139,9 @@ public enum ModelInputItem: Sendable, Equatable, Codable {
     case message(role: ModelMessageRole, content: [ModelInputContent])
     case functionResult(callID: String, output: String)
     case replay(ModelOutputItem)
+    /// Canonical retained input returned by the verified compact endpoint.
+    case compacted(ProviderOwnedItem)
+    case chatReplayState(ScopedChatReplayState)
 }
 public enum ToolBatchValidator {
     public static func validate(_ calls: [ModelToolCall], previousCallIDs: Set<String> = []) throws {
@@ -132,11 +153,16 @@ public enum ToolBatchValidator {
 }
 
 /// Exact ordered gateway reasoning blocks, kept separately from visible reasoning.
-/// Valid only in the original provider/endpoint/account/model/run/branch scope.
+/// Valid only in the original provider/endpoint/account/model/session scope.
 public struct ScopedChatReplayState: Sendable, Equatable, Codable {
     public let scope: ProviderScope
     private let blocks: [JSONValue]
-    public init(scope: ProviderScope, reasoningDetails: [JSONValue]) { self.scope = scope; self.blocks = reasoningDetails }
+    private let originalReasoningContent: String?
+    public init(scope: ProviderScope, reasoningDetails: [JSONValue], reasoningContent: String? = nil) { self.scope = scope; self.blocks = reasoningDetails; self.originalReasoningContent = reasoningContent }
+    /// Exact provider continuation field, independent of the readable projection.
+    public func reasoningContentForReplay(scope: ProviderScope) throws -> String? {
+        guard self.scope == scope else { throw ModelError.protocolViolation("Chat reasoning scope mismatch") }; return originalReasoningContent
+    }
     public func reasoningDetailsForReplay(scope: ProviderScope) throws -> [JSONValue] {
         guard self.scope == scope else { throw ModelError.protocolViolation("Chat reasoning scope mismatch") }; return blocks
     }

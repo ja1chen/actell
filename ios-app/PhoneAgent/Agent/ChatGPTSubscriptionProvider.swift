@@ -11,7 +11,8 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
     let configuration: ProviderConfiguration
     private let profileID: UUID, account: String
     private let manager: ChatGPTAccountManager
-    private let codec: OpenAIWireCodec, context: ContextCoordinator, transport: ResponsesTransport
+    var replayScope: ProviderReplayScope { codec.scope }
+    private let codec: OpenAIWireCodec, transport: ResponsesTransport
     private let effort: String?
     private let failureLock = NSLock()
     private var failureMessage: String?
@@ -23,7 +24,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
     }
     var safeFailureMessage: String? { failureLock.withLock { failureMessage } }
     private func recordFailure(_ message: String?) { failureLock.withLock { failureMessage = message } }
-    init(profile: ProviderProfile, model: String, account: String, runID: UUID, checkpointFile: URL? = nil, manager: ChatGPTAccountManager = .shared, transport: ResponsesTransport = ResponsesTransport()) throws {
+    init(profile: ProviderProfile, model: String, account: String, sessionID: UUID, manager: ChatGPTAccountManager = .shared, transport: ResponsesTransport = ResponsesTransport()) throws {
         guard profile.providerKind == .chatGPTSubscription, profile.contextPolicy == .stateless,
               try profile.providerKind.baseURL(profile.settings.baseURL) == ChatGPTSubscriptionPolicy.resource, !model.isEmpty else { throw ChatGPTAuthError.disconnected }
         // Other profile parameters must be removed, never forwarded on this route.
@@ -31,21 +32,22 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         guard fields.keys.allSatisfy({ $0 == "reasoning_effort" }) else { throw AppError.invalid(String(localized: "ChatGPT subscriptions only support verified reasoning levels. Clear other model parameters.")) }
         effort = fields["reasoning_effort"] as? String
         configuration = .init(name: Self.name, baseURL: ChatGPTSubscriptionPolicy.resource, defaultModel: model)
-        let scope = ProviderScope(provider: Self.name, endpoint: ChatGPTSubscriptionPolicy.resource.absoluteString, account: account, model: model, run: runID, branch: UUID())
+        let scope = ProviderScope(provider: Self.name, endpoint: ChatGPTSubscriptionPolicy.resource.absoluteString, account: account, model: model, session: sessionID)
         codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
-        context = try ContextCoordinator(scope: scope, storage: .none, checkpointFile: checkpointFile)
         profileID = profile.id; self.account = account; self.manager = manager; self.transport = transport
     }
     func capabilities(for model: String) async throws -> ProviderCapabilities { guard model == configuration.defaultModel else { throw ModelError.unsupportedCapability("Model scope changed") }; return .init(responseChain: false) }
-    func cancel() { try? context.cancel(); transport.cancel() }
+    func cancel() { transport.cancel() }
     /// Encoding is independent of credentials so tests can inspect the official subset.
     func prepareRequest(_ request: ModelRequest, token: String) throws -> URLRequest {
         guard request.model == configuration.defaultModel, request.storage == .none, request.execution == .foreground, request.context == .stateless else { throw ModelError.invalidRequest("Subscription requires local stateless foreground context") }
-        let items = try request.input ?? ContextCoordinator.input(messages: request.messages.filter { $0.role != .system })
+        let items = try request.input ?? ModelInputProjection.input(messages: request.messages.filter { $0.role != .system })
         var input = try items.map(codec.inputObject)
-        let names = Set(request.tools.map(\.name))
         for i in input.indices where input[i]["type"] as? String == "function_call" {
-            guard let name = input[i]["name"] as? String, names.contains(name) else { throw ModelError.protocolViolation("Subscription tool replay scope changed") }
+            // Historical calls remain replayable after a tool/skill is disabled.
+            // Only newly generated calls must match the current advertised definitions.
+            guard let name = input[i]["name"] as? String, !name.isEmpty,
+                  input[i]["namespace"] == nil || input[i]["namespace"] as? String == "actell" else { throw ModelError.protocolViolation("Subscription tool replay scope changed") }
             input[i]["namespace"] = "actell"
         }
         var body: [String: Any] = ["model": request.model, "input": input, "stream": true, "store": false, "include": ["reasoning.encrypted_content"]]
@@ -56,10 +58,11 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
             body["tools"] = [["type": "namespace", "name": "actell", "description": "Actell local device tools", "tools": request.tools.map { ["type": "function", "name": $0.name, "description": $0.description, "parameters": $0.parameters, "strict": false] as [String: Any] }]]
         }
         if let effort { body["reasoning"] = ["effort": effort] }
+        if let key = request.cachePolicy?.key { body["prompt_cache_key"] = key }
         var outgoing = URLRequest(url: ChatGPTSubscriptionPolicy.resource.appendingPathComponent("responses"))
         outgoing.httpMethod = "POST"; outgoing.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         outgoing.setValue("application/json", forHTTPHeaderField: "Content-Type"); outgoing.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        outgoing.httpBody = try JSONSerialization.data(withJSONObject: body)
+        outgoing.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys, .withoutEscapingSlashes])
         guard outgoing.httpBody!.count <= 24 * 1024 * 1024 else { throw ModelError.invalidRequest("Subscription request exceeds limit") }
         return outgoing
     }
@@ -107,6 +110,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     case .functionCall(let call):
                         guard call.status == .completed else { throw ModelError.protocolViolation("Function item is not completed") }
                     case .reasoning: break
+                    case .compaction: throw ModelError.unsupportedCapability("Subscription native compaction is not enabled")
                     case .unknown, .providerOwned: throw ModelError.unsupportedCapability("Hosted/unknown output is not enabled")
                     }
                     let encoded = try codec.inputObject(.replay(value))
@@ -131,7 +135,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     let grant = try await manager.access(profileID: profileID, expectedAccount: account)
                     try Task.checkCancellation()
                     stage = "context.prepare"
-                    let prepared = try context.prepare(PortableContextRequest.normalized(request)), actual = prepared.request
+                    let actual = request
                     var reducer = ResponsesReducer(codec: codec, request: actual)
                     stage = "request.encode"
                     let outgoing = try prepareRequest(actual, token: grant.token)
@@ -150,8 +154,6 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                         if reducer.retainedUnknownEvent {
                             LLMDiagnostics.warning(LLMDiagnostics.retainedEvent(attempt: attempt, shape: shape))
                         }
-                        stage = "checkpoint.write"
-                        try context.recordStream(reducer.checkpoint, force: reducer.retainedExtensionEvent)
                         for event in events {
                             if case .terminal(let response) = event {
                                 if let code = response.error?.code, code == "subscription_sharing_usage_limit_exceeded" {
@@ -164,9 +166,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                                 stage = "terminal.validate"
                                 try ResponsesReducer.requireExecutable(response)
                                 try await manager.requireCurrent(grant, profileID: profileID); try Task.checkCancellation()
-                                stage = "context.commit"
-                                try context.commit(response, prepared: prepared)
-                                LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=context.commit outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
+                                LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=terminal.validated outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
                             }
                             if case .dropped = continuation.yield(event) { throw ModelError.protocolViolation("Subscription stream buffer exceeded") }
                         }
@@ -180,6 +180,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     recordDiagnostic(LLMDiagnostics.failure(error, attempt: attempt, stage: stage, shape: shape))
                     if safeFailureMessage == nil { recordFailure(Self.failureSummary(error)) }
                     if let admission = error as? ChatGPTAdmissionFailure {
+                        if admission.status == 400, admission.code == "context_length_exceeded" { continuation.finish(throwing: ModelError.rejectedBeforeAcceptance(reason: .contextCapacity)); return }
                         if admission.status == 401 { try? await manager.report(.expired, account: account) }
                         if admission.status == 429 { try? await manager.report(.usageLimited, account: account) }
                         continuation.finish(throwing: ModelError.providerError(admission.localizedDescription))

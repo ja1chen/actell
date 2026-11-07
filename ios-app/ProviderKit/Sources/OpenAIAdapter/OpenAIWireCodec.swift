@@ -11,9 +11,15 @@ public struct OpenAIWireCodec: Sendable {
     public let scope: ProviderScope
     public init(configuration: ProviderConfiguration, wire: OpenAIWireProtocol = .chatCompletions, scope: ProviderScope? = nil, capabilities: ProviderCapabilities = .init()) {
         self.configuration = configuration; self.wire = wire; self.capabilities = capabilities
-        self.scope = scope ?? ProviderScope(provider: configuration.name, endpoint: configuration.baseURL.absoluteString, account: "", model: configuration.defaultModel ?? "")
+        self.scope = scope ?? ProviderScope(provider: configuration.name, endpoint: configuration.baseURL.absoluteString, account: "", model: configuration.defaultModel ?? "", session: UUID())
     }
-    public func prepareRequest(_ request: ModelRequest, stream: Bool) throws -> URLRequest {
+    public func prepareRequest(_ original: ModelRequest, stream: Bool) throws -> URLRequest {
+        var request = original
+        if wire == .chatCompletions, let input = original.input {
+            request.messages = try chatMessages(input, instructions: original.instructions)
+            request.input = nil
+        }
+        guard scope.model.isEmpty || request.model == scope.model else { throw ModelError.protocolViolation("Request model scope mismatch") }
         if wire == .responses && !capabilities.responseChain {
             guard request.storage == .none, request.context == .stateless else { throw ModelError.unsupportedCapability("Endpoint supports stateless Responses only") }
         }
@@ -39,6 +45,8 @@ public struct OpenAIWireCodec: Sendable {
                 case .message(_, let content): try add(content)
                 case .functionResult(_, let text): bytes += text.utf8.count * 2
                 case .replay(let output): bytes += try JSONEncoder().encode(output).count
+                case .compacted(let item): bytes += try JSONEncoder().encode(item).count
+                case .chatReplayState(let item): bytes += try JSONEncoder().encode(item).count
                 }
                 guard bytes <= 24 * 1024 * 1024 else { throw ModelError.invalidRequest("模型请求超过 24 MiB 限制") }
             }
@@ -64,24 +72,20 @@ public struct OpenAIWireCodec: Sendable {
             var index = 0
             for i in encodedMessages.indices where encodedMessages[i]["role"] as? String == "assistant" {
                 if let state = assistants[index].replayState {
-                    encodedMessages[i]["reasoning_details"] = try state.reasoningDetailsForReplay(scope: scope).map(\.foundation)
+                    let details = try state.reasoningDetailsForReplay(scope: scope)
+                    if !details.isEmpty { encodedMessages[i]["reasoning_details"] = details.map(\.foundation) }
+                    if capabilities.chatReasoningContentReplay, !request.tools.isEmpty,
+                       let original = try state.reasoningContentForReplay(scope: scope) {
+                        encodedMessages[i]["reasoning_content"] = original
+                    }
                 }
                 index += 1
             }
             envelope["messages"] = encodedMessages
-            result.httpBody = try JSONSerialization.data(withJSONObject: envelope)
+            result.httpBody = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys, .withoutEscapingSlashes])
         } else {
-            let items = try request.input ?? ContextCoordinator.input(messages: request.messages)
+            let items = try request.input ?? ModelInputProjection.input(messages: request.messages)
             let objects = try items.map(inputObject)
-            let sdkItems: [InputItem] = try objects.map { object in
-                let data = try JSONSerialization.data(withJSONObject: object)
-                // SDK 0.5.2 InputItem's discriminator does not select function/
-                // reasoning directly; construct its typed .item case explicitly.
-                if object["type"] as? String == "message", object["role"] as? String != "assistant" {
-                    return .inputMessage(try JSONDecoder().decode(EasyInputMessage.self, from: data))
-                }
-                return .item(try JSONDecoder().decode(Components.Schemas.Item.self, from: data))
-            }
             let previous: String?
             switch request.context {
             case .stateless: previous = nil
@@ -93,7 +97,7 @@ public struct OpenAIWireCodec: Sendable {
             let tools: [Tool] = try request.tools.map { tool in
                 try JSONDecoder().decode(Tool.self, from: JSONSerialization.data(withJSONObject: ["type": "function", "name": tool.name, "description": tool.description, "parameters": tool.parameters, "strict": false]))
             }
-            let query = CreateModelResponseQuery(input: .inputItemList(sdkItems), model: request.model,
+            let query = CreateModelResponseQuery(input: .inputItemList([]), model: request.model,
                 include: [.init(rawValue: "reasoning.encrypted_content")!],
                 instructions: request.instructions ?? request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n"),
                 maxOutputTokens: request.maxTokens, parallelToolCalls: true, previousResponseId: previous,
@@ -104,16 +108,20 @@ public struct OpenAIWireCodec: Sendable {
                 tools: tools.isEmpty ? nil : tools, topP: request.topP)
             var envelope = try JSONSerialization.jsonObject(with: JSONEncoder().encode(query)) as! [String: Any]
             envelope["input"] = objects
-            result.httpBody = try JSONSerialization.data(withJSONObject: envelope)
+            result.httpBody = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys, .withoutEscapingSlashes])
+        }
+        if let policy = request.cachePolicy, let data = result.httpBody, var body = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let key = policy.key { body["prompt_cache_key"] = key }
+            if let retention = policy.retention { body["prompt_cache_retention"] = retention }
+            result.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys, .withoutEscapingSlashes])
         }
         guard (result.httpBody?.count ?? 0) <= 24 * 1024 * 1024 else { throw ModelError.invalidRequest("模型请求超过 24 MiB 限制") }
         return result
     }
     private func chatQuery(_ request: ModelRequest, stream: Bool) throws -> ChatQuery {
         var messages: [ChatQuery.ChatCompletionMessageParam] = []
-        let last = request.messages.lastIndex { $0.role != .user && !$0.images.isEmpty }
-        for (index, m) in request.messages.enumerated() {
-            let images = m.role == .user || index == last ? m.images : []
+        for m in request.messages {
+            let images = m.images
             switch m.role {
             case .system: messages.append(.system(.init(content: .textContent(m.content))))
             case .user: messages.append(try userMessage(m.content, images: images))
@@ -155,6 +163,11 @@ public struct OpenAIWireCodec: Sendable {
                 switch value { case .text(let t): return ["type": "input_text", "text": t]; case .image(let i): return ["type": "input_image", "image_url": try imageURL(i), "detail": "auto"] }
             }]
         case .functionResult(let id, let output): return ["type": "function_call_output", "call_id": id, "output": output]
+        case .chatReplayState: throw ModelError.unsupportedCapability("Chat replay state cannot enter Responses input")
+        case .compacted(let item):
+            guard item.scope == scope, let payload = item.payload.foundation as? [String: Any], payload["type"] as? String == item.type else { throw ModelError.protocolViolation("Compacted input scope/type mismatch") }
+            try Self.validateCompactedInput(payload)
+            return payload
         case .replay(let output):
             _ = try output.asReplayInput(scope: scope)
             switch output {
@@ -168,6 +181,10 @@ public struct OpenAIWireCodec: Sendable {
                 guard r.scope == nil || r.scope == scope else { throw ModelError.protocolViolation("Reasoning scope mismatch") }
                 var o: [String: Any] = ["type": "reasoning", "id": r.id, "summary": r.summary.map { ["type": "summary_text", "text": $0] }]
                 if let encrypted = r.encryptedContentForReplay { o["encrypted_content"] = encrypted }; for (key, value) in r.extra { o[key] = value.foundation }; return o
+            case .compaction(let c):
+                var object = c.extra.mapValues(\.foundation)
+                object["type"] = "compaction"; object["encrypted_content"] = c.encryptedContentForReplay
+                if let id = c.id { object["id"] = id }; return object
             case .unknown, .providerOwned: throw ModelError.unsupportedCapability("Unknown/hosted output cannot be replayed")
             }
         }
@@ -182,7 +199,8 @@ public struct OpenAIWireCodec: Sendable {
         // Compatible gateways may omit envelope metadata; only fill fields that
         // cannot affect execution. IDs/arguments are never synthesized.
         object["id"] = object["id"] ?? request.id.uuidString; object["created"] = object["created"] ?? 0; object["model"] = object["model"] ?? request.model; object["object"] = object["object"] ?? "chat.completion"
-        choices[0]["index"] = choices[0]["index"] ?? 0; object["choices"] = choices
+        choices[0]["index"] = choices[0]["index"] ?? 0
+        choices[0]["message"] = ReadableReasoningDecoder.removingFields(from: message); object["choices"] = choices
         let sdk = try JSONDecoder().decode(ChatResult.self, from: JSONSerialization.data(withJSONObject: object))
         let calls = wireCalls.map { c -> ModelToolCall in
             let f = c["function"] as? [String: Any] ?? [:]
@@ -191,7 +209,11 @@ public struct OpenAIWireCodec: Sendable {
         try ToolBatchValidator.validate(calls, previousCallIDs: Set(request.messages.flatMap { $0.toolCalls ?? [] }.map(\.id)))
         let reason = ModelFinishReason(rawValue: choices[0]["finish_reason"] as? String ?? "") ?? .unknown
         guard reason == .stop || reason == .toolCalls else { throw ModelError.protocolViolation("Chat response did not complete successfully") }
-        return ModelResponse(text: sdk.choices.first?.message.content ?? "", finishReason: reason, usage: Self.usage(object["usage"] as? [String: Any]), toolCalls: calls, request: request, providerName: configuration.name)
+        let details = try (message["reasoning_details"] as? [[String: Any]])?.map { try JSONValue(any: $0) }
+        let originalReasoningContent = message["reasoning_content"] as? String
+        let replay: ScopedChatReplayState? = details?.isEmpty == false || originalReasoningContent != nil
+            ? .init(scope: scope, reasoningDetails: details ?? [], reasoningContent: originalReasoningContent) : nil
+        return ModelResponse(text: sdk.choices.first?.message.content ?? "", reasoning: ReadableReasoningDecoder.text(in: message), finishReason: reason, usage: Self.usage(object["usage"] as? [String: Any]), toolCalls: calls, request: request, providerName: configuration.name, replayState: replay)
     }
     public func nativeResponse(_ object: [String: Any], request: ModelRequest) throws -> ModelResponse {
         guard let id = object["id"] as? String, !id.isEmpty, let rawStatus = object["status"] as? String, let output = object["output"] as? [[String: Any]] else { throw ModelError.protocolViolation("Response envelope missing ID/status/output") }
@@ -209,6 +231,10 @@ public struct OpenAIWireCodec: Sendable {
     }
     public func outputItem(_ object: [String: Any]) throws -> ModelOutputItem {
         guard let type = object["type"] as? String else { throw ModelError.protocolViolation("Output missing type") }
+        if type == "compaction" {
+            guard let encrypted = object["encrypted_content"] as? String, !encrypted.isEmpty else { throw ModelError.protocolViolation("Compaction missing encrypted content") }
+            return .compaction(.init(id: object["id"] as? String, encryptedContent: encrypted, scope: scope, extra: try object.filter { !["type", "id", "encrypted_content"].contains($0.key) }.mapValues { try JSONValue(any: $0) }))
+        }
         guard ["message", "reasoning", "function_call"].contains(type) else { return .unknown(.init(type: type, payload: try JSONValue(any: object), scope: scope)) }
         // Decode with the fixed MacPaw schema to reject malformed known items.
         var sdkObject = object
@@ -253,7 +279,8 @@ public struct OpenAIWireCodec: Sendable {
         guard let o = object else { return nil }
         return ModelUsage(promptTokens: o["input_tokens"] as? Int ?? o["prompt_tokens"] as? Int,
             completionTokens: o["output_tokens"] as? Int ?? o["completion_tokens"] as? Int, totalTokens: o["total_tokens"] as? Int,
-            cachedTokens: (o["input_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int ?? (o["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int,
-            reasoningTokens: (o["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int)
+            cachedTokens: (o["input_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int ?? (o["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int ?? o["prompt_cache_hit_tokens"] as? Int,
+            reasoningTokens: (o["output_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int ?? (o["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int,
+            cacheWriteTokens: (o["input_tokens_details"] as? [String: Any])?["cache_write_tokens"] as? Int ?? (o["prompt_tokens_details"] as? [String: Any])?["cache_write_tokens"] as? Int)
     }
 }

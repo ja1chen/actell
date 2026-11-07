@@ -118,19 +118,33 @@ def configs(name, settings):
                  ONLY_ACTIVE_ARCH="YES" if configuration == "Debug" else "NO")
         if configuration == "Debug":
             s.update(ENABLE_TESTABILITY="YES", SWIFT_ACTIVE_COMPILATION_CONDITIONS="DEBUG $(inherited)")
-        ids.append(add(name + configuration, "XCBuildConfiguration", name=configuration, buildSettings=s))
+        ids.append(add(name + configuration, "XCBuildConfiguration", name=configuration, buildSettings=s, **({"baseConfigurationReference": uid("SigningConfig")} if name != "Project" else {})))
     return add(name + "Configurations", "XCConfigurationList", buildConfigurations=ids, defaultConfigurationIsVisible=0, defaultConfigurationName="Release")
 
 
-def generate(*, ignore_env=False):
-    environment = {} if ignore_env else os.environ
-    prefix = environment.get("ACTELL_BUNDLE_ID_PREFIX", "").strip()
-    prefix = prefix.removesuffix(".") if prefix else "com.ja1chen.PhoneAgent"
-    if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*", prefix):
-        raise ValueError("ACTELL_BUNDLE_ID_PREFIX must contain dot-separated letters, digits or hyphens")
-    team = environment.get("ACTELL_DEVELOPMENT_TEAM", "").strip()
+def update_local_signing():
+    """Persist nonempty environment overrides without discarding other local settings."""
+    values = {key: os.environ.get(key, "").strip() for key in
+              ("ACTELL_BUNDLE_ID_PREFIX", "ACTELL_DEVELOPMENT_TEAM")}
+    values = {key: value for key, value in values.items() if value}
+    if not values:
+        return
+    for key, value in values.items():
+        pattern = r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*" if key == "ACTELL_BUNDLE_ID_PREFIX" else r"[A-Za-z0-9]+"
+        if not re.fullmatch(pattern, value):
+            raise ValueError(f"Invalid {key}")
+    path = ROOT / "Config/Local.xcconfig"
+    lines = path.read_text().splitlines() if path.exists() else []
+    for key, value in values.items():
+        lines = [line for line in lines if not re.match(rf"^\s*{key}\s*=", line)]
+        lines.append(f"{key} = {value}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def generate():
     packages = [
-        add("SwiftAgentKit", "XCLocalSwiftPackageReference", relativePath="Vendor/SwiftAgentKit"),
+        add("AgentKit", "XCLocalSwiftPackageReference", relativePath="AgentKit"),
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
         add("MarkdownUI", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/gonzalezreal/swift-markdown-ui.git",
             requirement=dict(kind="exactVersion", version="2.4.1")),
@@ -190,7 +204,7 @@ def generate(*, ignore_env=False):
                       includeInIndex=0, path=name + "." + extension, sourceTree="BUILT_PRODUCTS_DIR")
         products.append(product)
         package_products, frameworks = [], []
-        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("SwiftAgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
+        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("AgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
         # Hosted tests resolve X509 through the app's BUNDLE_LOADER. Linking its
         # product into both promotes transitive Crypto to an empty dynamic
         # framework on Xcode 27, which fails before the app can compile.
@@ -207,8 +221,8 @@ def generate(*, ignore_env=False):
         phases = [add(name + "Sources", "PBXSourcesBuildPhase", buildActionMask=2147483647, files=sources, runOnlyForDeploymentPostprocessing=0),
                   add(name + "Frameworks", "PBXFrameworksBuildPhase", buildActionMask=2147483647, files=frameworks, runOnlyForDeploymentPostprocessing=0),
                   add(name + "Resources", "PBXResourcesBuildPhase", buildActionMask=2147483647, files=resources, runOnlyForDeploymentPostprocessing=0)]
-        settings = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER=prefix + bundle_suffix,
-                        CODE_SIGN_STYLE="Automatic", DEVELOPMENT_TEAM=team, GENERATE_INFOPLIST_FILE="YES",
+        settings = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="$(ACTELL_BUNDLE_ID_PREFIX)" + bundle_suffix,
+                        CODE_SIGN_STYLE="Automatic", DEVELOPMENT_TEAM="$(ACTELL_DEVELOPMENT_TEAM)", GENERATE_INFOPLIST_FILE="YES",
                         TARGETED_DEVICE_FAMILY="1,2", SUPPORTED_PLATFORMS="iphoneos iphonesimulator",
                         SUPPORTS_MACCATALYST="NO", MARKETING_VERSION="0.1.0", CURRENT_PROJECT_VERSION="1",
                         LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"])
@@ -252,6 +266,8 @@ def generate(*, ignore_env=False):
         targets.append(add(name + "Target", "PBXNativeTarget", name=name, productName=name, productReference=product,
                            productType="com.apple.product-type." + product_type, buildConfigurationList=configs(name, settings),
                            buildPhases=phases, buildRules=[], dependencies=dependencies, packageProductDependencies=package_products))
+    config = add("SigningConfig", "PBXFileReference", lastKnownFileType="text.xcconfig", path="Config/Base.xcconfig", sourceTree="SOURCE_ROOT")
+    groups.append(config)
     products_group = add("Products", "PBXGroup", name="Products", children=products, sourceTree="<group>")
     main_group = add("RootGroup", "PBXGroup", children=groups + [products_group], sourceTree="<group>")
     common = dict(APP_DISPLAY_NAME="Actell", SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete", SWIFT_EMIT_LOC_STRINGS="YES",
@@ -287,10 +303,9 @@ def generate(*, ignore_env=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("-d", "--defaults", action="store_true",
-                        help="Ignore environment overrides and generate the project with default settings.")
-    args = parser.parse_args(argv)
-    generate(ignore_env=args.defaults)
+    parser.parse_args(argv)
+    update_local_signing()
+    generate()
 
 
 if __name__ == "__main__":

@@ -47,7 +47,18 @@ struct ToolStep: Codable, Sendable, Equatable {
     var skillName: String?
     var displayArguments: String? { Self.nonemptyArguments(arguments) }
     var displayResult: String {
-        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return result }
+        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard name == "screenshot",
+                  var object = (try? JSONSerialization.jsonObject(with: Data(result.utf8))) as? [String: Any],
+                  let observation = object["accessibility"] as? [String: Any],
+                  let nodes = observation["nodes"] as? [[String: Any]] else { return result }
+            // Derive display details without changing the persisted tool result or model context.
+            var summary: [String: Any] = ["status": observation["status"] as? String ?? "unavailable", "nodeCount": nodes.count]
+            if let reason = observation["reason"] as? String { summary["reason"] = reason }
+            object["accessibility"] = summary
+            guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return result }
+            return String(decoding: data, as: UTF8.self)
+        }
         switch state {
         case .cancelled: return String(localized: "This call was canceled. Its result was not saved.")
         case .interrupted: return String(localized: "Execution was interrupted. Its result was not saved.")
@@ -102,7 +113,7 @@ struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
     var attachments: [StoredAttachment]?
     var reasoning: ReasoningMessage?
 }
-struct AgentConversation: Identifiable, Codable, Sendable {
+struct AgentConversation: Identifiable, Codable, Sendable, Equatable {
     var id = UUID()
     var title = String(localized: "New conversation")
     var mode: RunMode
@@ -116,8 +127,15 @@ struct AgentConversation: Identifiable, Codable, Sendable {
     var recoveryNotices: [String: String]?
     var phase: RunPhase = .idle
     var messages: [ChatMessage] = []
+    /// Derived list cache; never part of the authoritative history encoding.
+    var cachedPreview: String? = nil
+    private enum CodingKeys: String, CodingKey {
+        case id, title, mode, createdAt, updatedAt, entry, draft, draftAttachments
+        case providerID, modelID, recoveryNotices, phase, messages
+    }
     var preview: String {
         if entry?.state == .pendingConfirmation { return String(localized: "Siri · Awaiting confirmation: \(draft)") }
+        if let cachedPreview { return cachedPreview }
         return messages.last(where: { $0.role == .user || $0.role == .assistant })?.text ?? String(localized: "Start a new task or question")
     }
 }

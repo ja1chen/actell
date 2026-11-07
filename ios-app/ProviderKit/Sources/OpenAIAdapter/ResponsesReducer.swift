@@ -138,7 +138,7 @@ public struct ResponsesReducer: Sendable {
             response = result; return [.terminal(result)]
         case "error": throw ModelError.providerError("模型流返回错误；没有自动重试")
         default:
-            guard retainedEvents.count < 128, retainedBytes + canonical.count <= 512 * 1024 else { throw ModelError.protocolViolation("Stream extension limit") }
+            guard retainedEvents.count < 128, retainedBytes + canonical.count <= 512 * 1024 else { return [] }
             if let direct = o["response_id"] as? String, let nested = (o["response"] as? [String: Any])?["id"] as? String, direct != nested { throw ModelError.protocolViolation("Response scope changed") }
             let hint = o["response_id"] as? String ?? (o["response"] as? [String: Any])?["id"] as? String
             if let responseID, let hint, hint != responseID { throw ModelError.protocolViolation("Response scope changed") }

@@ -1,5 +1,7 @@
 import XCTest
 import UIKit
+import AgentKit
+import ProviderCore
 @testable import PhoneAgent
 
 @MainActor final class AttachmentStoreTests: XCTestCase {
@@ -14,6 +16,59 @@ import UIKit
             UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 40))
         }
     }
+    func testRuntimeImageAndPreviewRemainReadableThroughSandboxDirectoryAlias() async throws {
+        let root = try directory(), actual = root.appendingPathComponent("actual/Documents"), alias = root.appendingPathComponent("alias/Documents")
+        let id = UUID(), data = png(), writer = AttachmentStore(directory: actual)
+        let attachment = try await writer.store(data, name: "screen.png", conversationID: id)
+        try FileManager.default.createSymbolicLink(at: alias.deletingLastPathComponent(), withDestinationURL: actual.deletingLastPathComponent())
+        let images = try SessionStorageLayout(root: actual).directory(for: id).appendingPathComponent("attachments")
+        try FileManager.default.moveItem(at: images.appendingPathComponent("\(attachment.id)/original"), to: images.appendingPathComponent(attachment.digest))
+        try FileManager.default.removeItem(at: images.appendingPathComponent(attachment.id.uuidString))
+        let reader = AttachmentStore(directory: alias)
+        let original = try await reader.read(attachment, conversationID: id)
+        let preview = try await reader.preview(attachment, conversationID: id)
+        XCTAssertEqual(original, data)
+        XCTAssertNotNil(UIImage(data: preview))
+    }
+    func testOriginalCanBeSavedThroughSandboxDirectoryAlias() async throws {
+        let root = try directory(), actual = root.appendingPathComponent("actual/Documents"), alias = root.appendingPathComponent("alias/Documents")
+        try FileManager.default.createDirectory(at: actual, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias.deletingLastPathComponent(), withDestinationURL: actual.deletingLastPathComponent())
+        let store = AttachmentStore(directory: alias), id = UUID(), data = png()
+        let attachment = try await store.store(data, name: "screen.png", conversationID: id)
+        let original = try await store.read(attachment, conversationID: id)
+        XCTAssertEqual(original, data)
+    }
+    func testAttachmentDirectorySymlinkCannotEscapeSession() async throws {
+        let root = try directory(), documents = root.appendingPathComponent("documents"), outside = root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        try ConversationJournal.install([], in: documents)
+        let id = UUID(), session = try SessionStorageLayout(root: documents).ensureDirectory(for: id, createdAt: Date())
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: session.appendingPathComponent("attachments"), withDestinationURL: outside)
+        do { _ = try await AttachmentStore(directory: documents).store(png(), name: "screen.png", conversationID: id); XCTFail("Escaped the session") } catch {}
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+    }
+    func testRuntimeImageFallbackVerifiesBytesAndDoesNotDeleteJournalImages() async throws {
+        let root = try directory(), id = UUID(), data = png(), store = AttachmentStore(directory: root)
+        let attachment = try await store.store(data, name: "screen.png", conversationID: id)
+        let images = try SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments")
+        let original = images.appendingPathComponent("\(attachment.id)/original")
+        let runtimeImage = images.appendingPathComponent(attachment.digest)
+        try FileManager.default.moveItem(at: original, to: runtimeImage)
+        let restored = try await store.read(attachment, conversationID: id)
+        XCTAssertEqual(restored, data)
+        _ = try await store.removeUnreferenced(keeping: [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runtimeImage.path))
+        do { _ = try await store.read(attachment, conversationID: UUID()); XCTFail("Cross-session image read") } catch {}
+        try Data("corrupt".utf8).write(to: runtimeImage)
+        do { _ = try await store.read(attachment, conversationID: id); XCTFail("Corrupt runtime image read") } catch {}
+        try FileManager.default.removeItem(at: runtimeImage)
+        let outside = root.appendingPathComponent("outside.png")
+        try data.write(to: outside)
+        try FileManager.default.createSymbolicLink(at: runtimeImage, withDestinationURL: outside)
+        do { _ = try await store.read(attachment, conversationID: id); XCTFail("Symlink runtime image read") } catch {}
+    }
     func testImageOriginalSurvivesRestartAndPreviewAndSendAreDerivedLocally() async throws {
         let root = try directory(), id = UUID(), data = png()
         let store = AttachmentStore(directory: root)
@@ -27,7 +82,7 @@ import UIKit
         let encoded = try JSONEncoder().encode(attachment)
         XCTAssertLessThan(encoded.count, 1500)
         XCTAssertFalse(String(data: encoded, encoding: .utf8)!.contains(data.base64EncodedString()))
-        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, false)
     }
     func testDuplicateContentIsDeduplicatedOnlyWithinItsConversation() async throws {
         let root = try directory(), store = AttachmentStore(directory: root), a = UUID(), b = UUID(), data = png()
@@ -59,7 +114,7 @@ import UIKit
         do { _ = try await store.importFile(alias, conversationID: id); XCTFail("symlink import") } catch {}
         let item = try await store.store(png(), name: "../../picture.png", conversationID: id)
         XCTAssertEqual(item.name, "picture.png")
-        let original = root.appendingPathComponent("store/\(id)/\(item.id)/original")
+        let original = try SessionStorageLayout(root: root.appendingPathComponent("store")).directory(for: id).appendingPathComponent("attachments/\(item.id)/original")
         try FileManager.default.removeItem(at: original)
         try FileManager.default.createSymbolicLink(at: original, withDestinationURL: file)
         do { _ = try await store.read(item, conversationID: id); XCTFail("symlink read") } catch {}
@@ -72,10 +127,29 @@ import UIKit
         let kept = try await store.removeUnreferenced(keeping: [item]); XCTAssertEqual(kept, 0)
         let removed = try await store.removeUnreferenced(keeping: []); XCTAssertEqual(removed, 1)
     }
+    func testCleanupPreservesInlineModelImageFilesAndAttachmentMetadata() async throws {
+        let root = try directory(), sessions = ConversationStore(directory: root), id = sessions.create(mode: .demo)
+        let resources = AttachmentStore(directory: root), bytes = png()
+        let user = try await resources.store(Data("referenced text".utf8), name: "retained.txt", conversationID: id)
+        let orphan = try await resources.store(Data("unreferenced text".utf8), name: "orphan.txt", conversationID: id)
+        let engine = try sessions.engineStore(for: id)
+        _ = try engine.appendSync(.init(sessionID: id, kind: .turnStarted, contextItems: [.message(role: .user, content: [.image(.init(data: bytes))])]), expecting: 0)
+        let folder = try sessions.sessionDirectory(id), attachments = folder.appendingPathComponent("attachments")
+        let modelFiles = try FileManager.default.contentsOfDirectory(at: attachments, includingPropertiesForKeys: [.isRegularFileKey]).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+        XCTAssertEqual(modelFiles.count, 1)
+        let removed = try await resources.removeUnreferenced(keeping: [user]); XCTAssertEqual(removed, 1)
+        XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(modelFiles.first)), bytes)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: attachments.appendingPathComponent(user.id.uuidString).appendingPathComponent("metadata.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attachments.appendingPathComponent(orphan.id.uuidString).path))
+        let context = try engine.loadContextSync(id)
+        let images = context.items.flatMap { item -> [ModelImage] in if case .message(_, let parts) = item { return parts.compactMap { if case .image(let image) = $0 { return image }; return nil } }; return [] }
+        XCTAssertEqual(try images.first?.bytes(), bytes)
+    }
+
     func testDamagedOriginalCanBeRepairedWithVerifiedReplacementBytes() async throws {
         let root = try directory(), store = AttachmentStore(directory: root), id = UUID(), data = png()
         let item = try await store.store(data, name: "image.png", conversationID: id)
-        try Data("damaged".utf8).write(to: root.appendingPathComponent("\(id)/\(item.id)/original"))
+        try Data("damaged".utf8).write(to: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments/\(item.id)/original"))
         do { _ = try await store.read(item, conversationID: id); XCTFail("corrupt") } catch {}
         let repaired = try await store.store(data, name: "image.png", conversationID: id)
         XCTAssertEqual(repaired.id, item.id)

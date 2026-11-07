@@ -36,7 +36,7 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
         let run = sessions.begin(in: id, query: "![synthetic](\(source.absoluteString))")!
         sessions.finish(run, phase: .completed, summary: "")
         let model = AgentViewModel(sessions: sessions, loadPersistentState: false,
-            attachments: AttachmentStore(directory: root.appendingPathComponent("assets")))
+            attachments: AttachmentStore(directory: root))
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         HistoryImageHTTPStub.bytes = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 20), format: format).pngData { context in
             UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 32, height: 20))
@@ -52,7 +52,7 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
         HistoryImageHTTPStub.status = 403
         let restored = ConversationStore(directory: root)
         let reopened = AgentViewModel(sessions: restored, loadPersistentState: false,
-            attachments: AttachmentStore(directory: root.appendingPathComponent("assets")))
+            attachments: AttachmentStore(directory: root))
         let cached = try await reopened.cacheMessageImage(source, messageID: messageID, conversationID: id, downloader: downloader)
         XCTAssertEqual(cached, asset); XCTAssertEqual(HistoryImageHTTPStub.calls, 1)
         let bytes = try await reopened.attachments.read(cached, conversationID: id)
@@ -67,7 +67,7 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
         catch { XCTAssertTrue(error.localizedDescription.contains("无法恢复")) }
         HistoryImageHTTPStub.status = 200
         let asset = try await model.cacheMessageImage(source, messageID: messageID, conversationID: id, downloader: downloader)
-        try FileManager.default.removeItem(at: root.appendingPathComponent("assets/\(id)/\(asset.id)/original"))
+        try FileManager.default.removeItem(at: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments/\(asset.id)/original"))
         _ = try await model.cacheMessageImage(source, messageID: messageID, conversationID: id, downloader: downloader)
         let read = try await model.attachments.read(asset, conversationID: id); XCTAssertEqual(read, HistoryImageHTTPStub.bytes)
         XCTAssertEqual(model.sessions.referencedAttachments.count, 1)
@@ -82,7 +82,7 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
     func testRetryWithChangedSourceReplacesMissingReferenceAndPersistsNewOriginal() async throws {
         let (root, sessions, model, id, messageID, downloader) = try setup()
         let old = try await model.cacheMessageImage(source, messageID: messageID, conversationID: id, downloader: downloader)
-        try FileManager.default.removeItem(at: root.appendingPathComponent("assets/\(id)/\(old.id)/original"))
+        try FileManager.default.removeItem(at: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("attachments/\(old.id)/original"))
         HistoryImageHTTPStub.bytes = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 16)).pngData { context in
             UIColor.systemRed.setFill(); context.fill(CGRect(x: 0, y: 0, width: 24, height: 16))
         }
@@ -107,7 +107,7 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
         XCTAssertTrue(sessions.conversations.isEmpty)
         let removed = try await model.clearUnreferencedAttachments(); XCTAssertEqual(removed, 0)
     }
-    func testHistoryTrimKeepsReferencedOriginalAndToolPresentationAfterRestart() async throws {
+    func testLongHistoryKeepsAllMessagesAndReferencedOriginalAfterRestart() async throws {
         let (root, sessions, model, id, _, _) = try setup()
         let run = sessions.begin(in: id, query: "observe")!
         sessions.updateTool(callID: "screen", name: "screenshot", state: .succeeded, identity: run)
@@ -121,6 +121,6 @@ private final class HistoryImageHTTPStub: URLProtocol, @unchecked Sendable {
         let message = try XCTUnwrap(restored.conversation(id)?.messages.first { $0.tool != nil })
         XCTAssertEqual(adapter.presentation(for: message)?.attachments, [asset])
         XCTAssertNil(adapter.presentation(for: message)?.image); XCTAssertNil(adapter.presentation(for: message)?.approval)
-        XCTAssertEqual(restored.conversation(id)?.messages.count, 200)
+        XCTAssertEqual(restored.conversation(id)?.messages.count, 223)
     }
 }

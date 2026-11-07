@@ -17,8 +17,8 @@ settings:
     Release:
       ONLY_ACTIVE_ARCH: NO
 packages:
-  SwiftAgentKit:
-    path: Vendor/SwiftAgentKit
+  AgentKit:
+    path: AgentKit
   ProviderKit:
     path: ProviderKit
   MarkdownUI:
@@ -68,8 +68,8 @@ targets:
     dependencies:
       - target: PhoneAgentLiveActivity
         embed: true
-      - package: SwiftAgentKit
-        product: SwiftAgentKit
+      - package: AgentKit
+        product: AgentKit
       - package: ProviderKit
         product: ProviderCore
       - package: ProviderKit
@@ -96,8 +96,8 @@ targets:
         HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
     dependencies:
       - target: PhoneAgent
-      - package: SwiftAgentKit
-        product: SwiftAgentKit
+      - package: AgentKit
+        product: AgentKit
       - package: ProviderKit
         product: ProviderCore
       - package: ProviderKit
