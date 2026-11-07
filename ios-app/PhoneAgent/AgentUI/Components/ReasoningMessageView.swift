@@ -15,10 +15,10 @@ struct ReasoningMessageView: View {
             HStack(spacing: 8) {
                 MessageHeaderIcon(systemName: "brain")
                 Text(String(localized: "Reasoning")).font(.body)
-                Spacer(minLength: 8)
             }.foregroundStyle(.secondary)
                 .accessibilityIdentifier("reasoningDisclosure-\(messageID)")
-        }.tint(.secondary).padding(.vertical, 2)
+        }.tint(.secondary)
+        .padding(.vertical, -2)
     }
 }
 
@@ -33,16 +33,21 @@ extension EnvironmentValues {
 }
 
 /// Pause following before expansion changes layout, including nested tool folds.
-struct ConversationDisclosureGroup<Content: View, Label: View>: View {
+struct ConversationDisclosureGroup<Content: View, Label: View, Trailing: View>: View {
     @Environment(\.conversationDisclosureChanged) private var changed
     @State private var expanded = false
     private let externalExpansion: Binding<Bool>?
     private let content: Content
     private let label: Label
-    init(isExpanded: Binding<Bool>? = nil, @ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) {
+    private let trailing: Trailing
+    init(isExpanded: Binding<Bool>? = nil, @ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label, @ViewBuilder trailing: () -> Trailing) {
         externalExpansion = isExpanded
         self.content = content()
         self.label = label()
+        self.trailing = trailing()
+    }
+    init(isExpanded: Binding<Bool>? = nil, @ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) where Trailing == EmptyView {
+        self.init(isExpanded: isExpanded, content: content, label: label, trailing: { EmptyView() })
     }
     var body: some View {
         DisclosureGroup(isExpanded: Binding(
@@ -53,13 +58,14 @@ struct ConversationDisclosureGroup<Content: View, Label: View>: View {
                 else { expanded = value }
             }
         )) { content } label: { label }
-        .disclosureGroupStyle(ConversationDisclosureStyle())
+        .disclosureGroupStyle(ConversationDisclosureStyle(trailing: trailing))
     }
 }
 
-/// The whole header is one button, including the spacer and trailing chevron.
+/// The whole header is one button, with the chevron beside its label.
 /// Toggle without a layout animation so the next tap targets the same header.
-private struct ConversationDisclosureStyle: DisclosureGroupStyle {
+private struct ConversationDisclosureStyle<Trailing: View>: DisclosureGroupStyle {
+    let trailing: Trailing
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -68,11 +74,10 @@ private struct ConversationDisclosureStyle: DisclosureGroupStyle {
                 withTransaction(transaction) { configuration.isExpanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    configuration.label.frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.body.weight(.semibold)).imageScale(.small)
-                        .foregroundStyle(Color.secondary)
-                        .accessibilityHidden(true)
+                    configuration.label
+                    DisclosureChevron(isExpanded: configuration.isExpanded)
+                    Spacer(minLength: 8)
+                    trailing
                 }
                 .foregroundStyle(Color.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,5 +90,26 @@ private struct ConversationDisclosureStyle: DisclosureGroupStyle {
                 configuration.content.contentShape(Rectangle())
             }
         }
+    }
+}
+
+/// One chevron glyph rotated between states, so collapsed and expanded share
+/// the same design and weight as the header text. The angle change runs in
+/// its own transaction and only when this row toggles: layout movement caused
+/// by other rows stays under the outer no-animation transaction, so this
+/// chevron always moves rigidly with the header text.
+private struct DisclosureChevron: View {
+    let isExpanded: Bool
+    @State private var angle = 0.0
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.body).imageScale(.small)
+            .foregroundStyle(Color.secondary)
+            .rotationEffect(.degrees(angle))
+            .onAppear { angle = isExpanded ? 90 : 0 }
+            .onChange(of: isExpanded) { _, expanded in
+                withAnimation(.easeInOut(duration: 0.16)) { angle = expanded ? 90 : 0 }
+            }
+            .accessibilityHidden(true)
     }
 }

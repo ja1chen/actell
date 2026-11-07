@@ -1,168 +1,197 @@
-// Adapted from ManifoldKit ToolInvocationView.swift and
-// ToolInvocationStyle.swift (PlainToolInvocationBody), revision
-// 15c9c2443770c9289c2e93c88a55bdebc4562771.
-// Copyright (c) 2026 Rory Ford. MIT; full text: Licenses/ManifoldKit-MIT.txt.
-// Original snapshots and hashes: Vendor/ManifoldPresentation/.
-// PhoneAgent changes: app-owned data, Chinese labels, explicit denied/cancelled
-// states, public parameter preview, screenshot slot, iOS 17 colors. No runtime.
-
 import SwiftUI
 
-/// Shared symbol sizing for message disclosure and approval headers.
-struct MessageHeaderIcon: View {
-    let systemName: String
-    var body: some View {
-        Image(systemName: systemName)
-            .font(.body).imageScale(.small).foregroundStyle(.secondary).accessibilityHidden(true)
-    }
-}
-
+/// Data shared by the in-conversation tool card and the approval card. The
+/// closures belong to the caller's run/step/approval scope; cards only invoke
+/// them and never perform an authorization action themselves.
 struct ToolInvocationConfiguration {
     let tool: ToolStep
-    var onApprove: (() -> Void)?
-    var onDeny: (() -> Void)?
+    // True when the preview slot renders content; without it an empty slot
+    // would draw an empty bordered box instead of a header-only card.
+    var hasPreview = false
+    var onApprove: (() -> Void)? = nil
+    var onDeny: (() -> Void)? = nil
 }
 
-/// Manifold's presentation-only shell, adapted to the existing execution layer.
-/// Closures dispatch scoped intents; this view never authorizes a device itself.
+/// One tool call inside the conversation. While the call is still in progress
+/// only the header row is shown; once it reaches a terminal state the request
+/// arguments and result fold out beneath the same header.
 struct ToolInvocationView<Preview: View>: View {
-    let configuration: ToolInvocationConfiguration
-    @ViewBuilder var preview: () -> Preview
+    private let configuration: ToolInvocationConfiguration
+    private let preview: Preview
+
+    init(configuration: ToolInvocationConfiguration, @ViewBuilder preview: () -> Preview) {
+        self.configuration = configuration
+        self.preview = preview()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            switch configuration.tool.state {
-            case .awaitingApproval: toolHeader
-            case .requested, .running, .approved, .executing: toolHeader
-            case .succeeded, .failed, .denied, .cancelled, .interrupted, .outcomeUnknown: resultView
+        Group {
+            if configuration.tool.state.isTerminal {
+                ConversationDisclosureGroup {
+                    resultArea
+                } label: {
+                    title
+                } trailing: {
+                    if configuration.tool.state != .succeeded { stateBadge }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    title
+                    Spacer(minLength: 8)
+                    stateBadge
+                }
             }
         }
-        .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .tint(.secondary)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tool-invocation-\(configuration.tool.state.rawValue)-\(configuration.tool.name)")
+        // Activity rows sit tighter than the message rhythm; both the tool
+        // and reasoning rows opt in symmetrically so gaps stay equal.
+        .padding(.vertical, -2)
     }
 
-    private var toolHeader: some View {
+    private var title: some View {
         HStack(spacing: 8) {
             MessageHeaderIcon(systemName: configuration.tool.symbol)
-            Text(configuration.tool.title)
-                .font(.body).fontWeight(.regular).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            if configuration.tool.state != .succeeded {
-                Text(configuration.tool.state.label).font(.caption).lineLimit(1)
-                    .foregroundStyle(statusColor)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(statusColor.opacity(0.10), in: Capsule())
-            }
+            Text(configuration.tool.title).font(.body).lineLimit(1)
         }
+        .foregroundStyle(.secondary)
     }
 
-    private var statusColor: Color {
+    // A result reads as data next to the secondary header, and every badge
+    // pairs its color with the state label so color is never the only carrier.
+    private var stateBadge: some View {
+        let color = badgeColor
+        return Text(configuration.tool.state.label)
+            .font(.caption).lineLimit(1)
+            .foregroundStyle(color)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(color.opacity(0.15), in: Capsule())
+    }
+
+    private var badgeColor: Color {
         switch configuration.tool.state {
-        case .failed: return .red
-        case .awaitingApproval, .denied: return .orange
-        default: return .secondary
+        case .failed: .red
+        case .awaitingApproval, .denied: .orange
+        default: .secondary
         }
     }
 
-    private var resultView: some View {
-        ConversationDisclosureGroup {
-            ToolResultCard {
-                VStack(alignment: .leading, spacing: 6) {
+    @ViewBuilder private var resultArea: some View {
+        if hasTextContent {
+            ResultScrollRegion(maxHeight: 320, identifier: "toolResultScroll") {
+                VStack(alignment: .leading, spacing: 10) {
                     if let arguments = configuration.tool.displayArguments {
-                        Text(String(localized: "Request arguments")).font(.caption2).foregroundStyle(.tertiary)
-                        Text(arguments).font(.caption.monospaced()).textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        ToolArgumentsSection(arguments)
                     }
-                    if !configuration.tool.displayResult.isEmpty {
-                        Text(configuration.tool.state == .succeeded ? String(localized: "Result") : String(localized: "Result details"))
-                            .font(.caption2).foregroundStyle(.tertiary)
-                        Text(configuration.tool.displayResult).font(.footnote).textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                    if let result = resultText {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(resultTitle).font(.caption).foregroundStyle(.secondary)
+                            Text(result)
+                                .font(.footnote)
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                        }
                     }
-                    preview()
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } label: {
-            toolHeader
-        }.tint(.secondary)
-    }
-}
-
-/// Short results size to their content; long results scroll inside the card.
-private struct ToolResultCard<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-    @State private var contentHeight: CGFloat = 1
-    @State private var atEnd = false
-    var body: some View {
-        ScrollView(.vertical) {
-            content()
+                    preview
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            }
+            .padding(.top, 8)
+        } else if configuration.hasPreview {
+            // An image-only result reads as the content itself; a bordered
+            // box around nothing but the image adds noise, not structure.
+            preview
+                .padding(.top, 8)
         }
-        .frame(height: min(contentHeight, 320))
-        .scrollBounceBehavior(.basedOnSize)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.22), lineWidth: 1) }
-        .onScrollGeometryChange(for: Bool.self) {
-            $0.contentOffset.y + $0.containerSize.height >= $0.contentSize.height + $0.contentInsets.bottom - 2
-        } action: { _, value in atEnd = value }
-        .accessibilityIdentifier("toolResultScroll")
-        .accessibilityValue(atEnd ? String(localized: "End reached") : String(localized: "More content available"))
-        .padding(.top, 4)
+    }
+
+    private var hasTextContent: Bool {
+        configuration.tool.displayArguments != nil || resultText != nil
+    }
+
+    private var resultText: String? {
+        let result = configuration.tool.displayResult
+        guard !result.isEmpty else { return nil }
+        if configuration.hasPreview && Self.isStructured(result) { return nil }
+        return result
+    }
+
+    // Image previews replace structured image metadata. Without a preview,
+    // structured results use the same text result region as other tools.
+    private static func isStructured(_ text: String) -> Bool {
+        guard let first = text.first(where: { !$0.isWhitespace }), first == "{" || first == "[" else { return false }
+        return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) != nil
+    }
+
+    private var resultTitle: String {
+        configuration.tool.state == .succeeded ? String(localized: "Result") : String(localized: "Result details")
     }
 }
 
-/// The current approval lives above the composer, outside conversation history.
-/// Its parent supplies callbacks already scoped to the run, step and approval ID.
-struct ToolApprovalCard<Preview: View>: View {
-    let configuration: ToolInvocationConfiguration
-    @ViewBuilder var preview: () -> Preview
-    @State private var detailsExpanded = false
+/// The "Request arguments" block shared by both cards: a small secondary label
+/// above monospaced, selectable caption text.
+struct ToolArgumentsSection: View {
+    let arguments: String
+    init(_ arguments: String) { self.arguments = arguments }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                MessageHeaderIcon(systemName: configuration.tool.symbol)
-                Text(configuration.tool.title).foregroundStyle(.secondary)
-                Spacer()
-                Text(String(localized: "Approval required")).font(.caption).foregroundStyle(.secondary)
-            }.font(.body)
-            Text(configuration.tool.detail).font(.subheadline).lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-            ConversationDisclosureGroup(isExpanded: $detailsExpanded) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(configuration.tool.detail).font(.subheadline).textSelection(.enabled)
-                        if let arguments = configuration.tool.displayArguments {
-                            Text(String(localized: "Request arguments")).font(.caption).foregroundStyle(.secondary)
-                            Text(arguments).font(.caption.monospaced()).textSelection(.enabled)
-                        }
-                        preview()
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-                }.frame(height: 180).scrollBounceBehavior(.basedOnSize)
-                    .accessibilityIdentifier("approvalDetails")
-            } label: {
-                Text(String(localized: "Action details")).font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("approvalDetailsToggle")
-            }.tint(.secondary)
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-                Button(String(localized: "Deny"), role: .destructive) { configuration.onDeny?() }
-                    .buttonStyle(.bordered).disabled(configuration.onDeny == nil)
-                    .accessibilityIdentifier("rejectTool")
-                Button(String(localized: "Approve once")) { configuration.onApprove?() }
-                    .buttonStyle(.borderedProminent).disabled(configuration.onApprove == nil)
-                    .accessibilityIdentifier("approveTool")
-            }.font(.subheadline).controlSize(.regular)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "Request arguments")).font(.caption).foregroundStyle(.secondary)
+            Text(arguments)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("approvalCard")
+    }
+}
+
+/// The expanded detail region shared by both cards: hugs short content and
+/// scrolls long content inside a capped height, so scrolling stays inside the
+/// region and the surrounding layout never moves.
+struct ResultScrollRegion<Content: View>: View {
+    let maxHeight: CGFloat
+    let identifier: String
+    @ViewBuilder let content: () -> Content
+    @State private var atEnd = true
+
+    var body: some View {
+        BoundedResultScroll(maxHeight: maxHeight) {
+            ScrollView {
+                content()
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let visible = geometry.containerSize.height
+                let limit = geometry.contentSize.height - visible
+                return geometry.contentSize.height <= visible + 1 || geometry.contentOffset.y >= limit - 1
+            } action: { _, reached in
+                atEnd = reached
+            }
+            .accessibilityIdentifier(identifier)
+            .accessibilityValue(atEnd ? String(localized: "End reached") : String(localized: "More content available"))
+        }
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// Sizes a scroller to its content up to `maxHeight` in the first layout
+/// pass, so a short result fits its text immediately and a long one is capped
+/// without a second-frame height jump.
+private struct BoundedResultScroll: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let scroller = subviews.first else { return .zero }
+        let width = proposal.width ?? scroller.sizeThatFits(ProposedViewSize(width: nil, height: nil)).width
+        let natural = scroller.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        return CGSize(width: width, height: min(natural, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let scroller = subviews.first else { return }
+        scroller.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }

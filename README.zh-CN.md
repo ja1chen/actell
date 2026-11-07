@@ -74,7 +74,6 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | 远程 Swift Package 依赖，由 ProviderKit 用于模型协议编解码 |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package 依赖，用于 Markdown 消息渲染 |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | 复用 Device Hub 固定的补丁版 idevice 源码与 PNG validator，并进行本地适配；未整合完整 Device Hub App |
-| [ManifoldKit](https://github.com/ManifoldKit/ManifoldKit) | 选取并适配部分工具调用展示组件，不依赖完整框架 |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5)、[esp_tinyusb](https://github.com/espressif/esp-usb)、[TinyUSB](https://github.com/hathach/tinyusb) | ESP32 固件工具链与 USB 组件，分别固定为 ESP-IDF 5.5.5、esp_tinyusb 2.2.0 和 TinyUSB 0.21.0~2 |
 | [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) | 参考协议结构并选择性转译相关行为；手机与 ESP32 均不运行其 Python 服务 |
 | [ipb](https://github.com/ipbtools/ipb) | 原始无障碍协议、归档及原生快照解析的参考来源；见[许可与版本](THIRD_PARTY.md) |

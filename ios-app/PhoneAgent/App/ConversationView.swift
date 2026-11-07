@@ -38,7 +38,7 @@ struct ConversationView: View {
                     Group {
                         ScrollView {
                             messageStack(session)
-                                .padding(.horizontal, 20).padding(.vertical, 12).frame(maxWidth: 780).frame(maxWidth: .infinity)
+                                .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: 780).frame(maxWidth: .infinity)
                         }
                         .accessibilityIdentifier("conversationMessages")
                         .accessibilityValue(scrollDiagnostic)
@@ -312,7 +312,7 @@ struct ConversationView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack { Spacer(minLength: 36); Text(message.text).textSelection(.enabled).padding(12).background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).foregroundStyle(.primary)
                     .contextMenu { messageActions(message.text) } }
-                MessageAttachmentsView(message: message, presentation: presentation)
+                MessageAttachmentsView(message: message, presentation: presentation, contentAlignment: .trailing, showsName: false)
             }
         case .assistant:
             // Keep reasoning at the same row level as tools. A reasoning-only
@@ -325,7 +325,7 @@ struct ConversationView: View {
             }
         case .tool:
             if let item = presentation.presentation(for: message) {
-                ToolInvocationView(configuration: ToolInvocationConfiguration(tool: item.tool)) { toolPreview(item) }
+                ToolInvocationView(configuration: ToolInvocationConfiguration(tool: item.tool, hasPreview: hasPreviewContent(item))) { toolPreview(item) }
             }
         case .notice:
             Text(message.text)
@@ -350,6 +350,7 @@ struct ConversationView: View {
         VStack(spacing: 10) {
             if let item = presentation.pendingApproval, let request = item.approval {
                 ToolApprovalCard(configuration: ToolInvocationConfiguration(tool: item.tool,
+                    hasPreview: hasPreviewContent(item),
                     onApprove: { _ = presentation.dispatch(.approve(step: item.identity, approvalID: request.id)) },
                     onDeny: { _ = presentation.dispatch(.deny(step: item.identity, approvalID: request.id)) })) {
                     toolPreview(item)
@@ -443,17 +444,23 @@ struct ConversationView: View {
                 .accessibilityLabel(String(localized: "Send")).accessibilityIdentifier("sendMessage")
         }
     }
+    // Mirrors the branches of toolPreview(_:); empty previews leave the card
+    // header-only instead of drawing an empty result box.
+    private func hasPreviewContent(_ item: ToolPresentation) -> Bool {
+        (!item.attachments.isEmpty && item.approval == nil) || item.image != nil
+    }
     @ViewBuilder private func toolPreview(_ item: ToolPresentation) -> some View {
         if !item.attachments.isEmpty, item.approval == nil {
             ForEach(item.attachments) { attachment in
-                AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID)
+                AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID, showsName: false)
             }
         } else if let image = item.image, let uiImage = UIImage(data: image.png) {
-            Image(uiImage: uiImage).resizable().scaledToFit().frame(maxHeight: 280)
+            let fitted = uiImage.size.fitted(maxWidth: 320, maxHeight: 280)
+            Image(uiImage: uiImage).resizable()
+                .frame(width: fitted.width, height: fitted.height)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel(image.isDemo ? String(localized: "Synthetic demo screen, not a device screenshot") : String(localized: "Device screenshot for the current step"))
-        } else if item.tool.expectsScreenshotPreview, item.tool.state == .succeeded {
-            Text(String(localized: "This historical screenshot has no saved local original and cannot be recovered from the tool record.")).font(.caption).foregroundStyle(.secondary)
+
         }
     }
     @ViewBuilder private func messageActions(_ text: String) -> some View {

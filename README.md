@@ -74,7 +74,6 @@ Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic provider
 | [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | Remote Swift Package dependency used by ProviderKit for model protocol encoding and decoding |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package dependency for Markdown message rendering |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | Reuses the patched idevice source and PNG validator pinned by Device Hub, with local adaptations; does not integrate the entire Device Hub app |
-| [ManifoldKit](https://github.com/ManifoldKit/ManifoldKit) | Selected and adapted tool-call presentation components, not a package dependency on the entire framework |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5), [esp_tinyusb](https://github.com/espressif/esp-usb), [TinyUSB](https://github.com/hathach/tinyusb) | ESP32 firmware toolchain and USB components; pinned to ESP-IDF 5.5.5, esp_tinyusb 2.2.0, and TinyUSB 0.21.0~2 |
 | [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) | Protocol schema reference and selective translation; not a Python service running on the phone or ESP32 |
 | [ipb](https://github.com/ipbtools/ipb) | Reference for the raw accessibility protocol, keyed archives and native snapshot interpretation; see [license and revision](THIRD_PARTY.md) |

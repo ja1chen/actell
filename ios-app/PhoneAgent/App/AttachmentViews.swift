@@ -1,23 +1,37 @@
 import SwiftUI
 import Photos
 
+/// Largest size within the bounds that keeps this size's aspect ratio.
+extension CGSize {
+    func fitted(maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        guard width > 0, height > 0 else { return self }
+        let scale = min(maxWidth / width, maxHeight / height)
+        return CGSize(width: (width * scale).rounded(.down), height: (height * scale).rounded(.down))
+    }
+}
+
 struct AttachmentThumbnail: View {
     let attachment: StoredAttachment
     let store: AttachmentStore
     let conversationID: UUID
+    var showsName = true
+    var contentAlignment: HorizontalAlignment = .leading
     @State private var preview: Data?
     @State private var failure: String?
     @State private var showingOriginal = false
     var body: some View {
         Button { showingOriginal = true } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                if let preview, attachment.kind == .image, let image = UIImage(data: preview) {
-                    Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else { Image(systemName: attachment.kind == .image ? "photo" : "doc.text").font(.title2).frame(minHeight: 35) }
-                Text(attachment.name).font(.caption).lineLimit(1)
+            VStack(alignment: contentAlignment, spacing: 5) {
+                imageArea
+                if showsName { Text(attachment.name).font(.caption).lineLimit(1) }
                 if let failure { Text(failure).font(.caption).foregroundStyle(.orange) }
             }
+            // Button styles center their label; the thumbnail aligns itself
+            // to the edge its container asks for. The content shape keeps the
+            // whole aligned frame tappable, including the area beside the
+            // image, so automated and centered taps still open the viewer.
+            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: contentAlignment, vertical: .center))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityLabel(String(localized: "Preview attachment: \(attachment.name)"))
         .accessibilityIdentifier("attachment-" + attachment.id.uuidString)
@@ -26,6 +40,35 @@ struct AttachmentThumbnail: View {
             catch { failure = String(localized: "The local file is temporarily unavailable") }
         }
         .sheet(isPresented: $showingOriginal) { AttachmentPreview(attachment: attachment, store: store, conversationID: conversationID) }
+    }
+
+    // The image is placed at an explicit fitted size (scaledToFit centers
+    // within a flexible proposal), and the loading state reserves the same
+    // area from the stored metadata, so expansion never shows a placeholder
+    // image or moves the layout.
+    @ViewBuilder private var imageArea: some View {
+        if let preview, attachment.kind == .image, let image = UIImage(data: preview) {
+            let size = displaySize(for: image.size)
+            Image(uiImage: image)
+                .resizable()
+                .frame(width: size.width, height: size.height)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else if attachment.kind == .image, let size = reservedSize {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.primary.opacity(0.04))
+                .frame(width: size.width, height: size.height)
+        } else {
+            Image(systemName: attachment.kind == .image ? "photo" : "doc.text").font(.title2).frame(minHeight: 35)
+        }
+    }
+
+    private var reservedSize: CGSize? {
+        guard let width = attachment.width, let height = attachment.height, width > 0, height > 0 else { return nil }
+        return CGSize(width: CGFloat(width), height: CGFloat(height)).fitted(maxWidth: 320, maxHeight: 220)
+    }
+
+    private func displaySize(for imageSize: CGSize) -> CGSize {
+        reservedSize ?? imageSize.fitted(maxWidth: 320, maxHeight: 220)
     }
 }
 
@@ -72,13 +115,16 @@ private struct AttachmentPreview: View {
 struct MessageAttachmentsView: View {
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter
+    var contentAlignment: HorizontalAlignment = .leading
+    var showsName = true
     var body: some View {
         let attachments = (message.attachments ?? []).filter { $0.sourceURL == nil }
         let imageURLs = Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? []
         if !attachments.isEmpty || !imageURLs.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: contentAlignment, spacing: 10) {
                 ForEach(attachments) { attachment in
-                    AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID)
+                    AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID,
+                        showsName: showsName, contentAlignment: contentAlignment)
                 }
                 ForEach(imageURLs, id: \.self) { url in
                     RemoteMessageImage(url: url, message: message, presentation: presentation)
