@@ -35,13 +35,13 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         model.setForeground(true); model.setProtectedDataAvailable(true)
         let runtime = try model.acquireRemoteRun("geometry-delivery", onImage: { _ in XCTFail("No screenshot") }, onStop: {})
         let result = try await runtime.executeRemoteTool(name: "tap", arguments: ["x": 394, "y": 571, "purpose": "Synthetic input", "_input_contract": InputDisplaySnapshot.contract], callID: "tap", imageID: nil, deadline: Date().addingTimeInterval(20))
-        XCTAssertTrue(result.isError)
+        XCTAssertNotEqual(result.kind, .returned)
         XCTAssertEqual(runtime.remoteDelivery("tap"), .outcomeUnknown)
         let code = await runtime.remoteFailureCode()
         let diagnostic = await runtime.remoteFailureDiagnostics()
         XCTAssertEqual(code, "geometry_unavailable")
         XCTAssertEqual(diagnostic["geometry_reason"], "generation_changed")
-        XCTAssertFalse(result.result.contains(String(localized: "Could not verify the current screen layout. No input was sent.")))
+        XCTAssertFalse(result.content.contains(String(localized: "Could not verify the current screen layout. No input was sent.")))
         let inputs = await bridge.inputs
         XCTAssertEqual(inputs, 0)
         runtime.stop(message: "Synthetic stop")
@@ -62,7 +62,7 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         model.setForeground(false)
         let second = try model.acquireRemoteRun("second", onImage: { _ in }, onStop: {})
         let result = try await second.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic continuation"], callID: "home", imageID: nil, deadline: Date().addingTimeInterval(20))
-        XCTAssertFalse(result.isError, result.result)
+        XCTAssertEqual(result.kind, .returned, result.content)
         second.stop(message: "Synthetic normal completion")
         await second.waitForRemoteRelease(); model.releaseRemoteRun("second")
         model.endRemoteContinuity()
@@ -83,7 +83,7 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         let receipt = BackgroundSourceToken(mechanism: .audio, owner: UUID())
         background.registry.publish(receipt) // Shared execution lifecycle handles readiness.
         let result = try await runtime.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic background request"], callID: "home", imageID: nil, deadline: Date().addingTimeInterval(20))
-        XCTAssertFalse(result.isError, result.result)
+        XCTAssertEqual(result.kind, .returned, result.content)
         runtime.stop(message: "Synthetic completion")
         await runtime.waitForRemoteRelease(); model.releaseRemoteRun("background")
         model.setProtectedDataAvailable(false)
@@ -98,10 +98,10 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         let runtime = try model.acquireRemoteRun("independent", onImage: { _ in XCTFail("Input must not capture a screenshot") }, onStop: {})
         for index in 0..<2 {
             let result = try await runtime.executeRemoteTool(name: "tap", arguments: ["x": 500, "y": 1000, "purpose": "Synthetic input", "_input_contract": InputDisplaySnapshot.contract], callID: "tap-\(index)", imageID: nil, deadline: Date().addingTimeInterval(20))
-            XCTAssertFalse(result.isError, result.result)
+            XCTAssertEqual(result.kind, .returned, result.content)
         }
         let bad = try await runtime.executeRemoteTool(name: "tap", arguments: ["x": 1001, "y": 0, "purpose": "Synthetic input", "_input_contract": InputDisplaySnapshot.contract], callID: "bad", imageID: nil, deadline: Date().addingTimeInterval(20))
-        XCTAssertTrue(bad.isError)
+        XCTAssertNotEqual(bad.kind, .returned)
         let count = await bridge.inputs
         XCTAssertEqual(count, 2)
         runtime.stop(message: "Synthetic stop")
@@ -143,11 +143,11 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         XCTAssertNil(model.currentRun)
         XCTAssertTrue(sessions.activeRuns.isEmpty)
         let screenshot = try await runtime.executeRemoteTool(name: "screenshot", arguments: [:], callID: "screen", imageID: nil, deadline: Date().addingTimeInterval(20))
-        XCTAssertFalse(screenshot.isError)
+        XCTAssertEqual(screenshot.kind, .returned)
         XCTAssertNotNil(captured)
         for id in ["home-one", "home-two"] {
             let result = try await runtime.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic test"], callID: id, imageID: nil, deadline: Date().addingTimeInterval(20))
-            XCTAssertFalse(result.isError, result.result)
+            XCTAssertEqual(result.kind, .returned, result.content)
         }
         let inputs = await bridge.inputs
         XCTAssertEqual(inputs, 2)
@@ -156,7 +156,7 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
         XCTAssertEqual(runtime.remoteDelivery("home-two"), .acknowledged)
         do {
             let replay = try await runtime.executeRemoteTool(name: "home", arguments: ["purpose": "Synthetic test"], callID: "home-two", imageID: nil, deadline: Date().addingTimeInterval(20))
-            XCTAssertTrue(replay.isError)
+            XCTAssertNotEqual(replay.kind, .returned)
         } catch {}
         let afterReplay = await bridge.inputs
         XCTAssertEqual(afterReplay, 2)

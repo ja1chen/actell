@@ -16,7 +16,7 @@ public final class ResponsesTransport: @unchecked Sendable {
         config.protocolClasses = protocolClasses
         session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }
-    public func cancel() { session.invalidateAndCancel() }
+    public func cancel() { session.getAllTasks { tasks in tasks.forEach { $0.cancel() } } }
     deinit { session.invalidateAndCancel() }
     public func complete(_ request: URLRequest) async throws -> Data {
         let cancellation = TransportCancellation()
@@ -25,7 +25,7 @@ public final class ResponsesTransport: @unchecked Sendable {
             let (bytes, response) = try await session.bytes(for: request)
             cancellation.install(bytes.task)
             defer { cancellation.cancel() }
-            try Task.checkCancellation(); try Self.verify(response)
+            try Task.checkCancellation(); try await Self.verify(response, bytes: bytes)
             var data = Data()
             for try await byte in bytes { try Task.checkCancellation(); guard data.count < 4 * 1024 * 1024 else { throw ModelError.protocolViolation("Response exceeds 4 MiB") }; data.append(byte) }
             try Task.checkCancellation(); return data
@@ -38,6 +38,24 @@ public final class ResponsesTransport: @unchecked Sendable {
         // because parsing/tool validation temporarily consumes frames more slowly.
         let cursor = SSEPayloadCursor(session: session, request: request)
         return AsyncThrowingStream(unfolding: { try await cursor.next() })
+    }
+    static func admissionError(status: Int, body: Data) -> ModelError {
+        if status == 400, let value = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let error = value["error"] as? [String: Any] {
+            if error["code"] as? String == "context_length_exceeded" { return .rejectedBeforeAcceptance(reason: .contextCapacity) }
+            if error["code"] as? String == "previous_response_not_found", error["param"] as? String == "previous_response_id" { return .rejectedBeforeAcceptance(reason: .invalidResponseHead) }
+        }
+        return .httpError(status, nil)
+    }
+    fileprivate static func verify(_ response: URLResponse, bytes: URLSession.AsyncBytes) async throws {
+        guard let http = response as? HTTPURLResponse else { throw ModelError.networkError("Non-HTTP response") }
+        guard !(200..<300).contains(http.statusCode) else { return }
+        var body = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard body.count < 64 * 1024 else { throw ModelError.httpError(http.statusCode, nil) }
+            body.append(byte)
+        }
+        throw admissionError(status: http.statusCode, body: body)
     }
     fileprivate static func verify(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { throw ModelError.networkError("Non-HTTP response") }
@@ -76,7 +94,7 @@ private final class SSEPayloadCursor: @unchecked Sendable {
                     let (bytes, response) = try await session.bytes(for: request)
                     cancellation.install(bytes.task)
                     try Task.checkCancellation()
-                    try ResponsesTransport.verify(response)
+                    try await ResponsesTransport.verify(response, bytes: bytes)
                     iterator = bytes.makeAsyncIterator()
                 }
                 while let byte = try await iterator!.next() {

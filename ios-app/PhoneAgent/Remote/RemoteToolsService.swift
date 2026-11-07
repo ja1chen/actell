@@ -2,7 +2,7 @@ import Foundation
 import CoreFoundation
 import CryptoKit
 import Security
-import SwiftAgentKit
+import AgentKit
 
 struct RemoteRPCError: LocalizedError {
     let code: String
@@ -480,8 +480,10 @@ struct RemoteRPCError: LocalizedError {
         let allowed = Set(["run_id", "call_id", "deadline_ms", "tool", "arguments", "observation"])
         guard Set(p.keys).isSubset(of: allowed), let name = p["tool"] as? String,
               Self.toolNames.contains(name), let args = p["arguments"] as? [String: Any] else { throw RemoteRPCError("tool_not_allowed", "Invalid or unavailable tool") }
-        let schema = DeviceTool.parameters(for: name)
-        guard Set(args.keys).isSubset(of: Set(schema.properties.keys)), Set(schema.required).isSubset(of: Set(args.keys)) else {
+        let schema = DeviceTool.parameters(for: name).foundation as? [String: Any] ?? [:]
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        let required = schema["required"] as? [String] ?? []
+        guard Set(args.keys).isSubset(of: Set(properties.keys)), Set(required).isSubset(of: Set(args.keys)) else {
             throw RemoteRPCError("bad_request", "Tool arguments do not match the advertised schema")
         }
         let run = try ownedRun(p, client: client), id = try identifier(p["call_id"])
@@ -564,7 +566,7 @@ struct RemoteRPCError: LocalizedError {
                 imageID: imageID, deadline: Date(timeIntervalSince1970: Double(deadline) / 1000))
             let failureCode = await worker.remoteFailureCode()
             let delivery = worker.remoteDelivery(callID)
-            if result.isError {
+            if (result.kind != .returned) {
                 var state = diagnosticSnapshot
                 state.merge(await worker.remoteFailureDiagnostics()) { _, new in new }
                 state["call"] = MuseDiagnosticsLog.tag(callID)
@@ -579,9 +581,9 @@ struct RemoteRPCError: LocalizedError {
                 ? ([RunCheckpoint.Delivery.acknowledged, .observedResult].contains(delivery ?? .prepared) ? "acknowledged" : [.dispatching, .outcomeUnknown].contains(delivery ?? .prepared) ? "may_have_occurred" : "not_sent")
                 : "not_applicable"
                 if delivery == .outcomeUnknown || delivery == .dispatching { journal.calls[id]?.state = "unknown" }
-                else { journal.calls[id]?.state = result.isError ? "failed" : "succeeded" }
-                if name == "screenshot", !result.isError {
-                    let metadata = (try? JSONSerialization.jsonObject(with: Data(result.result.utf8))) as? [String: Any]
+                else { journal.calls[id]?.state = (result.kind != .returned) ? "failed" : "succeeded" }
+                if name == "screenshot", !(result.kind != .returned) {
+                    let metadata = (try? JSONSerialization.jsonObject(with: Data(result.content.utf8))) as? [String: Any]
                     if let imageID = metadata?["image_id"] as? String, let image = images[imageID],
                        image.generation == generation, image.runID == run {
                         var receipt: [String: Any] = ["image_id": image.frame.id, "generation": image.generation, "width": image.frame.width, "height": image.frame.height]
@@ -603,8 +605,8 @@ struct RemoteRPCError: LocalizedError {
                         receipt["image_error"] = "image_unavailable"
                         journal.calls[id]?.result = try json(receipt)
                     }
-                } else { journal.calls[id]?.result = try json(["text": result.result]) }
-                if result.isError { journal.calls[id]?.error = result.result; journal.calls[id]?.errorCode = failureCode }
+                } else { journal.calls[id]?.result = try json(["text": result.content]) }
+                if (result.kind != .returned) { journal.calls[id]?.error = result.content; journal.calls[id]?.errorCode = failureCode }
             }
         } catch {
             stopped = true

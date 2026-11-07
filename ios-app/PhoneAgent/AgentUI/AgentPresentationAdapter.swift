@@ -1,6 +1,7 @@
 import Foundation
 import Combine
-import SwiftAgentKit
+import AgentKit
+import ProviderCore
 
 /// App-owned display boundary. Views send scoped intents; they never receive an
 /// Agent, a provider, a transport, or an approval continuation.
@@ -43,6 +44,19 @@ struct ToolPresentation {
     var running: Bool { activeRun != nil && model.running }
     var stopping: Bool { model.stopping }
     var warning: String? { model.errorMessage ?? model.sessions.warning }
+    var canRecoverHistory: Bool { !running && !stopping && model.sessions.hasRecoverableHistory(sessionID) }
+    func recoverHistory() async -> UUID? {
+        guard canRecoverHistory else { return nil }
+        do {
+            let id = try await model.sessions.recoverReadableHistory(sessionID)
+            navigationModel.selectConversation(id)
+            return id
+        } catch {
+            model.errorMessage = String(localized: "A new conversation could not be saved. Your original history is unchanged. Check available storage and try again.")
+            return nil
+        }
+    }
+
     var providers: [ProviderProfile] { model.providers.profiles }
     var providerID: UUID? { model.selectedProvider(in: sessionID)?.id }
     var selectedModel: String { model.selectedModel(in: sessionID) }
@@ -110,39 +124,50 @@ struct ToolPresentation {
     }
 }
 
-/// Receives the FIFO stream from the actual SwiftAgentKit run. No Manifold
-/// runtime/progress consumer is involved. Approval/transport callbacks carry
-/// the same run token and update the same step in ConversationStore.
+/// Projects the AgentKit event stream into the conversation UI. Approval and
+/// transport callbacks share the run token and stable tool item identifiers.
 @MainActor enum AgentEventProjection {
-    static func record(_ event: AgentEvent, run: RunIdentity, frame: PresentedFrame?, in store: ConversationStore, skillNames: [String: String] = [:]) {
+    static func record(_ event: AgentRuntimeEvent, run: RunIdentity, frame: PresentedFrame?, in store: ConversationStore, skillNames: [String: String] = [:]) {
         guard store.accepts(run) else { return }
-        func skillName(_ call: AgentToolCall) -> String? {
-            guard call.name == "load_skill", let id = call.parameters["id"]?.value as? String else { return nil }
+        func skillName(_ call: ToolInvocation) -> String? {
+            guard call.name == "load_skill", let values = call.arguments.foundation as? [String: Any], let id = values["id"] as? String else { return nil }
             return skillNames[id.uppercased()]
         }
         switch event {
-        case .llmCallStarted: store.beginAssistantTurn(run)
-        case .streamChunk(let text): store.appendText(text, identity: run)
-        case .reasoningChunk(let text): store.appendReasoning(text, identity: run)
-        case .llmCallCompleted(_, let response): store.completeAssistantTurn(response.text, reasoning: response.reasoning, identity: run)
-        case .toolCallsReceived(let calls):
-            for call in calls {
-                store.updateTool(callID: call.id, name: call.name, state: .requested, arguments: arguments(for: call), skillName: skillName(call), identity: run)
+        case .assistantDelta(let id, let text):
+            store.beginAssistantTurn(run, itemID: id)
+            store.appendText(text, identity: run, itemID: id)
+        case .reasoningDelta(let id, let text):
+            store.beginAssistantTurn(run, itemID: id)
+            store.appendReasoning(text, identity: run, itemID: id)
+        case .assistantCommitted(let item):
+            store.beginAssistantTurn(run, itemID: item.id)
+            let reasoning = (item.metadata?.foundation as? [String: Any])?["reasoning"] as? String
+            store.completeAssistantTurn(item.role == "reasoning" ? "" : item.text,
+                reasoning: item.role == "reasoning" ? item.text : reasoning, identity: run, itemID: item.id)
+        case .toolPrepared(let call):
+            store.updateTool(callID: call.callID, name: call.name, state: .requested, arguments: arguments(for: call), skillName: skillName(call), identity: run)
+        case .toolStarted(let call):
+            store.updateTool(callID: call.callID, name: call.name, state: .running, arguments: arguments(for: call), skillName: skillName(call), identity: run)
+        case .toolCompleted(let call, let result):
+            let state: ToolStepState
+            switch result.kind {
+            case .returned: state = .succeeded
+            case .outcomeUnknown: state = .outcomeUnknown
+            case .denied: state = .denied
+            case .cancelledBeforeDispatch: state = .cancelled
+            default: state = .failed
             }
-        case .toolExecutionStarted(let call):
-            store.updateTool(callID: call.id, name: call.name, state: .running, arguments: arguments(for: call), skillName: skillName(call), identity: run)
-        case .toolExecutionFinished(let call, let result):
-            store.updateTool(callID: call.id, name: call.name, state: result.isError ? .failed : .succeeded,
-                result: result.result, arguments: arguments(for: call), skillName: skillName(call), identity: run)
-        default: break // Unrelated framework events stay out of UI/history.
+            store.updateTool(callID: call.callID, name: call.name, state: state,
+                result: result.content, arguments: arguments(for: call), skillName: skillName(call), identity: run)
+        default: break
         }
     }
 
-    static func arguments(for call: AgentToolCall) -> String? {
-        guard !call.parameters.isEmpty else { return nil }
+    static func arguments(for call: ToolInvocation) -> String? {
+        guard let parameters = call.arguments.foundation as? [String: Any], !parameters.isEmpty else { return nil }
         var values: [String: Any] = [:]
-        for (key, parameter) in call.parameters {
-            let value = parameter.value
+        for (key, value) in parameters {
             if let string = value as? String { values[key] = String(string.prefix(key == "summary" ? 1_000 : 160)) }
             else if let number = value as? NSNumber, number.doubleValue.isFinite { values[key] = number }
             else { values[key] = String(localized: "Unsupported argument type") }

@@ -1,5 +1,5 @@
 import Foundation
-import SwiftAgentKit
+import AgentKit
 
 /// Executes authenticated device tools without a ConversationStore, Agent, model,
 /// chat messages, task-history projection or Live Activity conversation links.
@@ -77,7 +77,7 @@ import SwiftAgentKit
         if running, !stopping { callback(frame) }
     }
     func executeRemoteTool(name: String, arguments: [String: Any], callID: String,
-                           imageID: String?, deadline: Date) async throws -> AgentToolResult {
+                           imageID: String?, deadline: Date) async throws -> ToolOutcome {
         guard running, !stopping, protectedDataAvailable, let action else { throw AppError.stopped }
         let result = try await action.executeRemote(name: name, parameters: arguments, callID: callID,
                                                     expectedImageID: imageID, deadline: deadline)

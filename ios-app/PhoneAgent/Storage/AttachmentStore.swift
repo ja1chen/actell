@@ -2,6 +2,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 import CryptoKit
+import AgentKit
+import Darwin
 
 struct StoredAttachment: Codable, Equatable, Identifiable, Sendable {
     enum Kind: String, Codable, Sendable { case image, text }
@@ -15,6 +17,15 @@ struct StoredAttachment: Codable, Equatable, Identifiable, Sendable {
     var width: Int?
     var height: Int?
     var sourceURL: URL?
+
+    static func sessionImage(_ image: SessionImageReference, conversationID: UUID) -> StoredAttachment {
+        let digest = image.digest, prefix = String(digest.prefix(32))
+        let uuidText = [String(prefix.prefix(8)), String(prefix.dropFirst(8).prefix(4)), String(prefix.dropFirst(12).prefix(4)), String(prefix.dropFirst(16).prefix(4)), String(prefix.suffix(12))].joined(separator: "-")
+        return StoredAttachment(id: UUID(uuidString: uuidText)!, conversationID: conversationID,
+            name: image.mimeType == "image/jpeg" ? String(localized: "Device screenshot.jpg") : String(localized: "Device screenshot.png"),
+            kind: .image, mimeType: image.mimeType, byteCount: image.byteCount, digest: digest,
+            width: image.width, height: image.height)
+    }
 }
 
 /// One protected resource store for drafts, messages, screenshots and remote images.
@@ -108,21 +119,41 @@ actor AttachmentStore {
     }
     private func directory(_ attachment: StoredAttachment) throws -> URL {
         try SessionStorageLayout(root: root).directory(for: attachment.conversationID)
+            .resolvingSymlinksInPath()
             .appendingPathComponent("attachments", isDirectory: true).appendingPathComponent(attachment.id.uuidString, isDirectory: true)
     }
     private func requireOwnedDirectory(_ attachment: StoredAttachment) throws {
-        let session = try SessionStorageLayout(root: root).directory(for: attachment.conversationID)
-        let expected = session.resolvingSymlinksInPath().appendingPathComponent("attachments").appendingPathComponent(attachment.id.uuidString)
-        guard try directory(attachment).resolvingSymlinksInPath().standardizedFileURL.path == expected.standardizedFileURL.path else {
-            throw AppError.invalid(String(localized: "The attachment folder contains an invalid path reference"))
+        // Resolve the existing session first. Resolving a missing UUID directory
+        // can normalize the sandbox prefix differently on a physical device.
+        // All appended components are fixed names or UUIDs; reject links only
+        // below this trusted base, without depending on nonexistent realpaths.
+        let folder = try directory(attachment)
+        for candidate in [folder.deletingLastPathComponent(), folder] {
+            var info = stat()
+            if lstat(candidate.path, &info) != 0 {
+                if errno == ENOENT { continue }
+                throw AppError.invalid(String(localized: "The attachment folder contains an invalid path reference"))
+            }
+            guard info.st_mode & S_IFMT == S_IFDIR else {
+                throw AppError.invalid(String(localized: "The attachment folder contains an invalid path reference"))
+            }
         }
     }
     func read(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
         guard attachment.conversationID == conversationID else { throw AppError.invalid(String(localized: "The attachment does not belong to this conversation")) }
         try requireOwnedDirectory(attachment)
-        let folder = try directory(attachment), file = folder.appendingPathComponent("original")
-        guard folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/"),
-              let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
+        let folder = try directory(attachment)
+        var file = folder.appendingPathComponent("original")
+        if !FileManager.default.fileExists(atPath: file.path) {
+            // AgentKit owns the durable image; previews do not require a second copy.
+            guard attachment.digest.count == 64, attachment.digest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+                throw AppError.invalid(String(localized: "Local attachment verification failed. Select it again or retry the existing image URL."))
+            }
+            let images = folder.deletingLastPathComponent()
+            try SessionStorageLayout.requireDirectory(images)
+            file = images.appendingPathComponent(attachment.digest)
+        }
+        guard let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
               info.isRegularFile == true, info.isSymbolicLink != true,
               let size = info.fileSize, size <= Self.imageLimit else { throw AppError.unavailable(String(localized: "The local attachment is unavailable. Retry downloading an existing remote image or select the file again.")) }
         let data = try Data(contentsOf: file, options: .mappedIfSafe)

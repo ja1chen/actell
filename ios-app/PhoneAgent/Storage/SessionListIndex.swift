@@ -4,7 +4,8 @@ import Foundation
 /// belong to the session journal and are loaded before any session mutation.
 struct SessionListIndex: Codable {
     static let previewLimit = 200
-    var version = 1
+    static let currentVersion = 2
+    var version = currentVersion
     var sessions: [Entry]
 
     struct Entry: Codable {
@@ -20,6 +21,8 @@ struct SessionListIndex: Codable {
         var entry: SessionEntry?
         var draftPreview: String?
         var preview: String?
+        var historySize: UInt64?
+        var historyModifiedAt: Date?
 
         init(_ conversation: AgentConversation, directory: String, preview: String?) {
             id = conversation.id; self.directory = directory
@@ -45,13 +48,22 @@ struct SessionListIndex: Codable {
         try SessionStorageLayout.requireRegularFile(file)
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size <= ConversationJournal.maximumBytes else { throw ConversationJournal.Failure.tooLarge }
-        let value = try JSONDecoder().decode(Self.self, from: Data(contentsOf: file))
-        guard value.version == 1, Set(value.sessions.map(\.id)).count == value.sessions.count,
-              value.sessions.allSatisfy({ SessionStorageLayout.conversationID(in: $0.directory) == $0.id
-                  && ($0.preview?.count ?? 0) <= previewLimit && ($0.draftPreview?.count ?? 0) <= previewLimit }) else {
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+        guard let version = object?["version"] as? Int, [1, currentVersion].contains(version),
+              let rows = object?["sessions"] as? [Any] else {
             throw ConversationJournal.Failure.invalidFormat
         }
-        return value
+        var entries: [UUID: Entry] = [:], duplicates = Set<UUID>(), order: [UUID] = []
+        for row in rows {
+            guard let row = row as? [String: Any],
+                  let data = try? JSONSerialization.data(withJSONObject: row),
+                  let entry = try? JSONDecoder().decode(Entry.self, from: data),
+                  SessionStorageLayout.conversationID(in: entry.directory) == entry.id,
+                  (entry.preview?.count ?? 0) <= previewLimit, (entry.draftPreview?.count ?? 0) <= previewLimit else { continue }
+            if entries[entry.id] != nil { duplicates.insert(entry.id) } else { order.append(entry.id) }
+            entries[entry.id] = entry
+        }
+        return SessionListIndex(version: version, sessions: order.compactMap { duplicates.contains($0) ? nil : entries[$0] })
     }
 
     func write(to file: URL) throws {

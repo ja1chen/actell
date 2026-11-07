@@ -75,6 +75,25 @@ import Foundation
         }
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") || ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] == "1" {
             let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--ui-testing"), arguments.contains("--ui-test-history-corrupt") {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentRecoveryUITest-" + UUID().uuidString, isDirectory: true)
+                let initial = ConversationStore(directory: directory)
+                let id = initial.create(mode: .demo)
+                if let run = initial.begin(in: id, query: "Recovery fixture") {
+                    initial.beginAssistantTurn(run)
+                    initial.completeAssistantTurn("Verified answer", identity: run)
+                    initial.finish(run, phase: .completed, summary: "")
+                }
+                if let folder = try? initial.sessionDirectory(id),
+                   let handle = try? FileHandle(forWritingTo: folder.appendingPathComponent("history.jsonl")) {
+                    try? handle.seekToEnd()
+                    try? handle.write(contentsOf: Data("{invalid committed record}\n".utf8))
+                    try? handle.close()
+                }
+                return AgentViewModel(sessions: ConversationStore(directory: directory), loadPersistentState: false,
+                    runServices: AgentRunServices(provider: DemoProvider(), bridge: UnavailableBridge()),
+                    attachments: AttachmentStore(directory: directory))
+            }
             if arguments.contains("--ui-test-history-migration") {
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentMigrationUITest", isDirectory: true)
                 let legacyDirectory = directory.appendingPathComponent("Library/Application Support/PhoneAgent", isDirectory: true)

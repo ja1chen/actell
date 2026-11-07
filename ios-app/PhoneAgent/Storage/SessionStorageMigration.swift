@@ -41,7 +41,7 @@ enum SessionStorageMigration {
             try SessionStorageLayout.createProtectedDirectory(staged.sessions)
             try JSONEncoder().encode(SessionStorageLayout.Format()).write(to: staged.formatFile, options: [.atomic, .completeFileProtection])
             let journal = ConversationJournal(directory: staged.sessions)
-            for conversation in conversations { try journal.save(conversation) }
+            for conversation in conversations { try journal.importLegacyConversation(conversation) }
             let copied = try journal.load()
             guard journal.unreadableIDs.isEmpty,
                   Dictionary(uniqueKeysWithValues: copied.map { ($0.id, $0) })

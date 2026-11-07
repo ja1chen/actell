@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 ## 核心能力
 
-- 可配置服务商与模型的会话、流式回复、服务商提供的可读思考、附件与用户导入的文本技能。
+- 可配置服务商与模型的会话、流式回复、服务商提供的可读思考、附件与用户导入的文本技能。AgentKit 保留完整会话历史，独立管理模型上下文与有预算的压缩。
 - 截图、点击、拖动和等待工具，按顺序执行；结果未知的输入不自动重放。普通聊天不要求设备连接。
 - VPN 与 NCM 共用 App 的系统配对身份和 CoreDevice 后端。受控实机已获得截图与实际点击效果；完整任务、拖动和长期后台需要单独验收。
 - 可选音频、画中画和定位后台方式。新安装默认开启音频及常驻，定位与待命实时活动默认关闭；保留已保存选择，仍受系统执行限制。
@@ -41,10 +41,16 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 # 可选 ESP32 路线，需安装 ESP-IDF 5.5.5；不自动烧录
 bash devices/esp32/tools/build.sh ncm
 
+# 独立模型与运行时包测试
+swift test --package-path ios-app/ProviderKit
+swift test --package-path ios-app/AgentKit
+
 # 回环协议测试与隔离模拟器测试
 CC=clang bash devices/esp32/tools/test_usb.sh
 SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 ```
+
+上下文续接按服务商能力区分：支持的 Responses 服务可显式选择服务端响应链；ChatGPT 订阅 HTTP 每次请求发送本轮有效上下文窗口，压缩后发送摘要与保留项，不重新发送全部 JSONL 历史。原生 compact 仅对受支持的 OpenAI Responses 配置启用，其他服务商使用无工具摘要压缩。职责与限制见 [AgentKit](ios-app/AgentKit/README.md) 和 [ProviderKit](ios-app/ProviderKit/README.md)。
 
 固件产物位于 `.build/esp32-<mode>/`。App 测试使用合成服务商和临时存储，不代替实机验收；加 `RUN_UI_TESTS=1` 可运行 UI 测试。核心协议、授权、隔离、未知结果、迁移和停止释放覆盖保留在默认 target。
 
@@ -53,6 +59,8 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | 路径 | 用途 |
 | --- | --- |
 | `ios-app/` | App、测试、资源和工程生成 |
+| `ios-app/AgentKit/` | 自有运行时、持久化会话事务与上下文管理 |
+| `ios-app/ProviderKit/` | 模型协议契约、流适配与显式服务商能力 |
 | `coredevice/` | App 内 Swift/Rust 后端 |
 | `devices/esp32/` | 固件、配置、平台共享模块及测试 |
 | `tools/` | 后端与跨模块构建、测试工具 |
@@ -62,8 +70,7 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 
 | 项目 | 当前用途 |
 | --- | --- |
-| [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) | 本地保留 Agent 核心与宏的源码快照，并适配 iOS 存储；不包含上游 MCP 模块 |
-| [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | Swift Package 依赖，用于模型 API 接入 |
+| [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | 远程 Swift Package 依赖，由 ProviderKit 用于模型协议编解码 |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package 依赖，用于 Markdown 消息渲染 |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | 复用 Device Hub 固定的补丁版 idevice 源码与 PNG validator，并进行本地适配；未整合完整 Device Hub App |
 | [ManifoldKit](https://github.com/ManifoldKit/ManifoldKit) | 选取并适配部分工具调用展示组件，不依赖完整框架 |

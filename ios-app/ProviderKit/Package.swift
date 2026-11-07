@@ -5,5 +5,6 @@ let package = Package(name: "ProviderKit", platforms: [.macOS(.v13), .iOS(.v16)]
     .library(name: "OpenAIAdapter", targets: ["OpenAIAdapter"])
 ], dependencies: [.package(url: "https://github.com/MacPaw/OpenAI.git", exact: "0.5.2")], targets: [
     .target(name: "ProviderCore"),
-    .target(name: "OpenAIAdapter", dependencies: ["ProviderCore", .product(name: "OpenAI", package: "OpenAI")])
+    .target(name: "OpenAIAdapter", dependencies: ["ProviderCore", .product(name: "OpenAI", package: "OpenAI")]),
+    .testTarget(name: "ProviderKitTests", dependencies: ["ProviderCore", "OpenAIAdapter"])
 ])

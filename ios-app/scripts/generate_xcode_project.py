@@ -130,7 +130,7 @@ def generate(*, ignore_env=False):
         raise ValueError("ACTELL_BUNDLE_ID_PREFIX must contain dot-separated letters, digits or hyphens")
     team = environment.get("ACTELL_DEVELOPMENT_TEAM", "").strip()
     packages = [
-        add("SwiftAgentKit", "XCLocalSwiftPackageReference", relativePath="Vendor/SwiftAgentKit"),
+        add("AgentKit", "XCLocalSwiftPackageReference", relativePath="AgentKit"),
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
         add("MarkdownUI", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/gonzalezreal/swift-markdown-ui.git",
             requirement=dict(kind="exactVersion", version="2.4.1")),
@@ -190,7 +190,7 @@ def generate(*, ignore_env=False):
                       includeInIndex=0, path=name + "." + extension, sourceTree="BUILT_PRODUCTS_DIR")
         products.append(product)
         package_products, frameworks = [], []
-        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("SwiftAgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
+        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("AgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
         # Hosted tests resolve X509 through the app's BUNDLE_LOADER. Linking its
         # product into both promotes transitive Crypto to an empty dynamic
         # framework on Xcode 27, which fails before the app can compile.

@@ -93,6 +93,7 @@ struct DiscoveredModel: Codable, Equatable, Identifiable, Sendable {
     var generation: CapabilitySupport = .unknown
     var thinking: CapabilitySupport = .unknown
     var inputTokenLimit: Int?
+    var contextTokenLimit: Int?
     var outputTokenLimit: Int?
     var maxTemperature: Double?
     var supportedParameters: [String]?

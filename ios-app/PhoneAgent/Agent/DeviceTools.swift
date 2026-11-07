@@ -1,12 +1,13 @@
 import Foundation
 import CoreFoundation
 import CryptoKit
-import SwiftAgentKit
+import AgentKit
 import ProviderCore
 
 struct DeviceTool: AgentTool {
     let name: String
     let coordinator: ActionCoordinator
+    var onResult: (@Sendable (ToolInvocation, ToolOutcome) async -> Void)? = nil
     var description: String { Self.description(for: name) }
     static func description(for name: String) -> String {
         switch name {
@@ -21,44 +22,73 @@ struct DeviceTool: AgentTool {
         default: return "Optionally end the run with a brief outcome and any uncertainty in summary, never private reasoning. A normal final answer can also end the run. Do not claim visible success from a delivery receipt alone."
         }
     }
-    var parameters: ToolParameters { Self.parameters(for: name) }
-    static func parameters(for name: String) -> ToolParameters {
-        let integer = ToolParameterProperty(type: "integer", description: "Integer in screenshot pixels")
-        let purpose = ToolParameterProperty(type: "string", description: "Brief user-visible action purpose; no reasoning")
+    var descriptor: ToolDescriptor {
+        .init(name: name, description: description, parameters: Self.parameters(for: name),
+              effect: ["tap", "drag", "home", "launch_app", "type_text"].contains(name) ? .deviceMutation : .readOnly)
+    }
+    static func parameters(for name: String) -> ProviderCore.JSONValue {
+        let integer = property("integer", "Integer in screenshot pixels")
+        let purpose = property("string", "Brief user-visible action purpose; no reasoning")
         switch name {
-        case "screenshot", "list_apps": return .empty
-        case "tap": return ToolParameters(properties: ["x": integer, "y": integer, "purpose": purpose], required: ["x", "y", "purpose"])
-        case "drag": return ToolParameters(properties: ["from_x": integer, "from_y": integer, "to_x": integer, "to_y": integer, "duration_ms": integer, "purpose": purpose], required: ["from_x", "from_y", "to_x", "to_y", "duration_ms", "purpose"])
-        case "home": return ToolParameters(properties: ["purpose": purpose], required: ["purpose"])
-        case "launch_app": return ToolParameters(properties: ["bundle_id": .init(type: "string", description: "Exact installed bundle identifier returned by list_apps"), "arguments": .init(type: "array", description: "Optional process arguments, up to 32 strings; not a URL or shell command", itemsType: "string"), "purpose": purpose], required: ["bundle_id", "purpose"])
-        case "type_text": return ToolParameters(properties: ["text": .init(type: "string", description: "Exact text, up to 8192 UTF-8 bytes; all text uses paste; no credentials"), "purpose": purpose], required: ["text", "purpose"])
-        case "wait": return ToolParameters(properties: ["duration_ms": integer], required: ["duration_ms"])
-        default: return ToolParameters(properties: ["summary": purpose], required: ["summary"])
+        case "screenshot", "list_apps": return schema([:])
+        case "tap": return schema(["x": integer, "y": integer, "purpose": purpose], required: ["x", "y", "purpose"])
+        case "drag": return schema(["from_x": integer, "from_y": integer, "to_x": integer, "to_y": integer, "duration_ms": integer, "purpose": purpose], required: ["from_x", "from_y", "to_x", "to_y", "duration_ms", "purpose"])
+        case "home": return schema(["purpose": purpose], required: ["purpose"])
+        case "launch_app": return schema(["bundle_id": property("string", "Exact installed bundle identifier returned by list_apps"), "arguments": .object(["type": .string("array"), "description": .string("Optional process arguments, up to 32 strings; not a URL or shell command"), "items": .object(["type": .string("string")])]), "purpose": purpose], required: ["bundle_id", "purpose"])
+        case "type_text": return schema(["text": property("string", "Exact text, up to 8192 UTF-8 bytes; all text uses paste; no credentials"), "purpose": purpose], required: ["text", "purpose"])
+        case "wait": return schema(["duration_ms": integer], required: ["duration_ms"])
+        default: return schema(["summary": purpose], required: ["summary"])
         }
     }
-    // Authorization is enforced after validation and again at transport. The
-    // caller selects per-action or task-scoped grants; the model cannot change it.
-    var isConcurrencySafe: Bool { false }
-    func execute(parameters: [String: Any]) async throws -> AgentToolResult { throw AppError.invalid(String(localized: "This tool requires a request context")) }
-    func execute(context: ToolContext) async throws -> AgentToolResult {
+    static func property(_ type: String, _ description: String) -> ProviderCore.JSONValue {
+        .object(["type": .string(type), "description": .string(description)])
+    }
+    static func schema(_ properties: [String: ProviderCore.JSONValue], required: [String] = []) -> ProviderCore.JSONValue {
+        .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(ProviderCore.JSONValue.string)), "additionalProperties": .bool(false)])
+    }
+    func execute(_ invocation: ToolInvocation, context: ToolExecutionContext) async throws -> ToolOutcome {
+        try await context.checkCancellation()
+        guard let parameters = invocation.arguments.foundation as? [String: Any] else { throw AppError.invalid(String(localized: "Arguments could not be displayed")) }
+        let outcome: ToolOutcome
         do {
-            let result = try await coordinator.execute(name: name, parameters: context.parameters, callID: context.callId)
-            if name == "finish" { context.actions.shouldStop = true }
-            return result
+            outcome = try await coordinator.execute(name: name, parameters: parameters, callID: invocation.callID)
         } catch {
             // Explicit cancellation ends the run. A tool failure is an ordinary
             // result so the next model turn can explain it or choose another step.
-            if Task.isCancelled || error is CancellationError || (error as? AppError) == .stopped {
-                context.actions.shouldStop = true
+            if error is ToolAuthorizationDenied {
                 await coordinator.stop()
-                throw error
+                outcome = .init(kind: .denied, content: String(localized: "This action was denied. The turn ended without sending it."))
+            } else {
+                if Task.isCancelled || error is CancellationError || (error as? AppError) == .stopped {
+                    await coordinator.stop()
+                    throw CancellationError()
+                }
+                let message = await coordinator.recordFailure(error)
+                await coordinator.toolFailed(callID: invocation.callID, message: message)
+                outcome = .init(kind: Self.failureKind(error), content: message)
             }
-            let message = await coordinator.recordFailure(error)
-            await coordinator.toolFailed(callID: context.callId, message: message)
-            return .error(toolCallId: context.callId, toolName: name, message: message)
         }
+        await onResult?(invocation, outcome)
+        return outcome
+    }
+    static func failureKind(_ error: Error) -> ToolOutcomeKind {
+        if error is DispatchedActionFailure { return .outcomeUnknown }
+        if error is ToolAuthorizationDenied { return .denied }
+        if let error = error as? AppError {
+            switch error {
+            case .unknownOutcome, .timeout: return .outcomeUnknown
+            case .invalid: return .validationFailed
+            case .stopped: return .cancelledBeforeDispatch
+            default: break
+            }
+        }
+        return .infrastructureFailure
     }
 }
+/// Public detail plus an explicit unknown outcome after the dispatch boundary.
+struct DispatchedActionFailure: Error, Sendable { let message: String }
+struct ToolAuthorizationDenied: Error, Sendable {}
+
 actor ActionCoordinator {
     let bridge: any DeviceBridge
     let limits: AgentLimits
@@ -92,7 +122,7 @@ actor ActionCoordinator {
         self.authorizationMode = authorizationMode
         self.diagnostics = diagnostics
     }
-    func execute(name: String, parameters p: [String: Any], callID: String) async throws -> AgentToolResult {
+    func execute(name: String, parameters p: [String: Any], callID: String) async throws -> ToolOutcome {
         try checkActive()
         let isInput = ["tap", "drag", "home", "launch_app", "type_text"].contains(name)
         if isInput {
@@ -128,7 +158,9 @@ actor ActionCoordinator {
                 metadata["video_orientation"] = capture.videoOrientation
             }
             let receipt = try JSONSerialization.data(withJSONObject: metadata)
-            return .success(toolCallId: callID, toolName: name, result: String(data: receipt, encoding: .utf8)!, images: [ModelImage(data: frame.png, mimeType: frame.mimeType)])
+            var observation = ModelImage(data: frame.png, mimeType: frame.mimeType)
+            observation.observationID = frame.id; observation.width = frame.width; observation.height = frame.height
+            return .init(content: String(decoding: receipt, as: UTF8.self), images: [observation])
         case "list_apps":
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: backgroundCapable)
             let data = try await bridge.installedApplications(); try checkActive()
@@ -137,7 +169,7 @@ actor ActionCoordinator {
             let safeRows = rows.map { $0.filter { ["name", "bundle_id", "version"].contains($0.key) } }
             let output = try JSONSerialization.data(withJSONObject: safeRows, options: [.sortedKeys])
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
-            return .success(toolCallId: callID, toolName: name, result: String(decoding: output, as: UTF8.self))
+            return .init(content: String(decoding: output, as: UTF8.self))
         case "tap", "drag", "home", "launch_app", "type_text":
             let coordinateAction = name == "tap" || name == "drag"
             let independent = coordinateAction && remoteCallInFlight && p["_input_contract"] as? String == InputDisplaySnapshot.contract
@@ -180,7 +212,7 @@ actor ActionCoordinator {
             pendingCallID = callID
             authorizationStage = "grant"
             guard await approve(Approval(tool: name, detail: detail, imageID: reference, callID: callID,
-                                         parametersDigest: try ApprovalRecordStore.digest(tool: name, parameters: authorizationParameters(p, display: display, mapped: [nx, ny, tx, ty])))) else { throw AppError.stopped }
+                                         parametersDigest: try ApprovalRecordStore.digest(tool: name, parameters: authorizationParameters(p, display: display, mapped: [nx, ny, tx, ty])))) else { throw ToolAuthorizationDenied() }
             try checkActive()
             if coordinateAction && !independent { _ = try currentImage(reference) }
             authorizationStage = "contextAfterGrant"
@@ -223,27 +255,27 @@ actor ActionCoordinator {
                 // Keep the unknown receipt durable, consume its old image, and
                 // return control to the model. Never resend this dispatch here.
                 let message = Self.safeToolError(error, beforeDispatch: false)
-                throw AppError.unavailable((error as? AppError) == .unknownOutcome
+                throw DispatchedActionFailure(message: (error as? AppError) == .unknownOutcome
                     ? message : String(localized: "\(message)\nThe action outcome is unknown. It was not resent automatically."))
             }
             try checkActive()
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
             await onReceipt(String(localized: "Delivery of \(name) confirmed"))
-            return .success(toolCallId: callID, toolName: name, result: "Command delivery acknowledged.")
+            return .init(content: "Command delivery acknowledged.")
         case "wait":
             let milliseconds = try integer(p, "duration_ms")
             guard (1...3_000).contains(milliseconds) else { throw AppError.invalid(String(localized: "Wait duration must be 1–3,000 milliseconds")) }
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: true)
             try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000); try checkActive()
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
-            return .success(toolCallId: callID, toolName: name, result: "Wait completed.")
+            return .init(content: "Wait completed.")
         case "finish":
             let summary = try string(p, "summary", max: 1_000)
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: true)
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
             finishSummary = summary; stopped = true
             await onReceipt(String(localized: "The model or demo script ended this turn. Check the result against the execution records."))
-            return .success(toolCallId: callID, toolName: name, result: summary)
+            return .init(content: summary, finishTurn: true)
         default: throw AppError.invalid(String(localized: "Unregistered tool"))
         }
     }
@@ -251,7 +283,7 @@ actor ActionCoordinator {
     /// The adapter holds the process-wide lease and admits only one call at a time.
     /// This actor fence additionally spans every suspension, including screenshots.
     func executeRemote(name: String, parameters: [String: Any], callID: String,
-                       expectedImageID: String?, deadline: Date) async throws -> AgentToolResult {
+                       expectedImageID: String?, deadline: Date) async throws -> ToolOutcome {
         guard !remoteCallInFlight else { throw AppError.unavailable(String(localized: "A remote tool is running. Wait for it to finish.")) }
         remoteFailureCode = nil
         remoteFailureDiagnostics = [:]
@@ -273,7 +305,7 @@ actor ActionCoordinator {
             }
             let message = recordFailure(error)
             await toolFailed(callID: callID, message: message)
-            return .error(toolCallId: callID, toolName: name, message: message)
+            return .init(kind: DeviceTool.failureKind(error), content: message)
         }
     }
     func toolFailed(callID: String, message: String) async {
@@ -308,13 +340,15 @@ actor ActionCoordinator {
         return Self.safeToolError(error)
     }
     private static func safeToolError(_ error: Error, beforeDispatch: Bool = true) -> String {
+        if let failure = error as? DispatchedActionFailure { return failure.message }
+        if error is ToolAuthorizationDenied { return String(localized: "This action was denied. The turn ended without sending it.") }
         if (error as? RemoteRPCError)?.code == "geometry_unavailable" || error is NativeInputGeometryError {
             return beforeDispatch ? String(localized: "Could not verify the current screen layout. No input was sent.")
                 : String(localized: "This connection cannot verify the current screen layout.")
         }
         // Bridge/validation AppErrors contain local public messages, never raw
         // remote responses, credentials or arbitrary NSError diagnostics.
-        return String(((error as? AppError)?.localizedDescription ?? String(localized: "The tool failed. It was not retried automatically. Check the device connection or adjust the request.")).prefix(1_000))
+        return (error as? AppError)?.localizedDescription ?? String(localized: "The tool failed. It was not retried automatically. Check the device connection or adjust the request.")
     }
     private func rememberRemoteFailure(_ error: Error) {
         if let rpc = error as? RemoteRPCError {

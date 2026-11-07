@@ -1,97 +1,131 @@
 import Foundation
+import AgentKit
 
-/// One newline-committed transaction per save, in one file per conversation.
-/// Messages are upserted by ID; reading this journal never executes agent tools.
+/// App presentation adapter over the authoritative AgentKit session journal.
+/// Legacy records are read only during conversion; all new writes use AgentKit.
 final class ConversationJournal {
     static let directoryName = SessionStorageLayout.directoryName
     static let maximumBytes = 64 * 1_024 * 1_024
-    private struct Record: Codable {
-        var version = 1
-        var metadata: AgentConversation // messages is always empty
-        var messages: [ChatMessage]
-        var removedMessageIDs: [UUID]
-    }
     private struct Saved {
         var conversation: AgentConversation
         var committedBytes: UInt64
+        var modifiedAt: Date
     }
     enum Failure: Error { case invalidFormat, tooLarge, unreadableConversation }
     let directory: URL
     private var saved: [UUID: Saved] = [:]
+    private var stores: [UUID: JSONLSessionStore] = [:]
     private var listEntries: [UUID: SessionListIndex.Entry]?
     private var knownFolders: [UUID: URL] = [:]
+    private var committedIDs: Set<UUID> = []
+    private var uncertainHistoryIDs: Set<UUID> = []
     private(set) var unreadableIDs: Set<UUID> = []
     private(set) var recoveredTail = false
 
     init(directory: URL) { self.directory = directory }
 
     private var layout: SessionStorageLayout { SessionStorageLayout(sessions: directory) }
-    private struct Summary: Codable {
-        var version = 1
-        var conversation: AgentConversation
-        var preview: String?
-        var journalBytes: UInt64
-        var modifiedAt: Date
+    private struct HistoryAttributes {
+        var size: UInt64
+        var modified: Date
+    }
+    private static func historyAttributes(_ file: URL) throws -> HistoryAttributes {
+        try SessionStorageLayout.requireRegularFile(file)
+        // Fetch fresh filesystem attributes. URL resource values may be cached
+        // across an append and otherwise publish a stale derived summary.
+        let values = try FileManager.default.attributesOfItem(atPath: file.path)
+        guard let size = values[.size] as? NSNumber, let modified = values[.modificationDate] as? Date else { throw Failure.invalidFormat }
+        return HistoryAttributes(size: size.uint64Value, modified: modified)
     }
     func isLoaded(_ id: UUID) -> Bool { saved[id] != nil }
+    func reload(_ id: UUID) throws -> AgentConversation {
+        let value = try read(id); saved[id] = value
+        return value.conversation
+    }
+    func adoptCommittedSession(_ id: UUID) throws {
+        let value = try read(id); saved[id] = value
+        let root = try folder(id); knownFolders[id] = root
+        committedIDs.insert(id)
+        updateListEntry(value.conversation, folder: root); try? writeIndex()
+    }
 
     static func install(_ conversations: [AgentConversation], in root: URL) throws {
         _ = try SessionStorageMigration.install(conversations, in: root)
+    }
+
+    /// Called while constructing an isolated migration tree. The source
+    /// archive is never written as an intermediate per-session journal.
+    func importLegacyConversation(_ conversation: AgentConversation) throws {
+        if listEntries == nil { _ = try loadSummaries() }
+        let folder = try layout.ensureDirectory(for: conversation.id, createdAt: conversation.createdAt)
+        let history = folder.appendingPathComponent("history.jsonl")
+        guard !FileManager.default.fileExists(atPath: history.path) else { throw Failure.invalidFormat }
+        knownFolders[conversation.id] = folder
+        let store = JSONLSessionStore(root: folder, sessionID: conversation.id)
+        var revision = 0
+        for transaction in try AgentSessionPersistence.importConversation(conversation) {
+            revision = try store.appendSync(transaction, expecting: revision).revision
+        }
+        stores[conversation.id] = store
+        try adoptCommittedSession(conversation.id)
     }
 
     func load() throws -> [AgentConversation] { try load(useSummaries: false) }
     func loadSummaries() throws -> [AgentConversation] { try load(useSummaries: true) }
     private func load(useSummaries: Bool) throws -> [AgentConversation] {
         try layout.validate()
-        saved.removeAll(); unreadableIDs.removeAll(); recoveredTail = false
-        if useSummaries, let index = try? SessionListIndex.read(from: layout.stateFile) {
-            listEntries = Dictionary(uniqueKeysWithValues: index.sessions.map { ($0.id, $0) })
-            knownFolders = Dictionary(uniqueKeysWithValues: index.sessions.map { ($0.id, directory.appendingPathComponent($0.directory, isDirectory: true)) })
-            return index.sessions.map(\.conversation).sorted { $0.updatedAt > $1.updatedAt }
-        }
-        // A missing/invalid index is a cache rebuild, not a data migration.
-        try invalidateIndex()
-        listEntries = [:]
-        var conversations: [AgentConversation] = []
+        saved.removeAll(); stores.removeAll(); unreadableIDs.removeAll(); uncertainHistoryIDs.removeAll(); recoveredTail = false
+        // Directory enumeration reconciles committed creates/deletes even when
+        // the optional list publication was interrupted. Reuse each unchanged
+        // entry independently; one stale history never forces all logs to load.
         knownFolders = try layout.directories()
+        let index = try? SessionListIndex.read(from: layout.stateFile)
+        let cached = index?.sessions ?? []
+        let canReuse = useSummaries && index?.version == SessionListIndex.currentVersion
+        listEntries = Dictionary(uniqueKeysWithValues: cached.filter {
+            knownFolders[$0.id]?.lastPathComponent == $0.directory
+        }.map { ($0.id, $0) })
+        committedIDs = Set(listEntries?.keys.map { $0 } ?? [])
+        var conversations: [AgentConversation] = []
         for (id, folder) in knownFolders {
-            let file = folder.appendingPathComponent("history.jsonl")
-            // Draft attachments and orphaned execution records do not create a
-            // visible conversation without a committed history file.
-            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            let history = folder.appendingPathComponent("history.jsonl")
+            guard FileManager.default.fileExists(atPath: history.path) else {
+                if committedIDs.contains(id) { unreadableIDs.insert(id); invalidateEntryFingerprint(id) }
+                continue
+            }
             do {
-                try SessionStorageLayout.requireRegularFile(file)
-                let attributes = try file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-                if useSummaries,
-                   let data = try? Data(contentsOf: folder.appendingPathComponent("metadata.json")),
-                   let summary = try? JSONDecoder().decode(Summary.self, from: data),
-                   summary.version == 1, summary.conversation.id == id, summary.conversation.messages.isEmpty,
-                   summary.journalBytes == UInt64(attributes.fileSize ?? 0), summary.modifiedAt == attributes.contentModificationDate {
-                    let entry = SessionListIndex.Entry(summary.conversation, directory: folder.lastPathComponent, preview: summary.preview)
-                    listEntries?[id] = entry
+                let attributes = try Self.historyAttributes(history)
+                guard attributes.size > 0 else {
+                    if committedIDs.contains(id) { unreadableIDs.insert(id); invalidateEntryFingerprint(id) }
+                    continue
+                }
+                committedIDs.insert(id)
+                if canReuse, let entry = listEntries?[id],
+                   entry.historySize == attributes.size, entry.historyModifiedAt == attributes.modified {
                     conversations.append(entry.conversation)
                 } else {
                     let value = try read(id); saved[id] = value
                     conversations.append(value.conversation)
-                    try? writeSummary(value)
                     updateListEntry(value.conversation, folder: folder)
                 }
-            } catch { unreadableIDs.insert(id) }
+            } catch { unreadableIDs.insert(id); invalidateEntryFingerprint(id) }
         }
         try? writeIndex()
         return conversations.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     func conversation(_ id: UUID) throws -> AgentConversation {
-        if let value = saved[id] { return value.conversation }
+        if let value = saved[id], let url = try? file(id),
+           let attributes = try? Self.historyAttributes(url),
+           attributes.size == value.committedBytes, attributes.modified == value.modifiedAt { return value.conversation }
         do {
             let value = try read(id); saved[id] = value
-            try? writeSummary(value)
-            if recoveredTail { try? invalidateIndex() }
+            if let root = knownFolders[id] { updateListEntry(value.conversation, folder: root) }
+            try? writeIndex()
             return value.conversation
         } catch {
-            unreadableIDs.insert(id)
-            try? invalidateIndex()
+            unreadableIDs.insert(id); invalidateEntryFingerprint(id)
+            try? writeIndex()
             throw error
         }
     }
@@ -105,113 +139,112 @@ final class ConversationJournal {
     }
     private func file(_ id: UUID) throws -> URL { try folder(id).appendingPathComponent("history.jsonl") }
 
-    private func writeSummary(_ value: Saved) throws {
-        let file = try file(value.conversation.id)
-        var metadata = value.conversation; metadata.messages = []; metadata.cachedPreview = nil
-        guard let modifiedAt = try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return }
-        // Cache only message content. App-provided empty/Siri labels are
-        // localized when displayed, including after a language change.
-        let preview = value.conversation.messages.last(where: { $0.role == .user || $0.role == .assistant })?.text
-        let summary = Summary(conversation: metadata, preview: preview,
-            journalBytes: value.committedBytes, modifiedAt: modifiedAt)
-        try JSONEncoder().encode(summary).write(to: file.deletingLastPathComponent().appendingPathComponent("metadata.json"), options: [.atomic, .completeFileProtection])
+    func engineStore(_ id: UUID) throws -> JSONLSessionStore {
+        if let value = stores[id] { return value }
+        let root = try folder(id)
+        let value = JSONLSessionStore(root: root, sessionID: id, requireExistingHistory: committedIDs.contains(id))
+        // The storage layer recognizes its self-describing header and both
+        // previous formats. App supplies only its own legacy UI converter.
+        try value.migrateLegacySync {
+            if !$0.isEmpty && $0.last != 0x0A { self.recoveredTail = true }
+            return try AgentSessionPersistence.migrate($0, sessionID: id)
+        }
+        stores[id] = value
+        return value
     }
 
     private func read(_ id: UUID) throws -> Saved {
-        let url = try file(id)
-        try SessionStorageLayout.requireRegularFile(url)
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= Self.maximumBytes else { throw Failure.tooLarge }
-        let data = try Data(contentsOf: url)
-        var conversation: AgentConversation?
-        var start = data.startIndex
-        // Only a newline commits a record. A torn final write is never decoded
-        // as a complete transaction or allowed to hide corruption in earlier lines.
-        for end in data.indices where data[end] == 0x0A {
-            let record = try JSONDecoder().decode(Record.self, from: data[start..<end])
-            guard record.version == 1, record.metadata.id == id, record.metadata.messages.isEmpty,
-                  Set(record.messages.map(\.id)).count == record.messages.count else { throw Failure.invalidFormat }
-            var messages = conversation?.messages ?? []
-            let removed = Set(record.removedMessageIDs)
-            messages.removeAll { removed.contains($0.id) }
-            var positions = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
-            for message in record.messages {
-                if let index = positions[message.id] { messages[index] = message }
-                else { positions[message.id] = messages.count; messages.append(message) }
+        let store = try engineStore(id)
+        var presentation = try store.presentationSync()
+        if presentation.integrityGap { unreadableIDs.insert(id); uncertainHistoryIDs.insert(id) }
+        if presentation.recoveredTail { recoveredTail = true; uncertainHistoryIDs.insert(id) }
+        if presentation.integrityGap && presentation.metadata == nil && presentation.items.isEmpty { throw Failure.invalidFormat }
+        let conversation: AgentConversation
+        if let current = try? AgentSessionPersistence.conversation(from: presentation, sessionID: id) {
+            conversation = current
+        } else {
+            // A malformed optional App metadata update does not invalidate an
+            // earlier valid conversation descriptor or the durable facts.
+            let transactions = (try? store.readTransactionsSync(id)) ?? []
+            var recovered: AgentConversation?
+            for transaction in transactions.reversed() where [.sessionUpdated, .presentationUpdated, .legacyImported].contains(transaction.kind) {
+                guard let metadata = transaction.metadata else { continue }
+                presentation.metadata = metadata
+                if let candidate = try? AgentSessionPersistence.conversation(from: presentation, sessionID: id) { recovered = candidate; break }
             }
-            conversation = record.metadata; conversation?.messages = messages
-            start = end + 1
+            if let recovered { conversation = recovered }
+            else {
+                // The session header supplies identity and display facts still carry
+                // their own timestamps. Missing App metadata must not invent
+                // a provider, draft, entry, or device authorization.
+                var neutral = AgentConversation(id: id, mode: .live)
+                if let first = presentation.items.first(where: { $0.role == "user" && !$0.text.isEmpty }) { neutral.title = String(first.text.prefix(48)) }
+                if let date = presentation.items.first?.createdAt { neutral.createdAt = date; neutral.updatedAt = date }
+                presentation.metadata = try AgentSessionPersistence.metadata(neutral)
+                conversation = try AgentSessionPersistence.conversation(from: presentation, sessionID: id)
+            }
         }
-        guard let conversation else { throw Failure.invalidFormat }
-        if start < data.endIndex { recoveredTail = true }
-        return Saved(conversation: conversation, committedBytes: UInt64(start))
+        let attributes = try Self.historyAttributes(file(id))
+        return Saved(conversation: conversation, committedBytes: attributes.size, modifiedAt: attributes.modified)
     }
 
     func save(_ conversation: AgentConversation) throws {
         if listEntries == nil { _ = try loadSummaries() }
-        guard !unreadableIDs.contains(conversation.id) else { throw Failure.unreadableConversation }
-        let folder = try knownFolders[conversation.id] != nil ? self.folder(conversation.id)
+        if committedIDs.contains(conversation.id), knownFolders[conversation.id] == nil { throw Failure.unreadableConversation }
+        let root = try knownFolders[conversation.id] != nil ? folder(conversation.id)
             : layout.ensureDirectory(for: conversation.id, createdAt: conversation.createdAt)
-        knownFolders[conversation.id] = folder
-        let destination = folder.appendingPathComponent("history.jsonl")
-        if saved[conversation.id] == nil, FileManager.default.fileExists(atPath: destination.path) {
-            saved[conversation.id] = try read(conversation.id)
-        }
-        let previous = saved[conversation.id]
-        guard previous?.conversation != conversation else { return }
-        guard Set(conversation.messages.map(\.id)).count == conversation.messages.count else { throw Failure.invalidFormat }
-        var metadata = conversation; metadata.messages = []
-        let snapshot = Record(metadata: metadata, messages: conversation.messages, removedMessageIDs: [])
-        let snapshotData = try encode(snapshot)
-        guard snapshotData.count <= Self.maximumBytes else { throw Failure.tooLarge }
-        let oldMessages = Dictionary(uniqueKeysWithValues: (previous?.conversation.messages ?? []).map { ($0.id, $0) })
-        let ids = Set(conversation.messages.map(\.id))
-        let delta = Record(metadata: metadata,
-            messages: conversation.messages.filter { oldMessages[$0.id] != $0 },
-            removedMessageIDs: oldMessages.keys.filter { !ids.contains($0) })
-        let data = try encode(delta)
-        let offset = previous?.committedBytes ?? 0
-        // Invalidate before touching authoritative data. If interrupted or the
-        // cache cannot be saved, the next launch rebuilds instead of trusting
-        // an old list that could omit a new session or resurrect a deletion.
-        try invalidateIndex()
-        let compact = offset + UInt64(data.count) > UInt64(min(Self.maximumBytes, max(1_024 * 1_024, snapshotData.count * 8)))
-        if previous == nil || compact {
-            try snapshotData.write(to: destination, options: [.atomic, .completeFileProtection])
-            saved[conversation.id] = Saved(conversation: conversation, committedBytes: UInt64(snapshotData.count))
-        } else {
-            let handle = try FileHandle(forWritingTo: destination)
-            defer { try? handle.close() }
-            // Also removes an incomplete tail from a prior failed append.
-            try handle.truncate(atOffset: offset)
-            try handle.seek(toOffset: offset)
-            do {
-                try handle.write(contentsOf: data)
-                try handle.synchronize()
-            } catch {
-                try? handle.truncate(atOffset: offset)
-                throw error
+        knownFolders[conversation.id] = root
+        let store = try engineStore(conversation.id)
+        let history = root.appendingPathComponent("history.jsonl")
+        var refreshed = false
+        if FileManager.default.fileExists(atPath: history.path) {
+            let attributes = try Self.historyAttributes(history)
+            if saved[conversation.id] == nil || saved[conversation.id]?.committedBytes != attributes.size || saved[conversation.id]?.modifiedAt != attributes.modified {
+                saved[conversation.id] = try read(conversation.id); refreshed = true
             }
-            saved[conversation.id] = Saved(conversation: conversation, committedBytes: offset + UInt64(data.count))
         }
-        if let value = saved[conversation.id] { try? writeSummary(value) }
-        updateListEntry(conversation, folder: folder)
+        let previous = saved[conversation.id]?.conversation
+        guard previous != conversation else { return }
+        guard Set(conversation.messages.map(\.id)).count == conversation.messages.count else { throw Failure.invalidFormat }
+        let old = Dictionary(uniqueKeysWithValues: (previous?.messages ?? []).map { ($0.id, $0) })
+        let ids = Set(conversation.messages.map(\.id))
+        let changed = conversation.messages.filter { old[$0.id] != $0 }
+        let transaction = try SessionTransaction(sessionID: conversation.id, kind: .presentationUpdated,
+            displayItems: changed.map { try AgentSessionPersistence.display($0) },
+            metadata: AgentSessionPersistence.metadata(conversation), removedDisplayItemIDs: old.keys.filter { !ids.contains($0) })
+        _ = try store.appendPresentationSync(transaction)
+        unreadableIDs.remove(conversation.id); uncertainHistoryIDs.remove(conversation.id)
+        committedIDs.insert(conversation.id)
+        let attributes = try Self.historyAttributes(history)
+        if refreshed {
+            if let presentation = try? store.presentationSync(),
+               let actual = try? AgentSessionPersistence.conversation(from: presentation, sessionID: conversation.id) {
+                saved[conversation.id] = Saved(conversation: actual, committedBytes: attributes.size, modifiedAt: attributes.modified)
+            } else { saved.removeValue(forKey: conversation.id) }
+        } else {
+            saved[conversation.id] = Saved(conversation: conversation, committedBytes: attributes.size, modifiedAt: attributes.modified)
+        }
+        updateListEntry(saved[conversation.id]?.conversation ?? conversation, folder: root)
         try? writeIndex()
     }
 
     private func updateListEntry(_ conversation: AgentConversation, folder: URL) {
         let preview = conversation.messages.last(where: { $0.role == .user || $0.role == .assistant })?.text
-        listEntries?[conversation.id] = SessionListIndex.Entry(conversation, directory: folder.lastPathComponent, preview: preview)
+        var entry = SessionListIndex.Entry(conversation, directory: folder.lastPathComponent, preview: preview)
+        let history = folder.appendingPathComponent("history.jsonl")
+        if !uncertainHistoryIDs.contains(conversation.id), let values = try? Self.historyAttributes(history) {
+            entry.historySize = values.size; entry.historyModifiedAt = values.modified
+        }
+        listEntries?[conversation.id] = entry
     }
 
-    private func invalidateIndex() throws {
-        guard FileManager.default.fileExists(atPath: layout.stateFile.path) else { return }
-        try SessionStorageLayout.requireRegularFile(layout.stateFile)
-        try FileManager.default.removeItem(at: layout.stateFile)
+    private func invalidateEntryFingerprint(_ id: UUID) {
+        uncertainHistoryIDs.insert(id)
+        listEntries?[id]?.historySize = nil; listEntries?[id]?.historyModifiedAt = nil
     }
 
     private func writeIndex() throws {
-        guard let listEntries, unreadableIDs.isEmpty, !recoveredTail else { return }
+        guard let listEntries else { return }
         let entries = listEntries.values.sorted { $0.updatedAt > $1.updatedAt }
         try SessionListIndex(sessions: entries).write(to: layout.stateFile)
     }
@@ -219,16 +252,11 @@ final class ConversationJournal {
     func delete(_ id: UUID) throws {
         if listEntries == nil { _ = try loadSummaries() }
         guard !unreadableIDs.contains(id) else { throw Failure.unreadableConversation }
-        if listEntries?[id] != nil, saved[id] == nil { _ = try conversation(id) }
-        try invalidateIndex()
+        if listEntries?[id] != nil || saved[id] != nil { _ = try conversation(id) }
+        guard !unreadableIDs.contains(id) else { throw Failure.unreadableConversation }
         if let folder = try knownFolders[id] ?? layout.directories()[id] { try FileManager.default.removeItem(at: folder) }
-        saved.removeValue(forKey: id); listEntries?.removeValue(forKey: id); knownFolders.removeValue(forKey: id)
+        saved.removeValue(forKey: id); stores.removeValue(forKey: id); committedIDs.remove(id); uncertainHistoryIDs.remove(id); listEntries?.removeValue(forKey: id); knownFolders.removeValue(forKey: id)
         try? writeIndex()
     }
 
-    private func encode(_ record: Record) throws -> Data {
-        var data = try JSONEncoder().encode(record)
-        data.append(0x0A)
-        return data
-    }
 }

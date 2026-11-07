@@ -5,7 +5,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-demo-history", "--ui-test-light"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         for title in ["添加照片", "添加文件"] {
             let plus = app.buttons["addAttachment"]
             plus.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -24,7 +24,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-demo-history", "--ui-test-light"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         for _ in 0..<2 {
             app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let photo = app.descendants(matching: .any)["添加照片"].firstMatch
@@ -49,7 +49,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-demo-history", "--ui-test-dark"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let file = app.descendants(matching: .any)["添加文件"].firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
@@ -76,7 +76,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-attachments", "--ui-test-dark"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         let draft = app.scrollViews["draftAttachments"]
         XCTAssertTrue(draft.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["stopRun"].exists)

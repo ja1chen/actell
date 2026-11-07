@@ -283,7 +283,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-disclosure-scroll"]
         app.launch()
-        app.staticTexts["新会话"].firstMatch.tap()
+        app.staticTexts["新建会话"].firstMatch.tap()
         XCTAssertTrue(app.scrollViews["conversationMessages"].waitForExistence(timeout: 5))
         for title in ["1 次工具调用 · 1 段思考"] {
             let toggle = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
@@ -309,7 +309,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-disclosure-scroll"]
-        app.launch(); app.staticTexts["新会话"].firstMatch.tap()
+        app.launch(); app.staticTexts["新建会话"].firstMatch.tap()
         app.buttons["1 次工具调用 · 1 段思考"].tap()
         app.scrollViews["conversationMessages"].swipeUp()
         let toggle = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "查询 App")).firstMatch
@@ -334,7 +334,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-disclosure-scroll"]
-        app.launch(); app.staticTexts["新会话"].firstMatch.tap()
+        app.launch(); app.staticTexts["新建会话"].firstMatch.tap()
         app.buttons["1 次工具调用 · 1 段思考"].tap()
         let header = app.buttons["思考"]
         XCTAssertTrue(header.waitForExistence(timeout: 5))
@@ -353,7 +353,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-composer-history", "--ui-test-conversation-navigation"]
-        app.launch(); app.staticTexts["新会话"].firstMatch.tap()
+        app.launch(); app.staticTexts["新建会话"].firstMatch.tap()
         let scroll = app.scrollViews["conversationMessages"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 5))
         let route = try XCTUnwrap(URL(string: try XCTUnwrap(scroll.value as? String)))
@@ -372,7 +372,7 @@ import XCTest
         }
         scroll.swipeDown(); scroll.swipeDown()
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.staticTexts["新会话"].firstMatch.tap()
+        app.staticTexts["新建会话"].firstMatch.tap()
         assertAtBottom()
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCUIDevice.shared.press(.home)
@@ -736,7 +736,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-composer-history"]
         app.launch()
-        app.staticTexts["新会话"].firstMatch.tap()
+        app.staticTexts["新建会话"].firstMatch.tap()
         let input = app.textViews["messageInput"]
         let last = app.staticTexts["滚动验收最后一条消息"]
         XCTAssertTrue(last.waitForExistence(timeout: 5))
@@ -773,7 +773,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-composer-history"]
         app.launch()
-        app.staticTexts["新会话"].firstMatch.tap()
+        app.staticTexts["新建会话"].firstMatch.tap()
         let input = app.textViews["messageInput"]
         XCTAssertTrue(app.staticTexts["滚动验收最后一条消息"].waitForExistence(timeout: 5))
         app.scrollViews["conversationMessages"].swipeDown()
@@ -816,15 +816,18 @@ import XCTest
     }
     func testHistoricalDemoStopDoesNotReplayOnReopen() {
         let app = launch(demo: true)
-        XCTAssertTrue(app.staticTexts["新会话"].waitForExistence(timeout: 10))
-        app.staticTexts["新会话"].tap()
-        app.buttons["suggestedPrompt"].tap(); app.buttons["sendMessage"].tap()
-        XCTAssertTrue(app.buttons["approveTool"].waitForExistence(timeout: 10))
+        let task = "Stop and reopen demo history"
+        XCTAssertTrue(app.staticTexts["新建会话"].waitForExistence(timeout: 10))
+        app.staticTexts["新建会话"].tap()
+        let input = app.textViews["messageInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText(task)
+        app.buttons["sendMessage"].tap()
+        XCTAssertTrue(app.buttons["approveTool"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["stopRun"].tap()
         XCTAssertTrue(app.staticTexts["已停止；已发出的动作可能已执行，请核对设备"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["approveTool"].exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.staticTexts["查看演示画面，点击计数器一次，再检查结果"].firstMatch.tap()
+        app.staticTexts[task].firstMatch.tap()
         XCTAssertFalse(app.buttons["stopRun"].exists)
         XCTAssertFalse(app.buttons["approveTool"].exists)
     }

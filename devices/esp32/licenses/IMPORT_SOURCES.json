@@ -985,12 +985,6 @@
       "bytes": 1067
     },
     {
-      "source": "ios-agent-app/Licenses/SwiftAgentKit-MIT.txt",
-      "path": "ios-app/Licenses/SwiftAgentKit-MIT.txt",
-      "sha256": "85008e58e16e7df7502c39aa37ce7cca25cba3ddbe2096eedd6970652a546205",
-      "bytes": 1067
-    },
-    {
       "source": "ios-agent-app/PhoneAgent/Agent/AgentViewModel.swift",
       "path": "ios-app/PhoneAgent/Agent/AgentViewModel.swift",
       "sha256": "e22fe23f64ed524d6303fb9fa97b052ae56ee9f7567fb3aabfba31934c6f3599",

@@ -81,7 +81,7 @@ struct ContentView: View {
         .environment(\.editMode, editModeBinding)
         .toolbar { conversationToolbar }
         .navigationDestination(for: UUID.self) { id in
-            ConversationView(model: model, conversationID: id).id(id)
+            ConversationView(model: model, conversationID: id, onRecovered: { path = [$0] }).id(id)
         }
         .sheet(item: $panel) { item in
             switch item {

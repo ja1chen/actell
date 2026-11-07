@@ -19,9 +19,9 @@ public struct ModelMessage: Sendable, Equatable, Codable {
     public static func assistant(content: String = "", toolCalls: [ModelToolCall], replayState: ScopedChatReplayState? = nil) -> Self { .init(role: .assistant, content: content, toolCalls: toolCalls, replayState: replayState) }
     public static func tool(_ text: String, toolCallId: String) -> Self { .init(role: .tool, content: text, toolCallId: toolCallId) }
 }
-/// Data is a copy-on-write byte reference, never a retained base64 string. Codable
-/// keeps the old AgentMessage image envelope readable. Disk-backed media can be
-/// supplied by URL; loaded only at serialization and bounded there.
+/// Data is a copy-on-write byte reference, never a retained base64 string.
+/// Disk-backed media can be supplied by URL and is loaded only at bounded wire
+/// serialization; durable session storage owns its versioned media representation.
 public struct ModelImage: Sendable, Equatable, Codable {
     public let data: Data
     public let mimeType: String
@@ -44,6 +44,11 @@ public struct ModelImage: Sendable, Equatable, Codable {
     }
 }
 public enum ModelReasoningEffort: String, Sendable, Codable { case off = "none", minimal, low, medium, high, xhigh, max, ultra }
+/// Correlation metadata only; never determines whether opaque items may replay.
+public struct ProviderRequestOwnership: Sendable, Equatable, Codable {
+    public let turn: UUID, inference: UUID, attempt: UUID
+    public init(turn: UUID, inference: UUID, attempt: UUID) { self.turn = turn; self.inference = inference; self.attempt = attempt }
+}
 public struct ModelRequest: Sendable {
     public var model: String
     public var messages: [ModelMessage]
@@ -59,6 +64,8 @@ public struct ModelRequest: Sendable {
     public var reasoningEffort: ModelReasoningEffort?
     public var id: UUID
     public var stallTimeout: TimeInterval? = nil
+    public var cachePolicy: PromptCachePolicy? = nil
+    public var ownership: ProviderRequestOwnership? = nil
     public init(model: String, messages: [ModelMessage], temperature: Double? = nil, maxTokens: Int? = nil, topP: Double? = nil, tools: [ModelToolDefinition] = [], reasoningEffort: ModelReasoningEffort? = nil, id: UUID = UUID()) {
         self.model = model; self.messages = messages; self.temperature = temperature; self.maxTokens = maxTokens; self.topP = topP; self.tools = tools; self.reasoningEffort = reasoningEffort; self.id = id
     }
@@ -78,8 +85,9 @@ public struct ModelUsage: Sendable, Equatable, Codable {
     public let totalTokens: Int?
     public let cachedTokens: Int?
     public let reasoningTokens: Int?
-    public init(promptTokens: Int? = nil, completionTokens: Int? = nil, totalTokens: Int? = nil, cachedTokens: Int? = nil, reasoningTokens: Int? = nil) {
-        self.promptTokens = promptTokens; self.completionTokens = completionTokens; self.totalTokens = totalTokens; self.cachedTokens = cachedTokens; self.reasoningTokens = reasoningTokens
+    public let cacheWriteTokens: Int?
+    public init(promptTokens: Int? = nil, completionTokens: Int? = nil, totalTokens: Int? = nil, cachedTokens: Int? = nil, reasoningTokens: Int? = nil, cacheWriteTokens: Int? = nil) {
+        self.promptTokens = promptTokens; self.completionTokens = completionTokens; self.totalTokens = totalTokens; self.cachedTokens = cachedTokens; self.reasoningTokens = reasoningTokens; self.cacheWriteTokens = cacheWriteTokens
     }
 }
 public struct ModelResponse: Sendable {
@@ -119,6 +127,7 @@ public struct ModelToolDefinition: Sendable {
     public let name: String
     public let description: String
     public let schema: JSONValue
+    public init(name: String, description: String, schema: JSONValue) { self.name = name; self.description = description; self.schema = schema }
     public var parameters: [String: Any] { schema.foundation as? [String: Any] ?? [:] }
     public init(name: String, description: String, parameters: [String: Any]) { self.name = name; self.description = description; self.schema = (try? JSONValue(any: parameters)) ?? .object([:]) }
 }
@@ -148,12 +157,15 @@ public protocol ModelProvider: Sendable {
     func complete(_ request: ModelRequest) async throws -> ModelResponse
     func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error>
 }
+public enum ModelRejectionReason: String, Sendable, Equatable { case contextCapacity, invalidResponseHead }
 public enum ModelError: Error, Sendable, Equatable, LocalizedError {
     case invalidRequest(String), invalidResponse(String), streamingError(String), providerError(String), networkError(String), unsupportedOperation(String), unknownProvider(String)
+    case rejectedBeforeAcceptance(reason: ModelRejectionReason)
     case httpError(Int, Data?)
     case protocolViolation(String), interrupted, cancelledLocally, unsupportedCapability(String)
     public var errorDescription: String? {
         switch self {
+        case .rejectedBeforeAcceptance: return "The model request was rejected before processing."
         case .httpError(let code, _): return "模型服务返回 HTTP \(code)；没有自动重试"
         case .interrupted: return "模型请求受理结果不明；没有自动重试"
         case .cancelledLocally: return "本地已停止接收；未核实远端取消"

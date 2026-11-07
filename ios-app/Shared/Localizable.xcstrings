@@ -20558,6 +20558,125 @@
           }
         }
       }
+    },
+    "This turn could not be saved. Check available storage and try again. Previous actions will not be replayed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This turn could not be saved. Check available storage and try again. Previous actions will not be replayed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本轮内容无法保存。请检查可用存储空间后重试，之前的操作不会重放。"
+          }
+        }
+      }
+    },
+    "The conversation could not be reduced to fit this model. Your history is preserved. Try again or choose a model with a larger context window.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation could not be reduced to fit this model. Your history is preserved. Try again or choose a model with a larger context window."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话未能压缩到此模型可接受的范围。历史记录已保留，请重试或选择上下文窗口更大的模型。"
+          }
+        }
+      }
+    },
+    "The selected model does not support this context mode. Choose local replay or another provider.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected model does not support this context mode. Choose local replay or another provider."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选模型不支持此上下文模式。请选择本地回放或其他服务商。"
+          }
+        }
+      }
+    },
+    "The model stopped responding. This turn ended without an automatic retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The model stopped responding. This turn ended without an automatic retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型停止响应。本轮已结束，没有自动重试。"
+          }
+        }
+      }
+    },
+    "A new conversation could not be saved. Your original history is unchanged. Check available storage and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new conversation could not be saved. Your original history is unchanged. Check available storage and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存新会话。原始历史记录没有变化，请检查可用存储空间后重试。"
+          }
+        }
+      }
+    },
+    "Only part of this history could be read. Continue with the readable messages in a new conversation; the original is kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only part of this history could be read. Continue with the readable messages in a new conversation; the original is kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能读取部分历史。你可以用可读取的消息创建新会话并继续，原始记录会保留。"
+          }
+        }
+      }
+    },
+    "Continue in a new conversation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue in a new conversation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新会话中继续"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,7 +1,7 @@
 import XCTest
 import CoreVideo
 import ProviderCore
-import SwiftAgentKit
+import AgentKit
 @testable import PhoneAgent
 
 @MainActor final class ProviderStoreTests: XCTestCase {
@@ -181,6 +181,7 @@ private final class LongRunProvider: ModelProvider, @unchecked Sendable {
     let configuration = ProviderConfiguration(name: LongRunProvider.name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     private var calls = 0
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
+        guard !request.tools.isEmpty else { throw ModelError.unsupportedCapability("The long-run fixture has no summary path") }
         calls += 1
         XCTAssertNil(request.maxTokens, "No forced output-token budget")
         XCTAssertFalse(request.tools.contains { $0.name == "finish" }, "Live runs use the final answer")
@@ -196,7 +197,7 @@ private final class LongRunProvider: ModelProvider, @unchecked Sendable {
                     let response = try await complete(request)
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: response.usage))
+                    continuation.yield(.terminal(response))
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }

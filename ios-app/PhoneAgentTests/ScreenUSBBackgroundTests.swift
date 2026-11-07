@@ -45,7 +45,10 @@ private struct ScreenOnlyProvider: ModelProvider {
     static let name = "screen-only-fixture"
     let configuration = ProviderConfiguration(name: Self.name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
-        let observed = request.messages.contains { $0.role == .tool && $0.toolCallId == "read-screen" && !$0.images.isEmpty }
+        let messages = fixtureMessages(request)
+        let observed = messages.firstIndex { $0.role == .tool && $0.toolCallId == "read-screen" }.map { index in
+            messages.dropFirst(index + 1).contains { !$0.images.isEmpty }
+        } ?? false
         if observed {
             return ModelResponse(text: "已查看本机画面", finishReason: .stop, request: request, providerName: Self.name)
         }
@@ -59,7 +62,7 @@ private struct ScreenOnlyProvider: ModelProvider {
                     let response = try await complete(request)
                     if !response.text.isEmpty { continuation.yield(.text(response.text)) }
                     for call in response.toolCalls { continuation.yield(.toolCall(call)) }
-                    continuation.yield(.finish(reason: response.finishReason, usage: nil))
+                    continuation.yield(.terminal(response))
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }

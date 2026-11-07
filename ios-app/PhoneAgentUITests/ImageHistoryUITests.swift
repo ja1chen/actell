@@ -5,7 +5,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-images-seed", "--ui-test-light"]
-        app.launch(); app.staticTexts["新会话"].tap()
+        app.launch(); app.staticTexts["新建会话"].tap()
         let input = app.textViews["messageInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText("Synthetic image history")
         app.buttons["sendMessage"].tap()

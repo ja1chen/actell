@@ -1,4 +1,5 @@
 import XCTest
+import AgentKit
 @testable import PhoneAgent
 
 @MainActor final class ConversationJournalTests: XCTestCase {
@@ -18,9 +19,7 @@ import XCTest
         return data
     }
     private func append(_ data: Data, to file: URL) throws {
-        // A journal writer invalidates the list cache before its first byte.
-        let index = SessionStorageLayout(sessions: file.deletingLastPathComponent().deletingLastPathComponent()).stateFile
-        if FileManager.default.fileExists(atPath: index.path) { try FileManager.default.removeItem(at: index) }
+        // A changed history fingerprint invalidates only this cached entry.
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
         try handle.seekToEnd(); try handle.write(contentsOf: data)
@@ -42,10 +41,8 @@ import XCTest
         XCTAssertEqual(try file(second, in: directory).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, modified)
         let lines = updated.split(separator: 0x0A)
         for line in lines { XCTAssertNoThrow(try JSONSerialization.jsonObject(with: Data(line))) }
-        let userMessages = try lines.flatMap { line -> [[String: Any]] in
-            let record = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])
-            return try XCTUnwrap(record["messages"] as? [[String: Any]])
-        }.filter { $0["role"] as? String == "user" }
+        let session = JSONLSessionStore(root: urlFolder(file(first, in: directory)), sessionID: first)
+        let userMessages = try session.readTransactionsSync(first).flatMap(\.displayItems).filter { $0.role == "user" }
         XCTAssertEqual(userMessages.count, 1, "Unchanged messages are not appended again")
         let restored = try XCTUnwrap(ConversationStore(directory: directory).conversation(first))
         XCTAssertEqual(restored.messages.map(\.text), ["question\nwith newline", "answer\n你好"])
@@ -153,7 +150,9 @@ import XCTest
             let original = try Data(contentsOf: file(broken, in: directory))
             let restored = ConversationStore(directory: directory)
             XCTAssertNotNil(restored.warning); XCTAssertFalse(restored.canCleanAttachments)
-            XCTAssertNil(restored.conversation(broken)); XCTAssertNotNil(restored.conversation(healthy))
+            XCTAssertNotNil(restored.conversation(broken), "The verified prefix remains readable")
+            XCTAssertNotNil(restored.conversation(healthy))
+            restored.setDraft("must not overwrite damaged history", in: broken); restored.saveNow()
             restored.setDraft("still writable", in: healthy); restored.saveNow()
             let fresh = try restored.prepare(SessionCommand(.prepare("fresh")), task: "fresh")
             restored.delete(broken)
@@ -211,7 +210,7 @@ import XCTest
         XCTAssertEqual(ConversationStore(directory: directory).conversation(id)?.draft, "retry me")
     }
 
-    func testCompactionAndMessageRemovalPreserveLatestState() throws {
+    func testAppendOnlyHistoryAndMessageRemovalPreserveLatestState() throws {
         let directory = try directory()
         try ConversationJournal.install([], in: directory)
         let journal = ConversationJournal(directory: directory.appendingPathComponent("sessions"))
@@ -219,6 +218,7 @@ import XCTest
         let removed = ChatMessage(role: .notice, text: "removed")
         conversation.messages = [removed, ChatMessage(role: .assistant, text: "", state: .streaming)]
         try journal.save(conversation)
+        let initial = try Data(contentsOf: file(conversation.id, in: directory))
         for index in 0..<40 {
             conversation.messages[1].text = "\(index)" + String(repeating: "a", count: 80_000)
             try journal.save(conversation)
@@ -227,11 +227,13 @@ import XCTest
         conversation.messages[0].state = .complete
         try journal.save(conversation)
         let data = try Data(contentsOf: file(conversation.id, in: directory))
-        XCTAssertLessThan(data.count, 1_024 * 1_024)
+        XCTAssertTrue(data.starts(with: initial), "Committed history is never rewritten by presentation updates")
         let restored = ConversationJournal(directory: directory.appendingPathComponent("sessions"))
         XCTAssertEqual(try restored.load(), [conversation])
         XCTAssertFalse(String(decoding: data, as: UTF8.self).isEmpty)
     }
+
+    private func urlFolder(_ file: URL) -> URL { file.deletingLastPathComponent() }
 
     func testDeletingOneConversationAndClearingDoNotRestoreFilesOnRelaunch() throws {
         let directory = try directory(), store = ConversationStore(directory: directory)

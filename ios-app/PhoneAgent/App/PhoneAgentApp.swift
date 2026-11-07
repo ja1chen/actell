@@ -40,8 +40,13 @@ import Darwin
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .task {
+                    #if DEBUG
+                    AgentLiveValidation.runIfRequested()
+                    #endif
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
-                    if !streamProbe { DeviceControlCoordinator.shared.restoreConnection() }
+                    if !streamProbe && ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] != "1" {
+                        DeviceControlCoordinator.shared.restoreConnection()
+                    }
                     model.liveActivities.setBackgroundResident(settings.reservesStandbyActivity)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG

@@ -1,5 +1,6 @@
 import XCTest
-import SwiftAgentKit
+import AgentKit
+import ProviderCore
 @testable import PhoneAgent
 
 @MainActor final class AgentPresentationTests: XCTestCase {
@@ -131,10 +132,10 @@ import SwiftAgentKit
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ConversationStore(directory: directory), id = store.create(mode: .live)
         let run = try XCTUnwrap(store.begin(in: id, query: "long result"))
-        let call = AgentToolCall(id: "apps", name: "list_apps", parameters: [:])
+        let call = ToolInvocation(sessionID: id, turnID: run.runID, call: ModelToolCall(id: "apps", name: "list_apps", arguments: "{}"))
         let text = String(repeating: "完整结果\n", count: 2_000) + "RESULT_END"
-        AgentEventProjection.record(.toolCallsReceived([call]), run: run, frame: nil, in: store)
-        AgentEventProjection.record(.toolExecutionFinished(call: call, result: .success(toolCallId: call.id, toolName: call.name, result: text)), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.toolPrepared(call), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.toolCompleted(call, .init(content: text)), run: run, frame: nil, in: store)
         XCTAssertEqual(store.conversation(id)?.messages.last?.tool?.result, text)
         store.updateTool(callID: "new", name: "load_skill", state: .succeeded, result: text, identity: run)
         store.finish(run, phase: .completed, summary: "")
@@ -161,7 +162,7 @@ import SwiftAgentKit
     }
     func testNoArgumentToolsHaveNoParameterPreview() {
         for name in ["screenshot", "list_apps"] {
-            XCTAssertNil(AgentEventProjection.arguments(for: AgentToolCall(id: "empty", name: name, parameters: [:])))
+            XCTAssertNil(AgentEventProjection.arguments(for: ToolInvocation(sessionID: UUID(), turnID: UUID(), call: .init(id: "empty", name: name, arguments: "{}"))))
         }
     }
     func testApprovalUsesSessionRunStepAndRequestIdentityAndConsumesOnce() async throws {
@@ -231,14 +232,15 @@ import SwiftAgentKit
     func testRealEventsKeepProviderReasoningSeparateFromAnswerAndToolParameters() throws {
         let store = ConversationStore(inMemory: true), id = store.create(mode: .demo)
         let run = try XCTUnwrap(store.begin(in: id, query: "test"))
-        AgentEventProjection.record(.llmCallStarted(turn: 1), run: run, frame: nil, in: store)
-        AgentEventProjection.record(.streamChunk("公开"), run: run, frame: nil, in: store)
-        AgentEventProjection.record(.reasoningChunk("服务商提供的可读摘要"), run: run, frame: nil, in: store)
-        AgentEventProjection.record(.streamChunk("回复"), run: run, frame: nil, in: store)
+        let assistantID = UUID()
+        AgentEventProjection.record(.inferenceStarted(1), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.assistantDelta(itemID: assistantID, text: "公开"), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.reasoningDelta(itemID: assistantID, text: "服务商提供的可读摘要"), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.assistantDelta(itemID: assistantID, text: "回复"), run: run, frame: nil, in: store)
         XCTAssertEqual(store.conversation(id)?.messages.last?.text, "公开回复")
         XCTAssertEqual(store.conversation(id)?.messages.last?.reasoning?.text, "服务商提供的可读摘要")
-        let call = AgentToolCall(id: "t", name: "tap", parameters: ["x": AnyCodable(100), "y": AnyCodable(200), "purpose": AnyCodable("点击演示"), "api_key": AnyCodable("never-display")])
-        AgentEventProjection.record(.toolCallsReceived([call]), run: run, frame: nil, in: store)
+        let call = ToolInvocation(sessionID: id, turnID: run.runID, call: .init(id: "t", name: "tap", arguments: "{\"x\":100,\"y\":200,\"purpose\":\"点击演示\",\"api_key\":\"never-display\"}"))
+        AgentEventProjection.record(.toolPrepared(call), run: run, frame: nil, in: store)
         let tool = try XCTUnwrap(store.conversation(id)?.messages.last?.tool)
         XCTAssertEqual(tool.state, .requested)
         let data = try XCTUnwrap(tool.arguments?.data(using: .utf8))
@@ -246,8 +248,8 @@ import SwiftAgentKit
         XCTAssertEqual(args["x"] as? Int, 100); XCTAssertEqual(args["api_key"] as? String, "never-display")
         store.finish(run, phase: .interrupted, summary: "")
         let before = store.conversation(id)?.messages
-        AgentEventProjection.record(.streamChunk("late"), run: run, frame: nil, in: store)
-        AgentEventProjection.record(.toolExecutionStarted(call: call), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.assistantDelta(itemID: assistantID, text: "late"), run: run, frame: nil, in: store)
+        AgentEventProjection.record(.toolStarted(call), run: run, frame: nil, in: store)
         XCTAssertEqual(store.conversation(id)?.messages, before)
     }
     func testDeniedStepCannotBeRevivedByQueuedEvents() throws {

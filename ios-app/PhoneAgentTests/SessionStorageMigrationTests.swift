@@ -132,7 +132,7 @@ import CryptoKit
         XCTAssertEqual(firstDirectory.lastPathComponent, "2025-01-02_\(first.id.uuidString)")
         XCTAssertEqual(secondDirectory.lastPathComponent, "2025-02-03_\(second.id.uuidString)")
         for folder in [firstDirectory, secondDirectory] {
-            for file in ["history.jsonl", "metadata.json", "run-checkpoint-v1.json", "run-recovery-v1.json"] {
+            for file in ["history.jsonl", "run-checkpoint-v1.json", "run-recovery-v1.json"] {
                 XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent(file).path))
             }
         }
@@ -209,28 +209,29 @@ import CryptoKit
         XCTAssertFalse(SessionStorageLayout(root: root).isInstalled)
     }
 
-    func testSummaryCacheLoadsOnlyRequestedHistoryAndRebuildsStaleMetadata() throws {
+    func testStateProjectionLoadsOnlyRequestedHistoryAndRebuildsChangedLog() throws {
         let root = try root(), store = ConversationStore(directory: root)
         let first = store.create(mode: .demo), second = store.create(mode: .demo)
         store.addNotice("durable history", in: first)
-        let folder = try store.sessionDirectory(first)
-        let metadata = folder.appendingPathComponent("metadata.json")
-        let oldSummary = try Data(contentsOf: metadata)
+        let stateFile = SessionStorageLayout(root: root).stateFile
+        let oldState = try Data(contentsOf: stateFile)
         let journal = ConversationJournal(directory: SessionStorageLayout(root: root).sessions)
         let summaries = try journal.loadSummaries()
         XCTAssertEqual(summaries.count, 2)
-        XCTAssertNil(summaries.first(where: { $0.id == second })?.cachedPreview, "Empty-state labels must use the current display language")
+        XCTAssertNil(summaries.first(where: { $0.id == second })?.cachedPreview)
         XCTAssertFalse(journal.isLoaded(first)); XCTAssertFalse(journal.isLoaded(second))
         XCTAssertEqual(try journal.conversation(first).messages.last?.text, "durable history")
         XCTAssertTrue(journal.isLoaded(first)); XCTAssertFalse(journal.isLoaded(second))
         store.addNotice("newer history", in: first)
-        try oldSummary.write(to: metadata)
-        let restored = ConversationStore(directory: root)
-        XCTAssertEqual(restored.conversation(first)?.messages.last?.text, "newer history")
-        try FileManager.default.removeItem(at: metadata)
+        try oldState.write(to: stateFile)
+        let refreshed = ConversationJournal(directory: SessionStorageLayout(root: root).sessions)
+        _ = try refreshed.loadSummaries()
+        XCTAssertTrue(refreshed.isLoaded(first)); XCTAssertFalse(refreshed.isLoaded(second))
+        XCTAssertEqual(try refreshed.conversation(first).messages.count, 2)
+        try FileManager.default.removeItem(at: stateFile)
         let rebuilt = ConversationStore(directory: root)
         XCTAssertEqual(rebuilt.conversation(first)?.messages.count, 2)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: metadata.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try rebuilt.sessionDirectory(first).appendingPathComponent("metadata.json").path))
         rebuilt.setDraft("loaded before saving", in: second); rebuilt.saveNow()
         XCTAssertEqual(ConversationStore(directory: root).conversation(first)?.messages.count, 2)
         XCTAssertEqual(ConversationStore(directory: root).conversation(second)?.draft, "loaded before saving")
