@@ -126,6 +126,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     public static var linkedABIVersion: UInt32 { coredevice_backend_abi() }
     private var handle: UInt64 = 0
     private var serial: UInt64 = 0
+    public private(set) var lastAccessibilityDiagnostic: NativeAccessibilityDiagnostic?
     private var busy = false
     private var ready = false
     private var services: [String] = []
@@ -420,12 +421,18 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     public func probeAccessibilityProtocol() async throws -> Data { try await operation(14, expectedKind: 17) }
     /// Reads a single application's native snapshot; no HID actions are sent.
     public func accessibilitySnapshot(pid: Int32) async throws -> Data {
+        lastAccessibilityDiagnostic = nil
         guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
         guard pid > 0 else { throw NativeBackendError.malformedEvent }
         return try await operation(15, expectedKind: 18, payload: JSONSerialization.data(withJSONObject: ["pid": pid]))
     }
-    public func accessibilitySnapshotAtCenter() async throws -> Data {
+    public func accessibilitySnapshotAtCenter(fallbackPID: Int32? = nil) async throws -> Data {
+        lastAccessibilityDiagnostic = nil
         guard Self.supportsAccessibilityProfile else { throw NativeBackendError.accessibilityFailure(stage: 25, cause: 8) }
+        if let fallbackPID {
+            guard fallbackPID > 0 else { throw NativeBackendError.malformedEvent }
+            return try await operation(16, expectedKind: 18, payload: JSONSerialization.data(withJSONObject: ["fallback_pid": fallbackPID]))
+        }
         return try await operation(16, expectedKind: 18)
     }
     private static var supportsAccessibilityProfile: Bool {
@@ -437,8 +444,9 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         guard sysctlbyname("kern.osversion", &buffer, &count, nil, 0) == 0 else { return false }
         return String(cString: buffer) == "24A437"
     }
-    public func launchApplication(bundleID: String, arguments: [String]) async throws {
-        _ = try await operation(9, payload: JSONSerialization.data(withJSONObject: ["bundle_id": bundleID, "arguments": arguments]))
+    @discardableResult public func launchApplication(bundleID: String, arguments: [String]) async throws -> NativeApplicationLaunch {
+        let data = try await operation(9, payload: JSONSerialization.data(withJSONObject: ["bundle_id": bundleID, "arguments": arguments]))
+        return try NativeApplicationLaunch.decode(data, expectedBundleID: bundleID)
     }
     public func typeText(_ text: String) async throws {
         _ = try await operation(10, payload: JSONSerialization.data(withJSONObject: ["text": text]))
@@ -454,6 +462,7 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         guard !busy else { throw NativeBackendError.busy }
         guard ready, handle != 0 else { throw NativeBackendError.closed }
         busy = true; defer { busy = false }; let token = handle
+        lastAccessibilityDiagnostic = nil
         serial += 1; let id = serial
         do {
             try Task.checkCancellation()
@@ -521,7 +530,12 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             }
             if event.kind == 10 { throw NativeBackendError.touchPreparationFailure(stage: event.stage, cause: event.cause) }
             if event.kind == 12 { throw NativeBackendError.applicationQueryFailure(stage: event.stage, cause: event.cause) }
-            if event.kind == 3 { throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause) }
+            if event.kind == 3 {
+                if (22...29).contains(event.stage) {
+                    lastAccessibilityDiagnostic = NativeAccessibilityDiagnostic.decode(data, requestID: requestID)
+                }
+                throw NativeBackendError.protocolFailure(stage: event.stage, cause: event.cause)
+            }
             return (event, data)
         }
         throw CoreDeviceError.timeout
@@ -529,6 +543,9 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     #if COREDEVICE_OFFLINE_FIXTURES
     /// Compiled only into the separately built host test target.
     func closeWorkerFixture() { if handle != 0 { coredevice_backend_close(handle) } }
+    func accessibilityFailureFixture() async throws {
+        _ = try await operation(16, expectedKind: 18)
+    }
     func connectMediaFailureFixture() async throws {
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         var started: UInt64 = 0

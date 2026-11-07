@@ -497,7 +497,10 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
                 throw CoreDeviceControlError.unavailable(String(localized: "Could not list installed apps. Try again later."))
             }
             if case NativeBackendError.accessibilityFailure(let stage, let cause) = error {
-                BackgroundExecutionTrace.record("accessibility.failed stage=\(stage) cause=\(cause) connectionRetained=true")
+                let details = backend.lastAccessibilityDiagnostic.map { " " + $0.logFields } ?? ""
+                let event = "accessibility.failed stage=\(stage) cause=\(cause) connectionRetained=true" + details
+                BackgroundExecutionTrace.record(event)
+                NSLog("%@", event)
                 throw error
             }
             if error is CancellationError || (error as? CoreDeviceControlError) != nil {

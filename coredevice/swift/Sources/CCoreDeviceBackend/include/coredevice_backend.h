@@ -24,9 +24,13 @@ enum coredevice_failure_cause { COREDEVICE_CAUSE_PROTOCOL=1, COREDEVICE_CAUSE_TI
  * Causes 8/9/10 are unsupported version, response mismatch and limit exceeded. */
 typedef struct { uint64_t request_id; uint32_t kind,stage,cause,reserved; size_t size; } coredevice_event;
 /* Return codes: 0 success/queued, 1 invalid, 2 busy, 3 closed, 4 empty,
- * 5 buffer too small (event retained), 6 not ready. Errors contain no payloads.
+ * 5 buffer too small (event retained), 6 not ready.
  * Events: 1 ready (JSON service names), 2 operation written/completed,
- * 3 stage/cause failure, 4 PNG (memory only). Input event 2 never proves visible effect.
+ * 3 stage/cause failure, 4 PNG (memory only). AX snapshot failures may attach
+ * optional bounded JSON diagnostics (version 1, at most 2048 bytes): phase,
+ * request type, monotonic durations, process IDs and sanitized remote error
+ * code/domain/type. No response body or UI content. Absent/invalid metadata
+ * must not alter failure handling. Input event 2 never proves visible effect.
  * 10 touch video preparation failure (stage/cause, no payload): no touch has
  * been sent; scoped preparation resources closed, existing session retained.
  * 16 recovery timing (request/stage/cause 0): 1..8 records, each LE u32
@@ -90,6 +94,10 @@ int32_t coredevice_lockdown_start(uint32_t interface_index,uint32_t permissions,
  * Event 18 is a bounded native-snapshot JSON result for that PID.
  * Action 16 selects the process at the current display center; this is not a
  * claim of foreground ownership. Geometry and selection are checked again.
+ * Optional command JSON {fallback_pid: positive integer} permits one explicit
+ * PID read after initial hit-test error 8 without a result. The PID must match
+ * this session's last launch and a live process with the same executable URL.
+ * Both attempts share a 30-second budget; the result marks requested-app scope.
  * Touch media uses screen video only; no audio session is requested. Caller obtains consent. */
 // Drag uses normalized coordinates, 100–2000 ms; uncertain delivery is never replayed.
 int32_t coredevice_backend_drag(uint64_t handle,uint64_t request_id,uint16_t x,uint16_t y,uint16_t end_x,uint16_t end_y,uint16_t duration_ms);
@@ -99,6 +107,8 @@ int32_t coredevice_backend_submit(uint64_t handle,uint64_t request_id,uint32_t a
  * (1..8192 UTF-8 bytes, no NUL); no virtual keyboard registration.
  * command copies bounded JSON; input permission required, no replay. Event 12
  * is a read-only app query failure retaining the authenticated session. */
+/* Launch success event 2 contains JSON {bundle_id,pid}, including already-running
+ * apps. It does not prove foreground ownership; no executable URL/audit token is exposed. */
 int32_t coredevice_backend_command(uint64_t handle,uint64_t request_id,uint32_t action,coredevice_bytes payload);
 int32_t coredevice_backend_poll(uint64_t handle,coredevice_event *,uint8_t *buffer,size_t capacity);
 /* Idempotent. Immediately revokes handle and requests worker cancellation. Does

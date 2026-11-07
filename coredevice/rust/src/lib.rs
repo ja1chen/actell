@@ -13,6 +13,9 @@ mod png;
 mod ax_dtx;
 mod ax_archive;
 mod ax_snapshot;
+mod ax_diagnostics;
+mod ax_observation;
+use ax_observation::ReadError as AXReadError;
 mod transport;
 pub use idevice::remote_pairing::{RpPairingFile, VerifiedPeerIdentity};
 use idevice::{
@@ -133,6 +136,7 @@ fn accessibility_error(e: ax_dtx::Failure) -> Error {
         F::Subscription => error(Stage::AccessibilitySubscription, Cause::Protocol),
         F::Selection => error(Stage::AccessibilitySelection, Cause::Protocol),
         F::SelectionChanged => error(Stage::AccessibilitySelection, Cause::SelectionChanged),
+        F::PointUnavailable | F::InitialSelectionUnavailable => error(Stage::AccessibilitySelection, Cause::RemoteRefused),
         F::Root => error(Stage::AccessibilityRoot, Cause::Protocol),
         F::Snapshot => error(Stage::AccessibilitySnapshot, Cause::Protocol),
         F::Mismatch => error(Stage::AccessibilitySnapshot, Cause::ResponseMismatch),
@@ -221,6 +225,8 @@ pub struct Session {
     handshake: RsdHandshake,
     _rsd_control: Option<RemoteXpcClient<StreamHandle>>,
     prepared: bool,
+    accessibility_diagnostics: Option<Vec<u8>>,
+    last_launched_application: Option<ax_observation::LaunchedApplication>,
     media: Option<media::Media>,
     indigo: Option<IndigoHidClient<Box<dyn idevice::ReadWrite>>>,
     video: std::sync::Arc<video::VideoMailbox>,
@@ -300,6 +306,8 @@ impl Session {
             handshake,
             _rsd_control: Some(rsd_control),
             prepared: false,
+            accessibility_diagnostics: None,
+            last_launched_application: None,
             media: None,
             indigo: None,
             video: std::sync::Arc::new(video::VideoMailbox::default()),
@@ -356,31 +364,48 @@ impl Session {
         })).map_err(|_| error(Stage::AccessibilityHandshake, Cause::Protocol))
     }
     pub async fn accessibility_snapshot(&mut self, pid: u64) -> Result<Vec<u8>, Error> {
+        self.accessibility_diagnostics = None;
         if pid == 0 || pid > i32::MAX as u64 { return Err(error(Stage::AccessibilityRoot, Cause::InvalidParameters)); }
-        self.accessibility_snapshot_for(ax_dtx::Selection::ExplicitPid(pid)).await
+        let mut diagnostic = ax_diagnostics::Diagnostic::new("explicit_pid");
+        let result = self.accessibility_snapshot_for(ax_dtx::Selection::ExplicitPid(pid), &mut diagnostic).await;
+        if result.is_err() { self.accessibility_diagnostics = diagnostic.payload(); }
+        result.map_err(AXReadError::public)
     }
     /// Selects the process at the display center, not necessarily the foreground app.
-    pub async fn accessibility_snapshot_at_center(&mut self) -> Result<Vec<u8>, Error> {
+    pub async fn accessibility_snapshot_at_center(&mut self, fallback_pid: Option<u32>) -> Result<Vec<u8>, Error> {
+        self.accessibility_diagnostics = None;
+        let mut diagnostic = ax_diagnostics::Diagnostic::new("hit_test");
+        // The caller's task must opt in, and the PID must come from this connection's launch receipt.
+        let target = self.last_launched_application.as_ref().filter(|target| Some(target.pid) == fallback_pid).cloned();
+        let result = ax_observation::observe(self, target.as_ref(), &mut diagnostic, Duration::from_secs(30)).await;
+        if result.is_err() { self.accessibility_diagnostics = diagnostic.payload(); }
+        result.map_err(AXReadError::public)
+    }
+    async fn accessibility_snapshot_at_center_traced(&mut self, diagnostic: &mut ax_diagnostics::Diagnostic) -> Result<Vec<u8>, AXReadError> {
         self.check()?;
-        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared)); }
+        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared).into()); }
+        diagnostic.enter("geometry_before", None);
         let before = media::query_ax_display_geometry(&mut self.adapter, &mut self.handshake).await;
         self.check()?;
         let before = before.map_err(|e| error(Stage::AccessibilitySelection, e.cause))?;
-        let data = self.accessibility_snapshot_for(ax_dtx::Selection::HitPoint { x: before.x + before.width / 2.0, y: before.y + before.height / 2.0 }).await?;
+        let data = self.accessibility_snapshot_for(ax_dtx::Selection::HitPoint { x: before.x + before.width / 2.0, y: before.y + before.height / 2.0 }, diagnostic).await?;
+        diagnostic.enter("geometry_after", None);
         let after = media::query_ax_display_geometry(&mut self.adapter, &mut self.handshake).await;
         self.check()?;
         let after = after.map_err(|e| error(Stage::AccessibilitySelection, e.cause))?;
-        if before != after { return Err(error(Stage::AccessibilitySelection, Cause::SelectionChanged)); }
+        if before != after { return Err(error(Stage::AccessibilitySelection, Cause::SelectionChanged).into()); }
         Ok(data)
     }
-    async fn accessibility_snapshot_for(&mut self, selection: ax_dtx::Selection) -> Result<Vec<u8>, Error> {
+    async fn accessibility_snapshot_for(&mut self, selection: ax_dtx::Selection, diagnostic: &mut ax_diagnostics::Diagnostic) -> Result<Vec<u8>, AXReadError> {
         self.check()?;
-        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared)); }
+        if !self.prepared { return Err(error(Stage::AccessibilityDiscovery, Cause::Unprepared).into()); }
+        diagnostic.enter("discovery", None);
         let port = accessibility_port(&self.handshake)?;
+        diagnostic.enter("connection", None);
         let stream = bounded(Stage::AccessibilityConnection, self.adapter.connect(port)).await?;
-        let data = tokio::time::timeout(Duration::from_secs(30), ax_dtx::snapshot(stream, selection)).await
-            .map_err(|_| error(Stage::AccessibilitySnapshot, Cause::Timeout))
-            .and_then(|r| r.map_err(accessibility_error));
+        let data = tokio::time::timeout(Duration::from_secs(30), ax_dtx::snapshot(stream, selection, diagnostic)).await
+            .map_err(|_| AXReadError::Service(error(Stage::AccessibilitySnapshot, Cause::Timeout)))
+            .and_then(|r| r.map_err(AXReadError::AX));
         self.check()?;
         data
     }
@@ -567,7 +592,8 @@ impl Session {
         let rows: Vec<_> = apps.into_iter().map(|a| serde_json::json!({"name": a.name, "bundle_id": a.bundle_identifier, "version": a.version})).collect();
         serde_json::to_vec(&rows).map_err(|_| error(Stage::Applications, Cause::Protocol))
     }
-    pub async fn launch_app(&mut self, bundle: &str, arguments: &[String]) -> Result<(), Error> {
+    pub async fn launch_app(&mut self, bundle: &str, arguments: &[String]) -> Result<Vec<u8>, Error> {
+        self.last_launched_application = None;
         self.require("com.apple.coredevice.appservice", Stage::Applications)?;
         let mut client = bounded(
             Stage::Applications,
@@ -577,16 +603,21 @@ impl Session {
         let args: Vec<&str> = arguments.iter().map(String::as_str).collect();
         let mut guard = OperationGuard(Some(self.owner.0.clone()));
         // Never terminate an existing app just to apply launch arguments.
-        bounded(
+        let launched = bounded(
             Stage::Applications,
             client.launch_application(bundle, &args, false, false, None, None, None),
         )
         .await
         .map_err(|_| error(Stage::Applications, Cause::DeliveryUncertain))?;
+        if launched.pid == 0 || launched.pid > i32::MAX as u32 { return Err(error(Stage::Applications, Cause::DeliveryUncertain)); }
         guard.0 = None;
-        Ok(())
+        let target = ax_observation::LaunchedApplication { bundle_id: bundle.to_owned(), pid: launched.pid, executable_url: launched.executable_url.relative };
+        let receipt = target.receipt();
+        self.last_launched_application = Some(target);
+        Ok(receipt)
     }
     pub async fn home(&mut self) -> Result<(), Error> {
+        self.last_launched_application = None;
         self.require("com.apple.coredevice.hid.indigo", Stage::Input)?;
         if self.media.is_none() {
             return Err(error(Stage::Input, Cause::MediaInactive));
@@ -716,6 +747,25 @@ fn tunnel_parameters(
         usize::from(info.mtu) - 60,
     ))
 }
+impl ax_observation::Reader for Session {
+    async fn center(&mut self, diagnostic: &mut ax_diagnostics::Diagnostic) -> Result<Vec<u8>, AXReadError> {
+        self.accessibility_snapshot_at_center_traced(diagnostic).await
+    }
+    async fn application(&mut self, target: &ax_observation::LaunchedApplication, diagnostic: &mut ax_diagnostics::Diagnostic) -> Result<Vec<u8>, AXReadError> {
+        self.check()?;
+        // This is a read-only identity check; failure only makes AX unavailable.
+        // It must not revoke the input connection or launch/relaunch any process.
+        let valid = bounded_for(Stage::AccessibilitySelection, Duration::from_secs(2), async {
+            let mut client = AppServiceClient::<Box<dyn idevice::ReadWrite + 'static>>::connect_rsd(&mut self.adapter, &mut self.handshake).await?;
+            let processes = client.list_processes().await?;
+            Ok::<_, idevice::IdeviceError>(processes.iter().any(|p| target.matches(p.pid, p.executable_url.as_ref().map(|url| url.relative.as_str()))))
+        }).await?;
+        self.check()?;
+        if !valid { return Err(error(Stage::AccessibilitySelection, Cause::SelectionChanged).into()); }
+        self.accessibility_snapshot_for(ax_dtx::Selection::ExplicitPid(u64::from(target.pid)), diagnostic).await
+    }
+}
+
 fn verify_rsd_identity(h: &RsdHandshake, peer: &VerifiedPeerIdentity) -> Result<(), Error> {
     if h.protocol_version == 0
         || h.properties
@@ -890,6 +940,8 @@ mod tests {
             },
             _rsd_control: None,
             prepared: true,
+            accessibility_diagnostics: None,
+            last_launched_application: None,
             media: None,
             indigo: None,
             video: std::sync::Arc::new(video::VideoMailbox::default()),

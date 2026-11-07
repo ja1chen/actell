@@ -23,7 +23,7 @@ private actor RemoteRuntimeTestBridge: DeviceBridge {
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) throws {
         guard taskScoped, !authorizationID.isEmpty else { throw AppError.stopped }
     }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) { inputs += 1 }
+    func systemAction(name: String, text: String, arguments: [String], imageID: String) -> NativeApplicationLaunch? { inputs += 1; return nil }
     func stop() async { stops += 1; await demo.stop() }
 }
 

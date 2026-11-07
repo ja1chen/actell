@@ -30,7 +30,7 @@ protocol DeviceBridge: Sendable {
     func installedApplications() async throws -> Data
     func systemActionContext() async throws -> String
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws
+    @discardableResult func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch?
     func bringApplicationToForeground(bundleID: String) async throws -> Bool
     func cancelTransport()
     func stop() async
@@ -50,7 +50,7 @@ extension DeviceBridge {
     func systemActionContext() async throws -> String { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws { throw AppError.unavailable(String(localized: "This connection does not support separate system actions")) }
     func installedApplications() async throws -> Data { throw AppError.unavailable(String(localized: "This connection does not support app queries")) }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
+    @discardableResult func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? { throw AppError.unavailable(String(localized: "This connection does not support this action")) }
     var executionContext: ScreenUSBExecutionContext? { nil }
     func cancelTransport() {}
     func supportsBackgroundExecution(tool: String) async -> Bool { false }

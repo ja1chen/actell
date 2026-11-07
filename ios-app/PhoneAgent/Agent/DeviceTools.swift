@@ -16,7 +16,7 @@ struct DeviceTool: AgentTool {
         case "drag": return "Request one straight drag within this task's authorization using integer pixels from the latest screenshot, duration 100..2000 ms and a short public purpose. The app associates the screenshot automatically. No replay."
         case "home": return "Return to the Home screen. No screenshot required. Requires task authorization; do not blindly replay an uncertain result."
         case "list_apps": return "Read installed visible app names, bundle IDs and versions. No screenshot required. Does not launch or control apps."
-        case "launch_app": return "Launch an installed app by exact bundle_id, optionally with up to 32 process arguments. No screenshot required. Requires task authorization. Does not terminate existing apps; arguments may not apply to an already running app. Delivery is not visual success."
+        case "launch_app": return "Launch an installed app by exact bundle_id, optionally with up to 32 process arguments. No screenshot required. Requires task authorization. Does not terminate existing apps; arguments may not apply to an already running app. Returns bundle_id and pid when available. Delivery is not visual success."
         case "type_text": return "Insert exact text into the focused field. All text, including ASCII, uses clipboard and Command-V for the whole string, replacing the general clipboard and potentially requiring iOS paste consent. Does not register a virtual hardware keyboard. No automatic retry or Return submission. No screenshot required; the intended field must already be focused. Requires task authorization. Do not use for credentials or replay uncertain input."
         case "wait": return "Wait locally 1..3000 ms."
         default: return "Optionally end the run with a brief outcome and any uncertainty in summary, never private reasoning. A normal final answer can also end the run. Do not claim visible success from a delivery receipt alone."
@@ -261,13 +261,14 @@ actor ActionCoordinator {
             if verifyGeometry, let frame { try await bridge.validateRemoteObservation(frame); try checkActive() }
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: backgroundCapable)
             try checkActive()
+            var launchReceipt: NativeApplicationLaunch?
             do {
                 if let display {
                     try await bridge.independentInput(name: name, coordinates: name == "tap" ? [nx, ny] : [nx, ny, tx, ty], durationMS: duration, snapshot: display, authorizationID: reference)
                 }
                 else if name == "tap" { try await bridge.tap(x: nx, y: ny, imageID: reference) }
                 else if name == "drag" { try await bridge.drag(fromX: nx, fromY: ny, toX: tx, toY: ty, durationMS: duration, imageID: reference) }
-                else { try await bridge.systemAction(name: name, text: text, arguments: arguments, imageID: reference) }
+                else { launchReceipt = try await bridge.systemAction(name: name, text: text, arguments: arguments, imageID: reference) }
             } catch {
                 rememberRemoteFailure(error)
                 image = nil
@@ -282,6 +283,10 @@ actor ActionCoordinator {
             try checkActive()
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
             await onReceipt(String(localized: "Delivery of \(name) confirmed"))
+            if let launchReceipt {
+                let data = try JSONSerialization.data(withJSONObject: ["status": "acknowledged", "bundle_id": launchReceipt.bundleID, "pid": launchReceipt.pid, "foregroundAppConfirmed": false], options: [.sortedKeys])
+                return .init(content: String(decoding: data, as: UTF8.self))
+            }
             return .init(content: "Command delivery acknowledged.")
         case "wait":
             let milliseconds = try integer(p, "duration_ms")

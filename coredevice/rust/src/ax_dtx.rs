@@ -16,7 +16,7 @@ pub(crate) enum Phase { Handshake, Version, Subscription, Selection, Root, Snaps
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SemanticIssue { Ack, PacketArgument, PacketHeader, PacketType, PacketLength, PacketArchive, ArchiveInvalid, RemoteRefused }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Failure { Handshake, Version, UnsupportedVersion, Subscription, Selection, SelectionChanged, Root, Snapshot, Mismatch, Limit, Protocol, Timeout(Phase), Semantic(Phase, SemanticIssue), SemanticAck, PacketArgument, PacketHeader, PacketType, PacketLength, PacketArchive, ArchiveInvalid, RemoteRefused }
+pub(crate) enum Failure { Handshake, Version, UnsupportedVersion, Subscription, Selection, SelectionChanged, PointUnavailable, InitialSelectionUnavailable, Root, Snapshot, Mismatch, Limit, Protocol, Timeout(Phase), Semantic(Phase, SemanticIssue), SemanticAck, PacketArgument, PacketHeader, PacketType, PacketLength, PacketArchive, ArchiveInvalid, RemoteRefused }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ProbeReport {
@@ -245,9 +245,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Dtx<S> {
             };
         }
     }
-    async fn semantic(&mut self, request_type: u64, request: Vec<u8>, token: Option<&crate::ax_archive::Token>) -> Result<crate::ax_archive::AxValue, Failure> {
+    async fn semantic(&mut self, request_type: u64, request: Vec<u8>, token: Option<&crate::ax_archive::Token>, diagnostic: Option<&mut crate::ax_diagnostics::Diagnostic>) -> Result<crate::ax_archive::AxValue, Failure> {
         let phase = match request_type { 1 => Phase::Root, 6 => Phase::Selection, _ => Phase::Snapshot };
-        self.semantic_inner(request_type, request, token).await.map_err(|e| {
+        self.semantic_inner(request_type, request, token, diagnostic).await.map_err(|e| {
             let issue = match e {
                 Failure::SemanticAck => SemanticIssue::Ack, Failure::PacketArgument => SemanticIssue::PacketArgument,
                 Failure::PacketHeader => SemanticIssue::PacketHeader, Failure::PacketType => SemanticIssue::PacketType,
@@ -258,7 +258,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Dtx<S> {
             Failure::Semantic(phase, issue)
         })
     }
-    async fn semantic_inner(&mut self, request_type: u64, request: Vec<u8>, token: Option<&crate::ax_archive::Token>) -> Result<crate::ax_archive::AxValue, Failure> {
+    async fn semantic_inner(&mut self, request_type: u64, request: Vec<u8>, token: Option<&crate::ax_archive::Token>, mut diagnostic: Option<&mut crate::ax_diagnostics::Diagnostic>) -> Result<crate::ax_archive::AxValue, Failure> {
         use crate::ax_archive::{self, AxValue, Token};
         self.call("processDataFromHost:", &[Value::Data(request)]).await.map_err(|_| Failure::SemanticAck)?;
         let mut discarded = 0usize;
@@ -269,7 +269,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Dtx<S> {
                     discarded += 1; if discarded > 256 { return Err(Failure::Limit); } continue;
                 }
                 if let Some(err) = reply.field("error") {
-                    if err != &AxValue::Null && err.uint() != Some(0) { return Err(Failure::RemoteRefused); }
+                    if err != &AxValue::Null && err.uint() != Some(0) {
+                        let has_result = reply.field("resultData").is_some_and(|value| value != &AxValue::Null);
+                        if let Some(trace) = diagnostic.as_deref_mut() {
+                            trace.remote_error(err, has_result);
+                        }
+                        if request_type == 6 && matches!(err, AxValue::Integer(_)) && err.uint() == Some(8) && !has_result {
+                            return Err(Failure::PointUnavailable);
+                        }
+                        return Err(Failure::RemoteRefused);
+                    }
                 }
                 if let Some(token) = token {
                     let associated = reply.field("associatedTranslationObject").ok_or(Failure::Mismatch).and_then(|v| Token::from_value(v).map_err(|_| Failure::Mismatch))?;
@@ -308,25 +317,30 @@ async fn deadline<T>(phase: Phase, work: impl std::future::Future<Output = Resul
 /// The resulting report distinguishes confirmed stop from transport shutdown.
 pub(crate) async fn probe<S: AsyncRead + AsyncWrite + Unpin>(stream: S) -> Result<ProbeReport, Failure> {
     let mut dtx = Dtx::new(stream);
-    let version = negotiate(&mut dtx).await?;
+    let mut diagnostic = crate::ax_diagnostics::Diagnostic::new("probe");
+    let version = negotiate(&mut dtx, &mut diagnostic).await?;
     Ok(cleanup(&mut dtx, version).await)
 }
 
-async fn negotiate<S: AsyncRead + AsyncWrite + Unpin>(dtx: &mut Dtx<S>) -> Result<u64, Failure> {
+async fn negotiate<S: AsyncRead + AsyncWrite + Unpin>(dtx: &mut Dtx<S>, diagnostic: &mut crate::ax_diagnostics::Diagnostic) -> Result<u64, Failure> {
     let caps = dict([
         ("com.apple.private.DTXBlockCompression", Value::Integer(0.into())),
         ("com.apple.private.DTXConnection", Value::Integer(1.into())),
     ]);
+    diagnostic.enter("handshake", None);
     deadline(Phase::Handshake, async {
         dtx.send_call("_notifyOfPublishedCapabilities:", &[caps], false).await?;
         dtx.wait_handshake().await
     }).await.map_err(|e| if matches!(e, Failure::Timeout(_)) { e } else { Failure::Handshake })?;
+    diagnostic.enter("version", None);
     let version = deadline(Phase::Version, dtx.call("deviceAPIVersion", &[])).await
         .map_err(|e| if matches!(e, Failure::Timeout(_)) { e } else { Failure::Version })?
         .and_then(|v| v.as_unsigned_integer()).ok_or(Failure::Version)?;
     if version != 26 { return Err(Failure::UnsupportedVersion); }
+    diagnostic.enter("subscription", None);
     deadline(Phase::Subscription, dtx.call("clientNeedsAccessibility:", &[Value::Boolean(true)])).await
         .map_err(|e| if matches!(e, Failure::Timeout(_)) { e } else { Failure::Subscription })?;
+    diagnostic.subscribed();
     Ok(version)
 }
 async fn cleanup<S: AsyncRead + AsyncWrite + Unpin>(dtx: &mut Dtx<S>, version: u64) -> ProbeReport {
@@ -341,32 +355,43 @@ async fn cleanup<S: AsyncRead + AsyncWrite + Unpin>(dtx: &mut Dtx<S>, version: u
 /// Root identity is acquired twice to catch a target process/root change.
 #[derive(Clone, Copy)]
 pub(crate) enum Selection { ExplicitPid(u64), HitPoint { x: f64, y: f64 } }
-pub(crate) async fn snapshot<S: AsyncRead + AsyncWrite + Unpin>(stream: S, selection: Selection) -> Result<Vec<u8>, Failure> {
+pub(crate) async fn snapshot<S: AsyncRead + AsyncWrite + Unpin>(stream: S, selection: Selection, diagnostic: &mut crate::ax_diagnostics::Diagnostic) -> Result<Vec<u8>, Failure> {
     use crate::ax_archive::{self, Token};
     let started = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| Failure::Protocol)?.as_millis();
     let mut dtx = Dtx::new(stream);
-    let version = negotiate(&mut dtx).await?;
+    let version = negotiate(&mut dtx, diagnostic).await?;
     let result = async {
         let pid = match selection {
             Selection::ExplicitPid(pid) => pid,
             Selection::HitPoint { x, y } => {
-                let selected = deadline(Phase::Selection, dtx.semantic(6, ax_archive::hit_request(x, y).map_err(|_| Failure::Selection)?, None)).await?;
+                diagnostic.enter("selection_initial", Some(6));
+                let selected = deadline(Phase::Selection, dtx.semantic(6, ax_archive::hit_request(x, y).map_err(|_| Failure::Selection)?, None, Some(diagnostic))).await
+                    .map_err(|e| if e == Failure::PointUnavailable { Failure::InitialSelectionUnavailable } else { e })?;
                 Token::from_value(&selected).map_err(|_| Failure::Selection)?.pid
             }
         };
+        diagnostic.pid("target_pid", pid);
+        diagnostic.enter("root_initial", Some(1));
         let root_request = ax_archive::request(pid, None).map_err(|_| Failure::Root)?;
-        let root = deadline(Phase::Root, dtx.semantic(1, root_request, None)).await.map_err(|e| if e == Failure::Protocol { Failure::Root } else { e })?;
+        let root = deadline(Phase::Root, dtx.semantic(1, root_request, None, Some(diagnostic))).await.map_err(|e| if e == Failure::Protocol { Failure::Root } else { e })?;
         let token = Token::from_value(&root).map_err(|_| Failure::Root)?;
         if token.pid != pid || !token.is_app { return Err(Failure::Mismatch); }
+        diagnostic.enter("snapshot", Some(2));
         let req = ax_archive::request(pid, Some(&token)).map_err(|_| Failure::Snapshot)?;
-        let tree = deadline(Phase::Snapshot, dtx.semantic(2, req, Some(&token))).await.map_err(|e| if e == Failure::Protocol { Failure::Snapshot } else { e })?;
-        let again = deadline(Phase::Root, dtx.semantic(1, ax_archive::request(pid, None).map_err(|_| Failure::Root)?, None)).await?;
+        let tree = deadline(Phase::Snapshot, dtx.semantic(2, req, Some(&token), Some(diagnostic))).await.map_err(|e| if e == Failure::Protocol { Failure::Snapshot } else { e })?;
+        diagnostic.enter("root_verify", Some(1));
+        let again = deadline(Phase::Root, dtx.semantic(1, ax_archive::request(pid, None).map_err(|_| Failure::Root)?, None, Some(diagnostic))).await?;
         let again = Token::from_value(&again).map_err(|_| Failure::Root)?;
+        diagnostic.pid("observed_pid", again.pid);
         if again.pid != token.pid || again.object_id != token.object_id || !again.is_app { return Err(Failure::SelectionChanged); }
         if let Selection::HitPoint { x, y } = selection {
-            let selected = deadline(Phase::Selection, dtx.semantic(6, ax_archive::hit_request(x, y).map_err(|_| Failure::Selection)?, None)).await?;
-            if Token::from_value(&selected).map_err(|_| Failure::Selection)?.pid != pid { return Err(Failure::SelectionChanged); }
+            diagnostic.enter("selection_verify", Some(6));
+            let selected = deadline(Phase::Selection, dtx.semantic(6, ax_archive::hit_request(x, y).map_err(|_| Failure::Selection)?, None, Some(diagnostic))).await?;
+            let selected_pid = Token::from_value(&selected).map_err(|_| Failure::Selection)?.pid;
+            diagnostic.pid("observed_pid", selected_pid);
+            if selected_pid != pid { return Err(Failure::SelectionChanged); }
         }
+        diagnostic.enter("normalize", None);
         let ended = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| Failure::Protocol)?.as_millis();
         let mut normalized = crate::ax_snapshot::normalize(&tree, &token, started, ended)?;
         if let Selection::HitPoint { x, y } = selection {
@@ -393,6 +418,53 @@ mod tests {
     fn selector(msg: &Message) -> String { unarchive_scalar(&msg.data).unwrap().as_string().unwrap().to_owned() }
     async fn send_dispatch<S: AsyncRead + AsyncWrite + Unpin>(server: &mut Dtx<S>, id: u32, name: &str, args: &[Value], reply: bool) {
         server.send(Header { id, conversation: 0, channel: 0, expects_reply: reply }, 2, &aux(args).unwrap(), &archive(&Value::String(name.into())).unwrap()).await.unwrap();
+    }
+    #[tokio::test]
+    async fn remote_refusal_preserves_initial_and_verification_selection_diagnostics() {
+        for (failure_at, integer_error, has_result) in [(0, false, false), (4, false, false), (0, true, false), (4, true, false), (0, true, true), (4, true, true)] {
+            let (client, server) = tokio::io::duplex(64 * 1024);
+            let remote = tokio::spawn(async move {
+                let mut server = Dtx::new(server);
+                let _hello = server.receive().await.unwrap();
+                send_dispatch(&mut server, 90, "_notifyOfPublishedCapabilities:", &[], false).await;
+                let api = server.receive().await.unwrap(); server.reply(api.header, Some(Value::Integer(26.into()))).await.unwrap();
+                let subscribe = server.receive().await.unwrap(); server.reply(subscribe.header, None).await.unwrap();
+                let token = dict([("pid", Value::Integer(7.into())), ("objectID", Value::Integer(9.into())), ("isApplicationElement", Value::Boolean(true))]);
+                for (index, kind) in [6u64, 1, 2, 1, 6].into_iter().enumerate().take(failure_at + 1) {
+                    let call = server.receive().await.unwrap(); assert_eq!(selector(&call), "processDataFromHost:");
+                    server.reply(call.header, None).await.unwrap();
+                    let mut reply = Dictionary::new();
+                    reply.insert("associatedRequestType".into(), Value::Integer(kind.into()));
+                    if index == failure_at {
+                        reply.insert("error".into(), if integer_error { Value::Integer(8.into()) } else { dict([("NSCode", Value::Integer((-25204i64).into())),
+                            ("NSDomain", Value::String("AXErrorDomain".into())),
+                            ("NSLocalizedDescription", Value::String("PRIVATE_REMOTE_TEXT".into()))]) });
+                        if has_result { reply.insert("resultData".into(), token.clone()); }
+                    } else if kind == 2 {
+                        reply.insert("attribute".into(), Value::Integer(52.into()));
+                        reply.insert("associatedTranslationObject".into(), token.clone());
+                        reply.insert("resultData".into(), Value::String("PRIVATE_TREE_TEXT".into()));
+                    } else { reply.insert("resultData".into(), token.clone()); }
+                    send_dispatch(&mut server, 100 + index as u32, "processDataFromRemoteDevice:", &[Value::Data(archive(&Value::Dictionary(reply)).unwrap())], true).await;
+                    assert_eq!(server.receive().await.unwrap().kind, 0);
+                }
+            });
+            let mut diagnostic = crate::ax_diagnostics::Diagnostic::new("hit_test");
+            let result = snapshot(client, Selection::HitPoint { x: 100.0, y: 200.0 }, &mut diagnostic).await;
+            let expected = if integer_error && !has_result {
+                if failure_at == 0 { Failure::InitialSelectionUnavailable } else { Failure::PointUnavailable }
+            } else { Failure::Semantic(Phase::Selection, SemanticIssue::RemoteRefused) };
+            assert_eq!(result.unwrap_err(), expected);
+            remote.await.unwrap();
+            let data = diagnostic.payload().unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            assert_eq!(value["phase"], if failure_at == 0 { "selection_initial" } else { "selection_verify" }); assert_eq!(value["request_type"], 6);
+            assert_eq!(value["remote_code"], if integer_error { "8" } else { "-25204" });
+            if !integer_error { assert_eq!(value["remote_domain"], "AXErrorDomain"); }
+            assert_eq!(value["has_result"], has_result);
+            assert!(value.get("subscription_ack_ms").is_some());
+            assert!(!String::from_utf8(data).unwrap().contains("PRIVATE_"));
+        }
     }
     #[test]
     fn control_archives_preserve_types() {
@@ -455,7 +527,7 @@ mod tests {
     async fn ack_is_not_semantic_response_and_other_type_is_discarded() {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let mut remote = Dtx::new(server);
-        let mut task = tokio::spawn(async move { Dtx::new(client).semantic(1, vec![1,2,3], None).await });
+        let mut task = tokio::spawn(async move { Dtx::new(client).semantic(1, vec![1,2,3], None, None).await });
         let call = remote.receive().await.unwrap(); assert_eq!(selector(&call), "processDataFromHost:");
         remote.reply(call.header, None).await.unwrap();
         assert!(tokio::time::timeout(Duration::from_millis(25), &mut task).await.is_err());
@@ -486,7 +558,7 @@ mod tests {
         let token = Token::from_value(&t).unwrap();
         let (client, server) = tokio::io::duplex(64 * 1024);
         let mut remote = Dtx::new(server);
-        let task = tokio::spawn(async move { Dtx::new(client).semantic(2, vec![1], Some(&token)).await });
+        let task = tokio::spawn(async move { Dtx::new(client).semantic(2, vec![1], Some(&token), None).await });
         let call = remote.receive().await.unwrap(); remote.reply(call.header, None).await.unwrap();
         let associated = dict([("pid", Value::Integer(7.into())), ("objectID", Value::Integer(9.into()))]);
         let reply = dict([("associatedRequestType", Value::Integer(2.into())), ("attribute", Value::Integer(51.into())),
@@ -501,7 +573,7 @@ mod tests {
         let mut remote = Dtx::new(server);
         let task = tokio::spawn(async move {
             let mut session = Dtx::new(client);
-            tokio::time::timeout(Duration::from_millis(25), session.semantic(1, vec![1], None)).await
+            tokio::time::timeout(Duration::from_millis(25), session.semantic(1, vec![1], None, None)).await
         });
         let call = remote.receive().await.unwrap(); remote.reply(call.header, None).await.unwrap();
         assert!(task.await.unwrap().is_err());

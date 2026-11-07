@@ -46,8 +46,9 @@ private actor SpyBridge: DeviceBridge {
     func systemActionContext() async throws -> String { "synthetic-system-session" }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws {}
     func installedApplications() async throws -> Data { Data("[{\"name\":\"Fixture\",\"bundle_id\":\"example.fixture\",\"path\":\"PRIVATE_PATH\"}]".utf8) }
-    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws {
+    func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? {
         systemActions.append(name); insertedText = text; launchArguments = arguments
+        return name == "launch_app" ? NativeApplicationLaunch(bundleID: text, pid: 7001) : nil
     }
     func stop() async { stopped = true }
 }
@@ -131,7 +132,10 @@ final class SafetyTests: XCTestCase {
         _ = try await coordinator.execute(name: "type_text", parameters: ["text": "你好 ESP32 🌟\n ", "purpose": "insert requested whitespace"], callID: "text")
         let text = await bridge.insertedText; XCTAssertEqual(text, "你好 ESP32 🌟\n ")
         _ = try await coordinator.execute(name: "home", parameters: ["purpose": "home"], callID: "home-no-frame")
-        _ = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "purpose": "open fixture"], callID: "launch")
+        let launched = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "purpose": "open fixture"], callID: "launch")
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(launched.content.utf8)) as? [String: Any])
+        XCTAssertEqual(receipt["pid"] as? Int, 7001); XCTAssertEqual(receipt["bundle_id"] as? String, "example.fixture")
+        XCTAssertEqual(receipt["foregroundAppConfirmed"] as? Bool, false)
         let arguments = await bridge.launchArguments, actions = await bridge.systemActions
         XCTAssertEqual(arguments, ["--test", "值"]); XCTAssertEqual(actions, ["type_text", "home", "launch_app"])
     }

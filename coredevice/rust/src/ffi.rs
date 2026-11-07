@@ -96,6 +96,13 @@ impl Event {
             credit: None,
         }
     }
+    fn with_accessibility_diagnostic(mut self, diagnostic: Option<Vec<u8>>) -> Self {
+        if let Some(data) = diagnostic.filter(|data| data.len() <= 2048) {
+            self.header.size = data.len();
+            self.data = data;
+        }
+        self
+    }
 }
 #[derive(Clone)]
 struct Request {
@@ -501,7 +508,11 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             let p: serde_json::Value = serde_json::from_slice(&r.payload).expect("validated payload");
             session.accessibility_snapshot(p["pid"].as_u64().expect("validated pid")).await.map(|data| Event::ok(r.id, 18, data))
         },
-        16 => session.accessibility_snapshot_at_center().await.map(|data| Event::ok(r.id, 18, data)),
+        16 => {
+            let pid = serde_json::from_slice::<serde_json::Value>(&r.payload).ok()
+                .and_then(|p| p["fallback_pid"].as_u64()).map(|p| p as u32);
+            session.accessibility_snapshot_at_center(pid).await.map(|data| Event::ok(r.id, 18, data))
+        }
         11 => session
             .stop_touch_media()
             .await
@@ -540,7 +551,7 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
                 session
                     .launch_app(p["bundle_id"].as_str().unwrap(), &args)
                     .await
-                    .map(|_| Event::ok(r.id, 2, Vec::new()))
+                    .map(|receipt| Event::ok(r.id, 2, receipt))
             } else {
                 session
                     .type_text(p["text"].as_str().unwrap())
@@ -553,8 +564,11 @@ async fn execute(session: &mut Session, r: Request, permissions: u32) -> Event {
             cause: Cause::InvalidParameters,
         }),
     };
+    // Optional metadata travels with the original failure, with no additional
+    // queued event or acknowledgement. Always drain it, including after success.
+    let diagnostic = if matches!(r.action, 15 | 16) { session.accessibility_diagnostics.take() } else { None };
     result.unwrap_or_else(|e| {
-        let mut event = Event::failed(r.id, e);
+        let mut event = Event::failed(r.id, e).with_accessibility_diagnostic(diagnostic);
         // Failed preparation has emitted no HID reports and retains the session.
         if r.action == 3 {
             event.header.kind = 10;
@@ -881,6 +895,7 @@ fn valid_command(action: u32, bytes: &[u8]) -> bool {
             .as_str()
             .is_some_and(|s| crate::valid_input_text(s)),
         15 => p.as_object().is_some_and(|m| m.len() == 1) && p["pid"].as_u64().is_some_and(|v| v > 0 && v <= i32::MAX as u64),
+        16 => p.as_object().is_some_and(|m| m.len() == 1) && p["fallback_pid"].as_u64().is_some_and(|v| v > 0 && v <= i32::MAX as u64),
         _ => false,
     }
 }
@@ -1202,6 +1217,18 @@ unsafe fn start_media_fixture(
                                 e
                             }
                             12 => Event::failed(request.id, Error { stage: Stage::Input, cause: Cause::Timeout }),
+                            9 => {
+                                let p: serde_json::Value = serde_json::from_slice(&request.payload).expect("validated fixture launch");
+                                Event::ok(request.id, 2, serde_json::to_vec(&serde_json::json!({"bundle_id":p["bundle_id"],"pid":7001})).unwrap())
+                            }
+                            16 => {
+                                let mut trace = crate::ax_diagnostics::Diagnostic::new("hit_test");
+                                trace.enter("selection_initial", Some(6));
+                                trace.remote_error(&crate::ax_archive::AxValue::Integer(8.into()), false);
+                                let data = if request.id % 2 == 1 { trace.payload() } else { Some(b"invalid diagnostic JSON".to_vec()) };
+                                Event::failed(request.id, Error { stage: Stage::AccessibilitySelection, cause: Cause::RemoteRefused })
+                                    .with_accessibility_diagnostic(data)
+                            }
                             4 | 6 => Event::failed(
                                 request.id,
                                 Error {
@@ -1287,6 +1314,11 @@ mod tests {
         assert!(!super::valid_command(10, br#"{"text":""}"#));
         assert!(!super::valid_command(10, &vec![b'x'; 16 * 1024 + 1]));
         assert!(!super::valid_command(7, br#"{"text":"hello"}"#));
+        assert!(super::valid_command(16, br#"{"fallback_pid":7}"#));
+        for invalid in [br#"{"fallback_pid":0}"#.as_slice(), br#"{"fallback_pid":-1}"#, br#"{"fallback_pid":2147483648}"#,
+                        br#"{"pid":7}"#, br#"{"fallback_pid":7,"extra":true}"#] {
+            assert!(!super::valid_command(16, invalid));
+        }
     }
 
     static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
