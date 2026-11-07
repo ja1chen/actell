@@ -1,0 +1,3 @@
+ACTELL_BUNDLE_ID_PREFIX = com.ja1chen.PhoneAgent
+ACTELL_DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"

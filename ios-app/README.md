@@ -10,20 +10,11 @@
 
 ## 构建
 
-生成工程时使用 `ACTELL_BUNDLE_ID_PREFIX` 替换完整的默认 App ID `com.ja1chen.PhoneAgent`，extension 和测试 target 使用同一基础标识派生：
+生成工程时可设置 `ACTELL_BUNDLE_ID_PREFIX`（完整 App Bundle ID）和 `ACTELL_DEVELOPMENT_TEAM` 环境变量，生成器会将非空值写入 Git 忽略的 `Config/Local.xcconfig`，供 Xcode 后续构建使用；未设置的值保留原有本地设置。也可手动复制 `Config/Local.xcconfig.example` 并编辑。没有本地配置时默认使用 `com.ja1chen.PhoneAgent` 和空 Team；实时活动及测试 target 从 App ID 派生。
 
 ```sh
-export ACTELL_BUNDLE_ID_PREFIX=org.example.Actell
-export ACTELL_DEVELOPMENT_TEAM=ABCDE12345
-python3 ios-app/scripts/generate_xcode_project.py
-```
-
-将示例替换为自己的完整 App Bundle ID 和 Apple Developer Team ID。示例生成 `org.example.Actell` 与 `org.example.Actell.LiveActivity`，App、extension 和测试 target 的 Debug/Release 均使用该团队。未设置或为空时，分别使用 `com.ja1chen.PhoneAgent` 和空团队。两个变量在生成工程时读取，后续生成时继续提供即可。
-
-需要忽略环境变量并生成默认配置时，使用 `-d`（完整参数为 `--defaults`）。此时 App Bundle ID 为 `com.ja1chen.PhoneAgent`，开发团队为空，extension 和测试 target 也使用默认配置：
-
-```sh
-python3 ios-app/scripts/generate_xcode_project.py -d
+ACTELL_BUNDLE_ID_PREFIX=org.example.Actell ACTELL_DEVELOPMENT_TEAM=ABCDE12345 \
+  python3 ios-app/scripts/generate_xcode_project.py
 ```
 
 使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。

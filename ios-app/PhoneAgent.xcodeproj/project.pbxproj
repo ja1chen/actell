@@ -268,6 +268,7 @@
 		3529F430CF42F3A7D6EED10C /* PhoneAgentTests/ProjectTodoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/ProjectTodoTests.swift; sourceTree = SOURCE_ROOT; };
 		35DBCFB05D13A9C005F680CC /* PhoneAgent/App/ProvidersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/App/ProvidersView.swift; sourceTree = SOURCE_ROOT; };
 		3E4E82FCD68641F667EFB727 /* PhoneAgentTests/BackgroundExecutionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/BackgroundExecutionCoordinatorTests.swift; sourceTree = SOURCE_ROOT; };
+		3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Base.xcconfig; sourceTree = SOURCE_ROOT; };
 		4334A7AE8091BCE5FDB730F7 /* PhoneAgentTests/SessionCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/SessionCommandTests.swift; sourceTree = SOURCE_ROOT; };
 		44E21F38DFBA8D559F3EF485 /* PhoneAgentUITests/AttachmentPickerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentUITests/AttachmentPickerUITests.swift; sourceTree = SOURCE_ROOT; };
 		46392B23BB33E231D7F24120 /* PhoneAgent/Intents/AgentIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Intents/AgentIntents.swift; sourceTree = SOURCE_ROOT; };
@@ -614,6 +615,7 @@
 				01C9D5910E626DA35A0A8FDF /* PhoneAgentTests */,
 				D9DE8E9EC1F82F15744706BE /* PhoneAgentUITests */,
 				E0118F52519CC03E5A84B507 /* PhoneAgentLiveActivity */,
+				3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */,
 				4EDC8BFAFC6BD936B849F38C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -1055,12 +1057,13 @@
 /* Begin XCBuildConfiguration section */
 		0F8E9DEC59731B7180A7766F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -1098,7 +1101,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgent;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1109,11 +1112,12 @@
 		};
 		3E3354A78E5FA514C94EFA33 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PhoneAgentLiveActivity/Info.plist;
@@ -1125,7 +1129,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgent.LiveActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX).LiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1157,11 +1161,12 @@
 		};
 		62419C57EF0FAE2065F3C8C7 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -1174,7 +1179,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgentTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1187,12 +1192,13 @@
 		};
 		736EA7D52D7AE779E10ADDFE /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1231,7 +1237,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgent;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1243,11 +1249,12 @@
 		};
 		9D8F64F8859635F9B7D34615 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1259,7 +1266,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgentTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1271,10 +1278,11 @@
 		};
 		A28BAB28AFEEA3502504C467 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1283,7 +1291,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgentUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)UITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1313,10 +1321,11 @@
 		};
 		CC7D81BF85E4F5EBF9948975 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1324,7 +1333,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgentUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)UITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -1336,11 +1345,12 @@
 		};
 		F454449CE46642962700746B /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F60D54AF9989335D88A0458 /* Config/Base.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(ACTELL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PhoneAgentLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Actell;
@@ -1351,7 +1361,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ja1chen.PhoneAgent.LiveActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX).LiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
