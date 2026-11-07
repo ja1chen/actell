@@ -452,7 +452,7 @@ struct ConversationView: View {
             Image(uiImage: uiImage).resizable().scaledToFit().frame(maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel(image.isDemo ? String(localized: "Synthetic demo screen, not a device screenshot") : String(localized: "Device screenshot for the current step"))
-        } else if item.tool.name == "screenshot", item.tool.state == .succeeded {
+        } else if item.tool.expectsScreenshotPreview, item.tool.state == .succeeded {
             Text(String(localized: "This historical screenshot has no saved local original and cannot be recovered from the tool record.")).font(.caption).foregroundStyle(.secondary)
         }
     }

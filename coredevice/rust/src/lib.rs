@@ -478,13 +478,14 @@ impl Session {
     }
     pub async fn input_display_geometry(&mut self) -> Result<Vec<u8>, Error> {
         self.check()?;
-        let size = media::query_display_geometry(&mut self.adapter, &mut self.handshake).await;
-        self.video.set_visible_size(size.as_ref().ok().copied());
+        let geometry = media::query_input_display_geometry(&mut self.adapter, &mut self.handshake).await;
+        self.video.set_visible_size(geometry.as_ref().ok().map(|value| value.0));
         // A failed read-only query can retain this session, but a transport
         // closure during that query must still be reported as Closed.
         self.check()?;
-        let (width, height) = size?;
-        serde_json::to_vec(&serde_json::json!({"width": width, "height": height}))
+        let ((width, height), logical_bounds) = geometry?;
+        let logical_bounds = logical_bounds.map(|b| serde_json::json!({"x":b.x,"y":b.y,"width":b.width,"height":b.height}));
+        serde_json::to_vec(&serde_json::json!({"width": width, "height": height, "logicalBounds": logical_bounds}))
             .map_err(|_| error(Stage::Input, Cause::Protocol))
     }
     /// Starts real DisplayService video negotiation and drains packets in

@@ -1,10 +1,11 @@
 import Foundation
 
-struct InputDisplaySnapshot: Sendable {
+struct InputDisplaySnapshot: Equatable, Sendable {
     static let contract = "normalized-display-v1"
     let context: String
     let token: String
     let sampledAt: Date
+    var logicalBounds: NativeDisplayBounds? = nil
     func normalized(_ value: Int) throws -> Int {
         guard (0...1000).contains(value) else { throw RemoteRPCError("coordinate_out_of_bounds", "Coordinates must be integers from 0 to 1000") }
         return (value * 65535 + 500) / 1000

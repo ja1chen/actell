@@ -353,7 +353,7 @@ enum CoreDeviceControlError: Error { case unavailable(String), stopped }
         guard ready else { NSLog("AX probe: agent path unavailable: connection not ready"); return }
         do {
             let bridge = try CoreDeviceBridge(flow: self)
-            let action = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in false }, onImage: { _, _ in }, onReceipt: { _ in }, includeAccessibilityTree: true)
+            let action = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in false }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .screenshotAndAccessibility)
             do {
                 let result = try await action.execute(name: "screenshot", parameters: [:], callID: "ax-fixture")
                 guard let object = try JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any],

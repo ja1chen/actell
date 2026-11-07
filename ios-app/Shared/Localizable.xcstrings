@@ -8460,20 +8460,6 @@
         }
       }
     },
-    "Include accessible screen content": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Include accessible screen content" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "包含屏幕无障碍内容" } }
-      }
-    },
-    "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无障碍文本和结构可能包含屏幕外的内容，并会随截图发送给模型服务商。" } }
-      }
-    },
     "Phone control": {
       "extractionState": "manual",
       "localizations": {
@@ -20688,6 +20674,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "在新会话中继续"
+          }
+        }
+      }
+    },
+    "%@\nDrag from logical point (%lf, %lf) to (%lf, %lf) over %lld ms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nDrag from logical point (%lf, %lf) to (%lf, %lf) over %lld ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n从逻辑点 (%lf, %lf) 拖动至 (%lf, %lf)，%lld ms"
+          }
+        }
+      }
+    },
+    "%@\nTap logical point (%lf, %lf)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nTap logical point (%lf, %lf)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n点击逻辑点 (%lf, %lf)"
+          }
+        }
+      }
+    },
+    "%@ must be a valid coordinate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be a valid coordinate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 必须是有效坐标"
+          }
+        }
+      }
+    },
+    "Accessibility content": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility content"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无障碍内容"
+          }
+        }
+      }
+    },
+    "Accessibility content received": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility content received"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已获取无障碍内容"
+          }
+        }
+      }
+    },
+    "Automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        }
+      }
+    },
+    "Automatic lets the model choose what to read each time. Selected screen information is sent to your model provider; accessibility content may include off-screen text. Taps and drags are supported in every mode.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic lets the model choose what to read each time. Selected screen information is sent to your model provider; accessibility content may include off-screen text. Taps and drags are supported in every mode."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动模式由模型每次选择读取方式。所选屏幕信息会发送给模型服务商；无障碍内容可能包含屏幕外文本。所有模式都支持点击和拖动。"
+          }
+        }
+      }
+    },
+    "Choose a screen information mode for this observation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a screen information mode for this observation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请为本次观察选择屏幕信息模式。"
+          }
+        }
+      }
+    },
+    "Read screen information before tapping or dragging.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read screen information before tapping or dragging."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先读取屏幕信息，再执行点击或拖动。"
+          }
+        }
+      }
+    },
+    "Screen accessibility content is unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen accessibility content is unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕无障碍内容不可用"
+          }
+        }
+      }
+    },
+    "Screen information mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen information mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕信息模式"
+          }
+        }
+      }
+    },
+    "Screenshot + accessibility content": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot + accessibility content"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截图+无障碍内容"
+          }
+        }
+      }
+    },
+    "The logical point is outside the current display. No input was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The logical point is outside the current display. No input was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逻辑点坐标超出当前屏幕范围，未发送操作。"
+          }
+        }
+      }
+    },
+    "This observation uses the screen information mode selected in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This observation uses the screen information mode selected in Settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次观察使用设置中选择的屏幕信息模式。"
           }
         }
       }

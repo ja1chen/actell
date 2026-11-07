@@ -46,6 +46,11 @@ struct ToolStep: Codable, Sendable, Equatable {
     var arguments: String?
     var skillName: String?
     var displayArguments: String? { Self.nonemptyArguments(arguments) }
+    var expectsScreenshotPreview: Bool {
+        guard name == "screenshot" else { return false }
+        let object = (try? JSONSerialization.jsonObject(with: Data(result.utf8))) as? [String: Any]
+        return object?["screen_information_mode"] as? String != ScreenInformationMode.accessibility.rawValue
+    }
     var displayResult: String {
         if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard name == "screenshot",

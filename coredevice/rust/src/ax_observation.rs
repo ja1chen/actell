@@ -45,7 +45,7 @@ pub(crate) async fn observe(reader: &mut impl Reader, target: Option<&LaunchedAp
                 value["application"]["bundleId"] = serde_json::json!(target.bundle_id);
                 value["selection"] = serde_json::json!({
                     "method":"explicit-pid", "reason":"center_hit_unavailable",
-                    "scope":"requested-application", "foregroundAppConfirmed":false,
+                    "scope":"requested-application",
                     "initialSelection":{"method":"hit-test", "remoteCode":8}
                 });
                 serde_json::to_vec(&value).map_err(|_| error(Stage::AccessibilitySnapshot, Cause::Protocol).into())
@@ -83,7 +83,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&data).unwrap();
         assert_eq!((reader.center_calls, reader.pid_calls), (1, 1));
         assert_eq!(value["application"]["pid"], 7);
-        assert_eq!(value["selection"]["foregroundAppConfirmed"], false);
+        assert!(value["selection"].get("foregroundAppConfirmed").is_none());
         assert_eq!(value["selection"]["scope"], "requested-application");
         assert!(!String::from_utf8(data).unwrap().contains("PRIVATE_"));
     }

@@ -627,13 +627,14 @@ struct AgentRunServices {
         bridge = selectedBridge; status = selectedMode == .demo ? String(localized: "Offline scripted demo") : String(localized: "Contacting the model")
         log(String(localized: "A new conversation turn has started. Previous tools will not be replayed."))
         publishActivity(.thinking)
+        let screenInformationMode: ScreenInformationMode = selectedMode == .live ? ScreenInformationMode.load() : .screenshot
         let action = ActionCoordinator(bridge: selectedBridge, limits: limits,
             approve: { [weak self] request in await self?.askApproval(request, generation: token) ?? false },
             onImage: { [weak self] frame, callID in await self?.show(frame, callID: callID, generation: token) },
             onReceipt: { [weak self] text in await self?.record(text, generation: token) },
             onExecuting: { [weak self] callID, name in await self?.markExecuting(callID: callID, name: name, generation: token) },
             lifecycle: lifecycle, generation: token, authorizationMode: inputAuthorizationMode, diagnostics: usbDiagnostics,
-            includeAccessibilityTree: selectedMode == .live && UserDefaults.standard.bool(forKey: "accessibilityTreeEnabled"))
+            screenInformationMode: screenInformationMode)
         coordinator = action
         let names = selectedMode == .demo ? ["screenshot", "tap", "drag", "wait", "finish"] : ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text", "wait"]
         let skillSnapshot = skills.enabledSnapshot

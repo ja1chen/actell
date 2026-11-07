@@ -10,7 +10,7 @@ struct PhoneControlSettingsView: View {
     @State private var localAddress = DeviceControlCoordinator.shared.vpnConfiguration.localAddress
     @State private var peerAddress = DeviceControlCoordinator.shared.vpnConfiguration.peerAddress
     @State private var error: String?
-    @AppStorage("accessibilityTreeEnabled") private var accessibilityTreeEnabled = false
+    @AppStorage(ScreenInformationMode.defaultsKey) private var screenInformationMode = ScreenInformationMode.load()
     var body: some View {
         Form {
             Section {
@@ -26,11 +26,15 @@ struct PhoneControlSettingsView: View {
             DeviceControlRouteSections(localAddress: $localAddress, peerAddress: $peerAddress, error: $error,
                 showTouchTest: { showingTouchTest = true }, save: save)
             Section {
-                Toggle(String(localized: "Include accessible screen content"), isOn: $accessibilityTreeEnabled)
-                    .accessibilityIdentifier("accessibilityTreeEnabled")
+                Picker(String(localized: "Screen information mode"), selection: $screenInformationMode) {
+                    ForEach(ScreenInformationMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                    .accessibilityIdentifier("screenInformationMode")
                     .disabled(model.hasBusySessions)
             } footer: {
-                Text(String(localized: "Accessible text and structure may include off-screen content and are sent to your model provider with screenshots."))
+                Text(String(localized: "Automatic lets the model choose what to read each time. Selected screen information is sent to your model provider; accessibility content may include off-screen text. Taps and drags are supported in every mode."))
             }
         }
             .navigationTitle(String(localized: "Phone control"))

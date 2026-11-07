@@ -119,6 +119,22 @@ public struct NativeInputGeometryError: Error, Equatable, Sendable {
 }
 public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified }
 
+/// Authenticated primary-display bounds in AX logical points, when the current
+/// display orientation and mapping are supported. Independent of app root frames.
+public struct NativeDisplayBounds: Codable, Equatable, Sendable {
+    public let x: Double, y: Double, width: Double, height: Double
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x; self.y = y; self.width = width; self.height = height
+    }
+}
+public struct NativeInputDisplayGeometry: Sendable {
+    public let token: String
+    public let logicalBounds: NativeDisplayBounds?
+    public init(token: String, logicalBounds: NativeDisplayBounds? = nil) {
+        self.token = token; self.logicalBounds = logicalBounds
+    }
+}
+
 /// Owns one native worker, its two relay streams and media. The caller closes
 /// on explicit stop, execution expiry or disconnect, rather than app visibility.
 /// Initializer is idle and never imports credentials.
@@ -268,9 +284,13 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
     /// Read authenticated display metadata and existing decoder geometry only.
     /// No JPEG encoding, screenshot request or image publication occurs here.
     public func inputDisplayGeometry() async throws -> String {
+        try await inputDisplaySnapshot().token
+    }
+    public func inputDisplaySnapshot() async throws -> NativeInputDisplayGeometry {
+        struct Metadata: Decodable { let width: Int; let height: Int; let logicalBounds: NativeDisplayBounds? }
         let data = try await operation(12, expectedKind: 15)
-        guard let size = (try? JSONSerialization.jsonObject(with: data)) as? [String: Int],
-              let width = size["width"], let height = size["height"], width > 1, height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
+        guard let size = try? JSONDecoder().decode(Metadata.self, from: data),
+              size.width > 1, size.height > 1 else { throw NativeInputGeometryError(.metadataInvalid) }
         let handleAtStart = handle
         let until = ContinuousClock.now.advanced(by: .seconds(3))
         while ContinuousClock.now < until {
@@ -285,10 +305,10 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
                let token = await decoder.currentGeometryToken(), token == published.token {
                 let parts = token.split(separator: ":")
                 guard parts.count == 8 else { throw NativeInputGeometryError(.invalidToken) }
-                guard Double(parts[6]) == Double(width), Double(parts[7]) == Double(height) else { throw NativeInputGeometryError(.sizeMismatch) }
+                guard Double(parts[6]) == Double(size.width), Double(parts[7]) == Double(size.height) else { throw NativeInputGeometryError(.sizeMismatch) }
                 let result = "\(token)|\(published.credential)"
                 try await validateVideoGeometry(result)
-                return result
+                return NativeInputDisplayGeometry(token: result, logicalBounds: size.logicalBounds)
             }
             try await Task.sleep(for: .milliseconds(20))
         }

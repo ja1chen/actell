@@ -31,7 +31,7 @@ enum CoreDeviceAdmissionError: LocalizedError {
     var connectionStopID: UUID? { get }
     func connectIfNeeded() throws
     func agentCapture(owner: UUID, session: UUID) async throws -> Data
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry
     func agentCaptureWithGeometry(owner: UUID, session: UUID) async throws -> (Data, String?)
     func agentValidateGeometry(owner: UUID, session: UUID, token: String) async throws
     func agentTap(owner: UUID, session: UUID, x: UInt16, y: UInt16, validate: () throws -> Void) async throws
@@ -53,7 +53,7 @@ enum CoreDeviceAdmissionError: LocalizedError {
 extension CoreDeviceControlConnection {
     func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data? { nil }
     func finishRemoteAgent(owner: UUID, session: UUID, retentionGeneration: UUID?) { releaseAgent(owner: owner, session: session) }
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry { throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable") }
 
     func agentTapWithGeometry(owner: UUID, session: UUID, x: UInt16, y: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
     func agentDragWithGeometry(owner: UUID, session: UUID, fromX: UInt16, fromY: UInt16, toX: UInt16, toY: UInt16, durationMS: UInt16, geometry: String, validate: () throws -> Void) async throws { throw AppError.unavailable(String(localized: "This connection cannot verify screen changes before input.")) }
@@ -81,10 +81,10 @@ extension DeviceControlCoordinator: CoreDeviceControlConnection {
     func agentAccessibilityObservation(owner: UUID, session: UUID, fallbackPID: Int32?) async throws -> Data? {
         try await agentOperation(owner: owner, session: session) { try await $0.accessibilitySnapshotAtCenter(fallbackPID: fallbackPID) }
     }
-    func agentInputGeometry(owner: UUID, session: UUID) async throws -> String {
+    func agentInputGeometry(owner: UUID, session: UUID) async throws -> NativeInputDisplayGeometry {
         try await agentOperation(owner: owner, session: session) { services in
             try await self.prepareAgentInput(services)
-            return try await services.inputDisplayGeometry()
+            return try await services.inputDisplaySnapshot()
         }
     }
 
@@ -293,18 +293,19 @@ private final class CoreDeviceRunFence: @unchecked Sendable {
     func inputDisplaySnapshot() async throws -> InputDisplaySnapshot {
         try await prepareConnection()
         let session = try requireSession()
-        let token: String
-        do { token = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
+        let geometry: NativeInputDisplayGeometry
+        do { geometry = try await perform { try await flow.agentInputGeometry(owner: owner, session: session) } }
         catch {
             if error is CancellationError || (error as? AppError) == .stopped { throw error }
             throw RemoteRPCError("geometry_unavailable", "Current input display geometry is unavailable", underlying: error)
         }
         try check()
-        return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: token, sampledAt: Date())
+        return InputDisplaySnapshot(context: "ncm:\(session.uuidString):\(owner.uuidString)", token: geometry.token, sampledAt: Date(), logicalBounds: geometry.logicalBounds)
     }
     func authorizeIndependentInput(_ snapshot: InputDisplaySnapshot, authorizationID: String) async throws {
         let current = try await inputDisplaySnapshot()
-        guard current.context == snapshot.context, current.token == snapshot.token else { throw RemoteRPCError("geometry_changed", "Input display changed before dispatch") }
+        guard current.context == snapshot.context, current.token == snapshot.token,
+              current.logicalBounds == snapshot.logicalBounds else { throw RemoteRPCError("geometry_changed", "Input display changed before dispatch") }
         independentGrant = authorizationID
     }
     func independentInput(name: String, coordinates: [Int], durationMS: Int, snapshot: InputDisplaySnapshot, authorizationID: String) async throws {

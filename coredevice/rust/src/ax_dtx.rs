@@ -396,7 +396,7 @@ pub(crate) async fn snapshot<S: AsyncRead + AsyncWrite + Unpin>(stream: S, selec
         let mut normalized = crate::ax_snapshot::normalize(&tree, &token, started, ended)?;
         if let Selection::HitPoint { x, y } = selection {
             normalized["selection"] = serde_json::json!({"method":"hit-test", "point":{"x":x,"y":y}, "displayId":0,
-                "scope":"process-at-point", "foregroundAppConfirmed":false});
+                "scope":"process-at-point"});
         }
         Ok(normalized)
     }.await;
