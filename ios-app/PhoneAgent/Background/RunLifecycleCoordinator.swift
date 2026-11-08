@@ -41,7 +41,7 @@ struct RunCheckpoint: Codable, Equatable {
     struct Tool: Codable, Equatable, Sendable {
         let callID: String
         let name: String
-        /// Whitelisted numeric arguments plus hashes; no purpose, text, images or credentials.
+        /// Whitelisted numeric arguments plus hashes; no description, text, images or credentials.
         let parameterSummary: String
         let argumentDigest: String
         var delivery: Delivery = .prepared

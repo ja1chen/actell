@@ -233,11 +233,11 @@ private actor SimpleLANImageBridge: DeviceBridge {
             "input_contract": "image-pixels-v1", "image_contract": RemoteImageGeometry.contract])
         XCTAssertEqual(((try JSONSerialization.jsonObject(with: mismatched.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "idempotency_conflict")
         let outOfBounds = try await call("tools.call", key: key, parameters: ["run_id": imageRun, "call_id": "bounds", "deadline_ms": imageDeadline,
-            "tool": "tap", "arguments": ["x": 1001, "y": 0, "purpose": "Synthetic input"]])
+            "tool": "tap", "arguments": ["x": 1001, "y": 0, "description": "Synthetic input"]])
         XCTAssertEqual(((try JSONSerialization.jsonObject(with: outOfBounds.body) as? [String: Any])?["error"] as? [String: Any])?["code"] as? String, "coordinate_out_of_bounds")
         let geometryCall = UUID().uuidString.lowercased()
         let geometryParams: [String: Any] = ["run_id": imageRun, "call_id": geometryCall, "deadline_ms": imageDeadline,
-            "tool": "tap", "arguments": ["x": 394, "y": 571, "purpose": "Private synthetic purpose"]]
+            "tool": "tap", "arguments": ["x": 394, "y": 571, "description": "Private synthetic purpose"]]
         _ = try await call("tools.call", key: key, parameters: geometryParams)
         var failedReceipt: [String: Any]?
         for _ in 0..<100 {

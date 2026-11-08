@@ -57,7 +57,7 @@ private struct BatchProvider: ModelProvider {
 
 final class MultiToolTests: XCTestCase {
     private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> ModelToolCall { .init(id: id, name: name, arguments: arguments) }
-    private let tap = "{\"x\":10,\"y\":20,\"purpose\":\"synthetic tap\"}"
+    private let tap = "{\"x\":10,\"y\":20,\"description\":\"synthetic tap\"}"
     private let skill: SkillPackage = try! SkillPackage.make(documents: ["SKILL.md": "---\nname: batch-guide\ndescription: Synthetic batch reference\n---\nBATCH_REFERENCE"])
     private func skillCall() -> ModelToolCall {
         call("skills", "load_skill", String(decoding: try! JSONEncoder().encode(["id": skill.id.uuidString, "revision": skill.revision]), as: UTF8.self))
@@ -74,7 +74,7 @@ final class MultiToolTests: XCTestCase {
         let bridge = BatchBridge()
         let calls = [call("s", "screenshot"), call("t1", "tap", tap),
                      call("w", "wait", "{\"duration_ms\":1}"), call("t2", "tap", tap),
-                     call("d", "drag", "{\"from_x\":10,\"from_y\":20,\"to_x\":30,\"to_y\":40,\"duration_ms\":200,\"purpose\":\"known next step\"}")]
+                     call("d", "drag", "{\"from_x\":10,\"from_y\":20,\"to_x\":30,\"to_y\":40,\"duration_ms\":200,\"description\":\"known next step\"}")]
         _ = try await runner([calls], bridge: bridge).run("synthetic")
         let events = await bridge.events
         XCTAssertEqual(events, ["screenshot", "approve", "tap", "approve", "tap", "approve", "drag"])
@@ -97,7 +97,7 @@ final class MultiToolTests: XCTestCase {
         let bridge = BatchBridge(failInput: true)
         let batches = [[call("s1", "screenshot"), call("t1", "tap", tap)],
                        [call("s2", "screenshot")],
-                       [call("d", "drag", "{\"from_x\":10,\"from_y\":20,\"to_x\":30,\"to_y\":40,\"duration_ms\":200,\"purpose\":\"observed next step\"}"), skillCall()]]
+                       [call("d", "drag", "{\"from_x\":10,\"from_y\":20,\"to_x\":30,\"to_y\":40,\"duration_ms\":200,\"description\":\"observed next step\"}"), skillCall()]]
         let result = try await runner(batches, bridge: bridge, errors: ["t1"]).run("synthetic")
         XCTAssertEqual(result, "batch finished")
         let events = await bridge.events

@@ -262,7 +262,7 @@ import ProviderCore
         AgentEventProjection.record(.assistantDelta(itemID: assistantID, text: "回复"), run: run, frame: nil, in: store)
         XCTAssertEqual(store.conversation(id)?.messages.last?.text, "公开回复")
         XCTAssertEqual(store.conversation(id)?.messages.last?.reasoning?.text, "服务商提供的可读摘要")
-        let call = ToolInvocation(sessionID: id, turnID: run.runID, call: .init(id: "t", name: "tap", arguments: "{\"x\":100,\"y\":200,\"purpose\":\"点击演示\",\"api_key\":\"never-display\"}"))
+        let call = ToolInvocation(sessionID: id, turnID: run.runID, call: .init(id: "t", name: "tap", arguments: "{\"x\":100,\"y\":200,\"description\":\"点击演示\",\"api_key\":\"never-display\"}"))
         AgentEventProjection.record(.toolPrepared(call), run: run, frame: nil, in: store)
         let tool = try XCTUnwrap(store.conversation(id)?.messages.last?.tool)
         XCTAssertEqual(tool.state, .requested)

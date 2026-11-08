@@ -146,7 +146,7 @@ final class SafetyTests: XCTestCase {
         let result = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "unavailable")
         XCTAssertEqual(result.kind, .returned); XCTAssertTrue(result.images.isEmpty)
         XCTAssertTrue(result.content.contains("selection_unavailable"))
-        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "next-action")
+        _ = try await coordinator.execute(name: "home", parameters: ["description": "fixture"], callID: "next-action")
         let captures = await bridge.screenshotReads, actions = await bridge.systemActions
         XCTAssertEqual(captures, 0); XCTAssertEqual(actions, ["home"])
     }
@@ -155,10 +155,10 @@ final class SafetyTests: XCTestCase {
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .automatic)
         _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "screenshot"], callID: "image")
         _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "accessibility"], callID: "text")
-        do { _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "stale"); XCTFail("Old screenshot must not survive text-only observation") } catch {}
+        do { _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "description": "fixture"], callID: "stale"); XCTFail("Old screenshot must not survive text-only observation") } catch {}
         let before = await bridge.taps; XCTAssertEqual(before, 0)
         _ = try await coordinator.execute(name: "screenshot", parameters: ["mode": "screenshot"], callID: "fresh")
-        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "valid")
+        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "description": "fixture"], callID: "valid")
         let after = await bridge.taps; XCTAssertEqual(after, 1)
     }
     func testAccessibilityOnlyTapAndDragUseFractionalLogicalPointsWithoutImages() async throws {
@@ -169,8 +169,8 @@ final class SafetyTests: XCTestCase {
                 onImage: { _, _ in XCTFail("No screenshot") }, onReceipt: { _ in }, screenInformationMode: mode)
             let result = try await coordinator.execute(name: "screenshot", parameters: mode == .automatic ? ["mode": "accessibility"] : [:], callID: "observe")
             XCTAssertTrue(result.images.isEmpty); XCTAssertTrue(result.content.contains("logical-point"))
-            _ = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "purpose": "fixture"])
-            _ = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "drag", parameters: ["from_x": 196.5, "from_y": 639, "to_x": 98.25, "to_y": 213, "duration_ms": 300, "purpose": "fixture"])
+            _ = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "description": "fixture"])
+            _ = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "drag", parameters: ["from_x": 196.5, "from_y": 639, "to_x": 98.25, "to_y": 213, "duration_ms": 300, "description": "fixture"])
             let coordinates = await bridge.coordinateDeliveries, captures = await bridge.screenshotReads
             XCTAssertEqual(coordinates, [[32768, 32768], [32768, 49151, 16384, 16384]])
             XCTAssertEqual(captures, 0)
@@ -183,15 +183,15 @@ final class SafetyTests: XCTestCase {
         let tap = DeviceTool(name: "tap", coordinator: coordinator)
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "observe")
         await bridge.configureGeometry(token: "changed")
-        let stale = try await invoke(tap, callID: "stale", parameters: ["x": 100, "y": 100, "purpose": "fixture"])
+        let stale = try await invoke(tap, callID: "stale", parameters: ["x": 100, "y": 100, "description": "fixture"])
         XCTAssertFalse(stale.kind == .returned)
         var count = await bridge.taps; XCTAssertEqual(count, 0)
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fresh")
-        let unknown = try await invoke(tap, callID: "uncertain", parameters: ["x": 100, "y": 100, "purpose": "fixture"])
+        let unknown = try await invoke(tap, callID: "uncertain", parameters: ["x": 100, "y": 100, "description": "fixture"])
         XCTAssertEqual(unknown.kind, .outcomeUnknown)
-        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "home")
+        _ = try await coordinator.execute(name: "home", parameters: ["description": "fixture"], callID: "home")
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "again")
-        let drag = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "next", parameters: ["from_x": 100, "from_y": 500, "to_x": 100, "to_y": 100, "duration_ms": 300, "purpose": "fixture"])
+        let drag = try await invoke(DeviceTool(name: "drag", coordinator: coordinator), callID: "next", parameters: ["from_x": 100, "from_y": 500, "to_x": 100, "to_y": 100, "duration_ms": 300, "description": "fixture"])
         XCTAssertEqual(drag.kind, .returned)
         count = await bridge.taps; let captures = await bridge.screenshotReads, stopped = await bridge.stopped
         XCTAssertEqual(count, 1); XCTAssertEqual(captures, 0); XCTAssertFalse(stopped)
@@ -202,7 +202,7 @@ final class SafetyTests: XCTestCase {
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .accessibility)
         for x: Any in [-1, 393, true, "100"] {
             _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "observe")
-            let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "invalid", parameters: ["x": x, "y": 200, "purpose": "fixture"])
+            let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "invalid", parameters: ["x": x, "y": 200, "description": "fixture"])
             XCTAssertEqual(result.kind, .validationFailed)
         }
         let taps = await bridge.taps, captures = await bridge.screenshotReads
@@ -215,10 +215,10 @@ final class SafetyTests: XCTestCase {
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .accessibility)
         let unavailable = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "text")
         XCTAssertTrue(unavailable.content.contains("Read me")); XCTAssertTrue(unavailable.content.contains("geometry_unavailable"))
-        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "fixture"], callID: "home")
+        _ = try await coordinator.execute(name: "home", parameters: ["description": "fixture"], callID: "home")
         await bridge.configureGeometry()
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fresh")
-        let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "purpose": "fixture"])
+        let result = try await invoke(DeviceTool(name: "tap", coordinator: coordinator), callID: "tap", parameters: ["x": 196.5, "y": 426, "description": "fixture"])
         XCTAssertEqual(result.kind, .returned)
         let captures = await bridge.screenshotReads; XCTAssertEqual(captures, 0)
     }
@@ -250,7 +250,7 @@ final class SafetyTests: XCTestCase {
         await bridge.configureAccessibility(error: .accessibilityFailure(stage: 22, cause: 4))
         let third = try await enabled.execute(name: "screenshot", parameters: [:], callID: "fallback")
         XCTAssertEqual(third.kind, .returned); XCTAssertTrue(third.content.contains("service_unavailable"))
-        _ = try await enabled.execute(name: "tap", parameters: ["x": 10, "y": 10, "purpose": "fixture"], callID: "after-fallback")
+        _ = try await enabled.execute(name: "tap", parameters: ["x": 10, "y": 10, "description": "fixture"], callID: "after-fallback")
         let taps = await bridge.taps; XCTAssertEqual(taps, 1)
     }
     func testAccessibilityResultRemainsCompleteAndWirePrefixStableAfterJSONLReload() async throws {
@@ -310,10 +310,10 @@ final class SafetyTests: XCTestCase {
     func testSystemActionsForwardExactTextAndArgumentsWithoutScreenshotDependency() async throws {
         let bridge = SpyBridge()
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
-        _ = try await coordinator.execute(name: "type_text", parameters: ["text": "你好 ESP32 🌟\n ", "purpose": "insert requested whitespace"], callID: "text")
+        _ = try await coordinator.execute(name: "type_text", parameters: ["text": "你好 ESP32 🌟\n ", "description": "insert requested whitespace"], callID: "text")
         let text = await bridge.insertedText; XCTAssertEqual(text, "你好 ESP32 🌟\n ")
-        _ = try await coordinator.execute(name: "home", parameters: ["purpose": "home"], callID: "home-no-frame")
-        let launched = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "purpose": "open fixture"], callID: "launch")
+        _ = try await coordinator.execute(name: "home", parameters: ["description": "home"], callID: "home-no-frame")
+        let launched = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "arguments": ["--test", "值"], "description": "open fixture"], callID: "launch")
         let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(launched.content.utf8)) as? [String: Any])
         XCTAssertEqual(receipt["pid"] as? Int, 7001); XCTAssertEqual(receipt["bundle_id"] as? String, "example.fixture")
         XCTAssertNil(receipt["foregroundAppConfirmed"])
@@ -327,7 +327,7 @@ final class SafetyTests: XCTestCase {
         let tool = DeviceTool(name: "type_text", coordinator: coordinator)
         for text in ["a\0b", String(repeating: "a", count: 8193)] {
             _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: UUID().uuidString)
-            let result = try await invoke(tool, callID: UUID().uuidString, parameters: ["text": text, "purpose": "unsupported fixture"])
+            let result = try await invoke(tool, callID: UUID().uuidString, parameters: ["text": text, "description": "unsupported fixture"])
             XCTAssertNotEqual(result.kind, .returned)
             XCTAssertTrue(result.content.contains("未发送任何按键"))
             XCTAssertFalse(result.finishTurn)
@@ -336,7 +336,7 @@ final class SafetyTests: XCTestCase {
         XCTAssertTrue(dispatched.isEmpty)
         // Same session remains usable after preflight failure, with no reconnect.
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fresh-after-errors")
-        _ = try await coordinator.execute(name: "type_text", parameters: ["text": "ESP32 direct!", "purpose": "valid fixture"], callID: "t")
+        _ = try await coordinator.execute(name: "type_text", parameters: ["text": "ESP32 direct!", "description": "valid fixture"], callID: "t")
         let inserted = await bridge.insertedText
         XCTAssertEqual(inserted, "ESP32 direct!")
     }
@@ -346,10 +346,10 @@ final class SafetyTests: XCTestCase {
         XCTAssertEqual(result.kind, .returned); XCTAssertTrue(result.content.contains("example.fixture"))
         XCTAssertFalse(result.content.contains("PRIVATE_PATH"))
     }
-    func testInputSchemasOnlyRequireCoordinatesDurationAndPurpose() {
+    func testInputSchemasOnlyRequireCoordinatesDurationAndDescription() {
         let coordinator = ActionCoordinator(bridge: SpyBridge(), limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
-        for (name, keys) in [("tap", ["x", "y", "purpose"]),
-                             ("drag", ["from_x", "from_y", "to_x", "to_y", "duration_ms", "purpose"])] {
+        for (name, keys) in [("tap", ["x", "y", "description"]),
+                             ("drag", ["from_x", "from_y", "to_x", "to_y", "duration_ms", "description"])] {
             let schema = DeviceTool(name: name, coordinator: coordinator).descriptor.parameters
             guard case .object(let object) = schema, case .object(let properties) = object["properties"], case .array(let required) = object["required"] else { return XCTFail("Expected object schema") }
             XCTAssertEqual(Set(properties.keys), Set(keys))
@@ -363,9 +363,9 @@ final class SafetyTests: XCTestCase {
             return true
         }, onImage: { _, _ in }, onReceipt: { _ in })
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "s1")
-        _ = try await coordinator.execute(name: "tap", parameters: ["x": 100, "y": 100, "purpose": "fixture tap"], callID: "t")
+        _ = try await coordinator.execute(name: "tap", parameters: ["x": 100, "y": 100, "description": "fixture tap"], callID: "t")
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "s2")
-        _ = try await coordinator.execute(name: "drag", parameters: ["from_x": 100, "from_y": 100, "to_x": 120, "to_y": 120, "duration_ms": 200, "purpose": "fixture drag"], callID: "d")
+        _ = try await coordinator.execute(name: "drag", parameters: ["from_x": 100, "from_y": 100, "to_x": 120, "to_y": 120, "duration_ms": 200, "description": "fixture drag"], callID: "d")
         _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "s3")
         _ = try await coordinator.execute(name: "finish", parameters: ["summary": "fixture finished"], callID: "f")
         let taps = await bridge.taps, drags = await bridge.drags
@@ -387,17 +387,17 @@ final class SafetyTests: XCTestCase {
         let bridge = SpyBridge(tapError: .unknownOutcome)
         let c = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
         _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s")
-        let failed = try await invoke(DeviceTool(name: "tap", coordinator: c), callID: "t", parameters: ["x": 100, "y": 100, "purpose": "test"])
+        let failed = try await invoke(DeviceTool(name: "tap", coordinator: c), callID: "t", parameters: ["x": 100, "y": 100, "description": "test"])
         XCTAssertNotEqual(failed.kind, .returned)
         XCTAssertTrue(failed.content.contains("动作结果未知"))
         XCTAssertTrue(failed.content.contains("未自动重发"))
         XCTAssertFalse(failed.content.contains("截图"))
         XCTAssertFalse(failed.finishTurn)
-        let noObservation = try await invoke(DeviceTool(name: "tap", coordinator: c), callID: "no-frame", parameters: ["x": 100, "y": 100, "purpose": "tap"])
+        let noObservation = try await invoke(DeviceTool(name: "tap", coordinator: c), callID: "no-frame", parameters: ["x": 100, "y": 100, "description": "tap"])
         XCTAssertNotEqual(noObservation.kind, .returned, "An unknown action must consume its old image")
         for name in ["drag", "home", "launch_app", "type_text"] {
             _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s-" + name)
-            let result = try await invoke(DeviceTool(name: name, coordinator: c), callID: "next-" + name, parameters: ["from_x": 100, "from_y": 100, "to_x": 120, "to_y": 120, "duration_ms": 200, "purpose": "observed next step", "bundle_id": "example.fixture", "text": "fixture"])
+            let result = try await invoke(DeviceTool(name: name, coordinator: c), callID: "next-" + name, parameters: ["from_x": 100, "from_y": 100, "to_x": 120, "to_y": 120, "duration_ms": 200, "description": "observed next step", "bundle_id": "example.fixture", "text": "fixture"])
             XCTAssertEqual(result.kind, .returned)
             XCTAssertFalse(result.finishTurn)
         }
@@ -421,7 +421,7 @@ final class SafetyTests: XCTestCase {
         let c = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in false }, onImage: { _, _ in }, onReceipt: { _ in })
         _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s")
         do {
-            _ = try await c.execute(name: "tap", parameters: ["x": 100, "y": 100, "purpose": "test"], callID: "t")
+            _ = try await c.execute(name: "tap", parameters: ["x": 100, "y": 100, "description": "test"], callID: "t")
             XCTFail("Denied input must not run")
         } catch {}
         let count = await bridge.taps; XCTAssertEqual(count, 0)
@@ -432,7 +432,7 @@ final class SafetyTests: XCTestCase {
                                   onImage: { _, _ in }, onReceipt: { _ in }, authorizationMode: .task)
         _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s")
         do {
-            _ = try await c.execute(name: "tap", parameters: ["x": 100, "y": 100, "purpose": "fixture"], callID: "t")
+            _ = try await c.execute(name: "tap", parameters: ["x": 100, "y": 100, "description": "fixture"], callID: "t")
             XCTFail("Task authorization must be explicitly supported by the input bridge")
         } catch { XCTAssertTrue(error.localizedDescription.contains("不支持任务内自动授权")) }
         let count = await bridge.taps; XCTAssertEqual(count, 0)
@@ -441,7 +441,7 @@ final class SafetyTests: XCTestCase {
         let bridge = SpyBridge()
         let c = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { $0.callID != "denied" }, onImage: { _, _ in }, onReceipt: { _ in })
         _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s")
-        let p: [String: Any] = ["x": 100, "y": 100, "purpose": "test"]
+        let p: [String: Any] = ["x": 100, "y": 100, "description": "test"]
         _ = try await c.execute(name: "tap", parameters: p, callID: "t1")
         _ = try await c.execute(name: "tap", parameters: p, callID: "t2")
         do { _ = try await c.execute(name: "tap", parameters: p, callID: "denied"); XCTFail("Retained reference cannot bypass approval") }
@@ -464,7 +464,7 @@ final class SafetyTests: XCTestCase {
         let bridge = SpyBridge()
         let c = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
         _ = try await c.execute(name: "screenshot", parameters: [:], callID: "s")
-        do { _ = try await c.execute(name: "tap", parameters: ["x": true, "y": 0, "purpose": "bad"], callID: "t"); XCTFail("Boolean must fail") } catch {}
+        do { _ = try await c.execute(name: "tap", parameters: ["x": true, "y": 0, "description": "bad"], callID: "t"); XCTFail("Boolean must fail") } catch {}
         let count = await bridge.taps; XCTAssertEqual(count, 0)
     }
     func testOpenAIToolImagesUseAdjacentUserMessage() throws {

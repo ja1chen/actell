@@ -220,7 +220,7 @@ struct DemoProvider: ModelProvider {
         switch stage {
         case 0: call = ModelToolCall(name: "screenshot", arguments: "{}")
         case 1:
-            let arguments: [String: Any] = ["x": 195, "y": 380, "purpose": String(localized: "Tap the demo counter on the simulated screen")]
+            let arguments: [String: Any] = ["x": 195, "y": 380, "description": String(localized: "Tap the demo counter on the simulated screen")]
             call = ModelToolCall(name: "tap", arguments: String(data: try JSONSerialization.data(withJSONObject: arguments), encoding: .utf8)!)
         case 2: call = ModelToolCall(name: "screenshot", arguments: "{}")
         default:

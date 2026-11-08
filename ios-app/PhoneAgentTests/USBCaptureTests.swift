@@ -400,7 +400,7 @@ final class USBCaptureTests: XCTestCase {
         let shot = try await action.execute(name: "screenshot", parameters: [:], callID: "local-shot")
         XCTAssertEqual(shot.images.count, 1)
         do {
-            _ = try await action.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "no-hid")
+            _ = try await action.execute(name: "tap", parameters: ["x": 1, "y": 1, "description": "fixture"], callID: "no-hid")
             XCTFail("NCM-only cannot send input")
         } catch { XCTAssertTrue(error.localizedDescription.contains("HID")) }
         let commands = await transport.commands

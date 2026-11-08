@@ -88,6 +88,7 @@ struct ToolStep: Codable, Sendable, Equatable {
         return operation == .processing ? "wrench.and.screwdriver" : operation.symbol
     }
     var title: String {
+        if let description = Self.callDescription(arguments) { return description }
         switch name {
         case "screenshot": return String(localized: "View screen")
         case "tap": return String(localized: "Tap")
@@ -101,6 +102,14 @@ struct ToolStep: Codable, Sendable, Equatable {
         case "load_skill": return String(localized: "Skill") + (skillName.map { " · " + $0 } ?? "")
         default: return name
         }
+    }
+    // Prefer the model's own public call description when one was provided.
+    private static func callDescription(_ arguments: String?) -> String? {
+        guard let arguments,
+              let object = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any],
+              let description = object["description"] as? String else { return nil }
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 struct ReasoningMessage: Codable, Sendable, Equatable {

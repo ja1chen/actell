@@ -44,10 +44,10 @@ import UIKit
             arguments: "{\n  \"bundle_id\" : \"com.apple.Preferences\"\n}", identity: first)
         model.sessions.updateTool(callID: "tap-1", name: "tap", state: .failed, detail: "轻点“显示与亮度”",
             result: "坐标 (540, 1180) 未命中可交互元素，操作未生效。",
-            arguments: "{\n  \"x\" : 540,\n  \"y\" : 1180,\n  \"purpose\" : \"打开显示与亮度\"\n}", identity: first)
+            arguments: "{\n  \"x\" : 540,\n  \"y\" : 1180,\n  \"description\" : \"打开显示与亮度\"\n}", identity: first)
         model.sessions.updateTool(callID: "tap-2", name: "tap", state: .succeeded, detail: "轻点“深色模式”开关",
             result: "开关已切换为深色外观。",
-            arguments: "{\n  \"x\" : 962,\n  \"y\" : 402,\n  \"purpose\" : \"切换深色模式\"\n}", identity: first)
+            arguments: "{\n  \"x\" : 962,\n  \"y\" : 402,\n  \"description\" : \"切换深色模式\"\n}", identity: first)
         model.sessions.updateTool(callID: "home-1", name: "home", state: .succeeded, detail: "回到主屏幕",
             result: "已回到主屏幕。", identity: first)
         model.sessions.beginAssistantTurn(first)
@@ -78,7 +78,7 @@ import UIKit
         model.sessions.updateTool(callID: "shot-2", name: "screenshot", state: .succeeded, detail: "截取当前屏幕",
             result: #"{"screen_information_mode":"screenshot"}"#, identity: run)
         model.sessions.updateTool(callID: "tap-3", name: "tap", state: .awaitingApproval, detail: "轻点“文件”图标",
-            arguments: "{\n  \"x\" : 312,\n  \"y\" : 700,\n  \"purpose\" : \"打开文件 App\"\n}", identity: run)
+            arguments: "{\n  \"x\" : 312,\n  \"y\" : 700,\n  \"description\" : \"打开文件 App\"\n}", identity: run)
         model.sessions.updateTool(callID: "apps-2", name: "list_apps", state: .requested, detail: "查询已安装应用", identity: run)
         model.sessions.setDraft("统计完帮我打开文件", in: conversation)
         return conversation
@@ -117,7 +117,7 @@ private struct ToolCardGallery: View {
             VStack(alignment: .leading, spacing: 12) {
                 card(.preview("wait-r", "wait", .requested, "等待页面动画结束", arguments: #"{"seconds": 2}"#))
                 card(.preview("shot-r", "screenshot", .running, "截取当前屏幕"))
-                card(.preview("tap-a", "tap", .awaitingApproval, "轻点“文件”图标", arguments: #"{"x": 312, "y": 700, "purpose": "打开文件 App"}"#))
+                card(.preview("tap-a", "tap", .awaitingApproval, "轻点“文件”图标", arguments: #"{"x": 312, "y": 700, "description": "打开文件 App"}"#))
                 card(.preview("tap-p", "tap", .approved, "已获授权，准备轻点“文件”图标", arguments: #"{"x": 312, "y": 700}"#))
                 card(.preview("tap-e", "tap", .executing, "正在发送轻点动作", arguments: #"{"x": 312, "y": 700}"#))
                 card(.preview("wait-s", "wait", .succeeded, "等待页面动画结束", result: "已等待 2 秒。"))
@@ -134,7 +134,7 @@ private struct ToolCardGallery: View {
                     result: #"{"screen_information_mode":"screenshot","image_width":1179,"image_height":2556}"#))
                 card(.preview("tap-f", "tap", .failed, "轻点“显示与亮度”",
                     result: "坐标 (540, 1180) 未命中可交互元素，操作未生效。",
-                    arguments: #"{"x": 540, "y": 1180, "purpose": "打开显示与亮度"}"#))
+                    arguments: #"{"x": 540, "y": 1180, "description": "打开显示与亮度"}"#))
                 card(.preview("tap-d", "tap", .denied, "轻点“深色模式”开关", arguments: #"{"x": 962, "y": 402}"#))
                 card(.preview("type-c", "type_text", .cancelled, "输入搜索关键词"))
                 card(.preview("drag-i", "drag", .interrupted, "拖动亮度滑块"))
@@ -209,7 +209,7 @@ private struct ConversationPreviewPage: View {
     ToolApprovalCard(configuration: ToolInvocationConfiguration(
         tool: .preview("tap-a", "tap", .awaitingApproval,
             "轻点“深色模式”开关，将系统切换为深色外观。",
-            arguments: #"{"x": 962, "y": 402, "purpose": "切换深色模式"}"#),
+            arguments: #"{"x": 962, "y": 402, "description": "切换深色模式"}"#),
         onApprove: {}, onDeny: {})) {
         Image(uiImage: ConversationPreviewSeed.syntheticImage()).resizable().scaledToFit()
             .frame(maxHeight: 280).clipShape(RoundedRectangle(cornerRadius: 10))
@@ -222,7 +222,7 @@ private struct ConversationPreviewPage: View {
     ToolApprovalCard(configuration: ToolInvocationConfiguration(
         tool: .preview("tap-n", "tap", .awaitingApproval,
             "轻点“深色模式”开关，将系统切换为深色外观。当前没有对应的授权回调。",
-            arguments: #"{"x": 962, "y": 402, "purpose": "切换深色模式"}"#))) {
+            arguments: #"{"x": 962, "y": 402, "description": "切换深色模式"}"#))) {
         EmptyView()
     }
     .padding(16)

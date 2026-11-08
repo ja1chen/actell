@@ -7,7 +7,7 @@ import ActivityKit
     private let run = RunIdentity(conversationID: UUID(), runID: UUID())
     private func request() throws -> Approval {
         Approval(tool: "tap", detail: "Sensitive purpose", imageID: "private-screen", callID: "call-1",
-                 parametersDigest: try ApprovalRecordStore.digest(tool: "tap", parameters: ["x": 3, "y": 7, "purpose": "Sensitive purpose"]))
+                 parametersDigest: try ApprovalRecordStore.digest(tool: "tap", parameters: ["x": 3, "y": 7, "description": "Sensitive purpose"]))
     }
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -153,7 +153,7 @@ final class RunCleanupTests: XCTestCase {
         let actions = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })
         for index in 0..<18 {
             _ = try await actions.execute(name: "screenshot", parameters: [:], callID: "s\(index)")
-            _ = try await actions.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "t\(index)")
+            _ = try await actions.execute(name: "tap", parameters: ["x": 1, "y": 1, "description": "fixture"], callID: "t\(index)")
         }
         let count = await bridge.inputs; XCTAssertEqual(count, 18)
         await actions.stop()

@@ -174,7 +174,7 @@ import ProviderCore
     func testPIDFallbackMetadataReachesModelAndFailureDoesNotBlockNextAction() async throws {
         let flow = CoreDeviceConnectionSpy(), bridge = try CoreDeviceBridge(flow: flow)
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: .screenshotAndAccessibility)
-        _ = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "purpose": "fixture"], callID: "launch")
+        _ = try await coordinator.execute(name: "launch_app", parameters: ["bundle_id": "example.fixture", "description": "fixture"], callID: "launch")
         flow.accessibilityData = Data(#"{"status":"available","application":{"pid":7001,"bundleId":"example.fixture"},"selection":{"method":"explicit-pid","reason":"center_hit_unavailable","scope":"requested-application"},"nodes":[{"label":"fixture content"}]}"#.utf8)
         let observation = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "fallback")
         XCTAssertTrue(observation.content.contains("requested-application"))
@@ -184,7 +184,7 @@ import ProviderCore
         let failure = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "timeout")
         XCTAssertEqual(failure.kind, .returned)
         XCTAssertTrue(failure.content.contains("unavailable"))
-        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "purpose": "fixture"], callID: "after-ax-failure")
+        _ = try await coordinator.execute(name: "tap", parameters: ["x": 1, "y": 1, "description": "fixture"], callID: "after-ax-failure")
         XCTAssertEqual(flow.taps, 1); XCTAssertTrue(flow.ready)
         await bridge.stop()
     }
@@ -350,14 +350,14 @@ import ProviderCore
         let deadline = Date().addingTimeInterval(20)
         _ = try await coordinator.executeRemote(name: "screenshot", parameters: [:], callID: "frame", expectedImageID: nil, deadline: deadline)
         for index in 0..<2 {
-            let result = try await coordinator.executeRemote(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "Muse action"],
+            let result = try await coordinator.executeRemote(name: "tap", parameters: ["x": 2, "y": 3, "description": "Muse action"],
                 callID: "tap\(index)", expectedImageID: frameID, deadline: deadline)
             XCTAssertEqual(result.kind, .returned, result.content)
         }
         XCTAssertEqual(connection.taps, 2)
         await coordinator.stop()
         do {
-            _ = try await coordinator.executeRemote(name: "home", parameters: ["purpose": "stopped"],
+            _ = try await coordinator.executeRemote(name: "home", parameters: ["description": "stopped"],
                 callID: "stopped", expectedImageID: nil, deadline: deadline)
             XCTFail("Stopped Muse execution must not dispatch")
         } catch { XCTAssertEqual(error as? AppError, .stopped) }
@@ -942,11 +942,11 @@ import ProviderCore
             let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
                 onImage: { _, _ in }, onReceipt: { _ in }, authorizationMode: mode)
             _ = try await coordinator.execute(name: "screenshot", parameters: [:], callID: "frame")
-            let tap = try await coordinator.execute(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "first"], callID: "tap1")
+            let tap = try await coordinator.execute(name: "tap", parameters: ["x": 2, "y": 3, "description": "first"], callID: "tap1")
             let wait = try await coordinator.execute(name: "wait", parameters: ["duration_ms": 1], callID: "wait")
-            _ = try await coordinator.execute(name: "home", parameters: ["purpose": "home"], callID: "home")
-            _ = try await coordinator.execute(name: "drag", parameters: ["from_x": 1, "from_y": 2, "to_x": 5, "to_y": 10, "duration_ms": 200, "purpose": "drag"], callID: "drag")
-            _ = try await coordinator.execute(name: "tap", parameters: ["x": 2, "y": 3, "purpose": "next"], callID: "tap2")
+            _ = try await coordinator.execute(name: "home", parameters: ["description": "home"], callID: "home")
+            _ = try await coordinator.execute(name: "drag", parameters: ["from_x": 1, "from_y": 2, "to_x": 5, "to_y": 10, "duration_ms": 200, "description": "drag"], callID: "drag")
+            _ = try await coordinator.execute(name: "tap", parameters: ["x": 2, "y": 3, "description": "next"], callID: "tap2")
             XCTAssertEqual(tap.kind, .returned)
             XCTAssertEqual(tap.content, "Command delivery acknowledged.")
             XCTAssertEqual(wait.kind, .returned)

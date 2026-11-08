@@ -37,11 +37,15 @@ final class ScreenInformationModeTests: XCTestCase {
                 let choice = try XCTUnwrap(properties["mode"] as? [String: Any])
                 XCTAssertEqual(choice["enum"] as? [String], ["screenshot", "accessibility", "screenshot_and_accessibility"])
                 XCTAssertEqual(schema["required"] as? [String], ["mode"])
-            } else { XCTAssertTrue(properties.isEmpty) }
+            } else {
+                XCTAssertEqual(Set(properties.keys), Set(["description"]))
+                XCTAssertEqual(schema["required"] as? [String], [])
+            }
             XCTAssertTrue(DeviceTool.description(for: "screenshot", screenInformationMode: mode).contains(mode.toolInstruction))
         }
         let remote = try XCTUnwrap(DeviceTool.parameters(for: "screenshot").foundation as? [String: Any])
-        XCTAssertTrue((remote["properties"] as? [String: Any])?.isEmpty == true)
+        XCTAssertEqual(Set(try XCTUnwrap(remote["properties"] as? [String: Any]).keys), Set(["description"]))
+        XCTAssertEqual(remote["required"] as? [String], [])
     }
     func testAccessibilityOnlyHistoryDoesNotShowMissingScreenshotPlaceholderOrRewriteContent() {
         let result = #"{"screen_information_mode":"accessibility","accessibility":{"status":"available","nodes":[{"label":"Full content"}]}}"#
