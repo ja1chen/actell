@@ -75,7 +75,9 @@ private actor SpyBridge: DeviceBridge {
     func systemActionContext() async throws -> String { "synthetic-system-session" }
     func authorizeSystemAction(authorizationID: String, taskScoped: Bool) async throws {}
     func setRemoteDeadline(_ deadline: Date) throws { if deadline <= Date() { throw AppError.stopped } }
-    func installedApplications() async throws -> Data { Data("[{\"name\":\"Fixture\",\"bundle_id\":\"example.fixture\",\"path\":\"PRIVATE_PATH\"}]".utf8) }
+    private var appRows: [[String: Any]] = [["name": "Fixture", "bundle_id": "example.fixture", "path": "PRIVATE_PATH"]]
+    func configureApps(_ rows: [[String: Any]]) { appRows = rows }
+    func installedApplications() async throws -> Data { try JSONSerialization.data(withJSONObject: appRows) }
     func systemAction(name: String, text: String, arguments: [String], imageID: String) async throws -> NativeApplicationLaunch? {
         systemActions.append(name); insertedText = text; launchArguments = arguments
         return name == "launch_app" ? NativeApplicationLaunch(bundleID: text, pid: 7001) : nil
@@ -345,6 +347,51 @@ final class SafetyTests: XCTestCase {
         let result = try await coordinator.execute(name: "list_apps", parameters: [:], callID: "apps")
         XCTAssertEqual(result.kind, .returned); XCTAssertTrue(result.content.contains("example.fixture"))
         XCTAssertFalse(result.content.contains("PRIVATE_PATH"))
+    }
+    func testAppQueryFiltersByNameAndBundleIDWithoutMatchingPrivateFields() async throws {
+        let bridge = SpyBridge()
+        await bridge.configureApps([["name": "Settings", "bundle_id": "com.apple.Preferences", "path": "PRIVATE_PATH"],
+                                    ["name": "相机", "bundle_id": "com.apple.camera", "version": "1.0"],
+                                    ["name": "Notes", "bundle_id": "com.apple.mobilenotes"]])
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in XCTFail("read query requested input approval"); return false }, onImage: { _, _ in }, onReceipt: { _ in })
+        func apps(_ parameters: [String: Any], callID: String) async throws -> [[String: Any]] {
+            let result = try await coordinator.execute(name: "list_apps", parameters: parameters, callID: callID)
+            XCTAssertEqual(result.kind, .returned)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [[String: Any]])
+        }
+        // Name match is case-insensitive; bundle ID match ignores case too.
+        var rows = try await apps(["query": "settings"], callID: "name")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.Preferences"])
+        rows = try await apps(["query": "PREFERENCES"], callID: "bundle")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.Preferences"])
+        // CJK substring and full-width-insensitive matching.
+        rows = try await apps(["query": "相"], callID: "cjk")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.camera"])
+        rows = try await apps(["query": "ＮＯＴＥＳ"], callID: "width")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.mobilenotes"])
+        // No match returns an empty list; no query returns everything unfiltered.
+        rows = try await apps(["query": "不存在的应用"], callID: "none")
+        XCTAssertTrue(rows.isEmpty)
+        // Any |-separated alternative matches, so one query covers bilingual aliases.
+        rows = try await apps(["query": "多邻国|duolingo|camera"], callID: "alias")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.camera"])
+        rows = try await apps(["query": "settings|camera"], callID: "any")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.Preferences", "com.apple.camera"])
+        // Empty alternatives are skipped instead of matching everything.
+        rows = try await apps(["query": "Notes||camera"], callID: "empty-arm")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.camera", "com.apple.mobilenotes"])
+        // Blanks around alternatives are trimmed; a whitespace-only query behaves like no query.
+        rows = try await apps(["query": " mobilenotes | camera "], callID: "padded")
+        XCTAssertEqual(rows.map { $0["bundle_id"] as? String }, ["com.apple.camera", "com.apple.mobilenotes"])
+        rows = try await apps(["query": "   "], callID: "blank")
+        XCTAssertEqual(rows.count, 3)
+        rows = try await apps([:], callID: "all")
+        XCTAssertEqual(rows.count, 3)
+        // Private fields stay excluded on filtered rows too.
+        rows = try await apps(["query": "Settings"], callID: "safe")
+        XCTAssertFalse(rows.contains { $0["path"] != nil })
+        do { _ = try await coordinator.execute(name: "list_apps", parameters: ["query": String(repeating: "长", count: 101)], callID: "long"); XCTFail("Over-long query must be rejected") }
+        catch let error as AppError { XCTAssertEqual(error, .invalid(String(localized: "The app query is too long"))) }
     }
     func testInputSchemasOnlyRequireCoordinatesDurationAndDescription() {
         let coordinator = ActionCoordinator(bridge: SpyBridge(), limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in })

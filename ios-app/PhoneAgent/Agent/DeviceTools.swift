@@ -15,7 +15,7 @@ struct DeviceTool: AgentTool {
         case "tap": return "Request one tap within this task's authorization. " + coordinateInstruction(for: screenInformationMode) + " The app associates the latest observation automatically. Requires a short public description. No replay."
         case "drag": return "Request one straight drag within this task's authorization. " + coordinateInstruction(for: screenInformationMode) + " Duration 100..2000 ms and a short public description are required. The app associates the latest observation automatically. No replay."
         case "home": return "Return to the Home screen. No screenshot required. Requires task authorization; do not blindly replay an uncertain result."
-        case "list_apps": return "Read installed visible app names, bundle IDs and versions. No screenshot required. Does not launch or control apps."
+        case "list_apps": return "Read installed visible app names, bundle IDs and versions. An optional query filters apps with grep-style alternation: | separates alternatives, and an app is returned when any alternative case-insensitively matches its name or bundle ID, so one query can cover names and identifiers in different languages. Omit the query to return all apps. No screenshot required. Does not launch or control apps."
         case "launch_app": return "Launch an installed app by exact bundle_id, optionally with up to 32 process arguments. No screenshot required. Requires task authorization. Does not terminate existing apps; arguments may not apply to an already running app. Returns bundle_id and pid when available. Delivery is not visual success."
         case "type_text": return "Insert exact text into the focused field. All text, including ASCII, uses clipboard and Command-V for the whole string, replacing the general clipboard and potentially requiring iOS paste consent. Does not register a virtual hardware keyboard. No automatic retry or Return submission. No screenshot required; the intended field must already be focused. Requires task authorization. Do not use for credentials or replay uncertain input."
         case "wait": return "Wait locally 1..3000 ms."
@@ -41,7 +41,8 @@ struct DeviceTool: AgentTool {
         case "screenshot" where screenInformationMode == .automatic:
             return schema(["mode": .object(["type": .string("string"), "description": .string("Choose the screen information needed for this observation"),
                 "enum": .array([ScreenInformationMode.screenshot, .accessibility, .screenshotAndAccessibility].map { .string($0.rawValue) })]), "description": description], required: ["mode"])
-        case "screenshot", "list_apps": return schema(["description": description])
+        case "screenshot": return schema(["description": description])
+        case "list_apps": return schema(["query": property("string", "Optional grep-style filter: alternatives separated by | match case-insensitively as substrings of app name or bundle identifier; omit to return all apps"), "description": description])
         case "tap": return schema(["x": coordinate, "y": coordinate, "description": description], required: ["x", "y", "description"])
         case "drag": return schema(["from_x": coordinate, "from_y": coordinate, "to_x": coordinate, "to_y": coordinate, "duration_ms": integer, "description": description], required: ["from_x", "from_y", "to_x", "to_y", "duration_ms", "description"])
         case "home": return schema(["description": description], required: ["description"])
@@ -199,8 +200,16 @@ actor ActionCoordinator {
             try await lifecycle?.dispatch(callID: callID, generation: generation, backgroundCapable: backgroundCapable)
             let data = try await bridge.installedApplications(); try checkActive()
             guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]], rows.count <= 4096 else { throw AppError.protocolViolation(String(localized: "Invalid app list format")) }
+            let keywords = try Self.appQuery(p)
+            let matches = keywords.isEmpty ? rows : rows.filter { row in
+                keywords.contains { keyword in
+                    ["name", "bundle_id"].contains { field in
+                        (row[field] as? String)?.range(of: keyword, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) != nil
+                    }
+                }
+            }
             // Do not expose filesystem paths or service-private metadata.
-            let safeRows = rows.map { $0.filter { ["name", "bundle_id", "version"].contains($0.key) } }
+            let safeRows = matches.map { $0.filter { ["name", "bundle_id", "version"].contains($0.key) } }
             let output = try JSONSerialization.data(withJSONObject: safeRows, options: [.sortedKeys])
             try await lifecycle?.acknowledge(callID: callID, generation: generation)
             return .init(content: String(decoding: output, as: UTF8.self))
@@ -339,6 +348,18 @@ actor ActionCoordinator {
             return .init(content: summary, finishTurn: true)
         default: throw AppError.invalid(String(localized: "Unregistered tool"))
         }
+    }
+    /// The optional list_apps filter follows grep's alternation convention:
+    /// `|`-separated candidates match with OR semantics, so one call can cover
+    /// bilingual aliases such as "多邻国|duolingo". Candidates are literal
+    /// substrings rather than full regexes — app names need no pattern
+    /// language, and literal matching cannot hang on backtracking or reject
+    /// an invalid pattern. Empty candidates are skipped where grep would
+    /// match everything.
+    private static func appQuery(_ p: [String: Any]) throws -> [String] {
+        guard let raw = p["query"] as? String else { return [] }
+        guard raw.utf8.count <= 100 else { throw AppError.invalid(String(localized: "The app query is too long")) }
+        return raw.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
     private func observationMode(parameters: [String: Any]) throws -> ScreenInformationMode {
         // Remote clients retain their negotiated screenshot-only contract.

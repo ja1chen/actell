@@ -12314,6 +12314,23 @@
         }
       }
     },
+    "The app query is too long": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app query is too long"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用查询关键词过长"
+          }
+        }
+      }
+    },
     "The app uses location services to help the current task continue when you switch apps. Your location is never saved or uploaded. This uses more battery and shows the system location indicator. You can decline and use other selected options. The system may still pause or stop the task.": {
       "extractionState": "manual",
       "localizations": {
