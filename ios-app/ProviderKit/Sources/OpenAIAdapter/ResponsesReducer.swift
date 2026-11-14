@@ -123,17 +123,21 @@ public struct ResponsesReducer: Sendable {
         case "response.completed", "response.incomplete", "response.failed", "response.cancelled":
             guard let r = o["response"] as? [String: Any] else { throw ModelError.protocolViolation("Terminal missing snapshot") }
             let parsed = try codec.nativeResponse(r, request: request)
+            var output = parsed.output
             guard type == "response." + parsed.status.rawValue, parsed.id == responseID else { throw ModelError.protocolViolation("Terminal status/scope mismatch") }
             if parsed.status == .completed {
                 guard parsed.error == nil, parsed.incomplete == nil || parsed.incomplete == .null,
                       parsed.output.count == itemIDs.count, doneItems.count == itemIDs.count else { throw ModelError.protocolViolation("Completed snapshot has missing/conflicting items") }
                 for (index, item) in doneItems {
-                    guard parsed.output.indices.contains(index), parsed.output[index] == item else { throw ModelError.protocolViolation("Terminal changed completed item") }
+                    guard parsed.output.indices.contains(index), Self.matchesCompletedItem(parsed.output[index], item) else { throw ModelError.protocolViolation("Terminal changed completed item") }
+                    // Streaming reasoning is replayed from output_item.done,
+                    // whose opaque state may differ from the terminal snapshot.
+                    if case .reasoning = item { output[index] = item }
                 }
                 try Self.requireExecutable(parsed)
             }
             let attached = try retainedEvents.map { try $0.bound(to: parsed.id) }
-            let result = ModelResponse(id: parsed.id, model: parsed.model, status: parsed.status, scope: parsed.scope, output: parsed.output, usage: parsed.usage, error: parsed.error, incomplete: parsed.incomplete, extra: parsed.extra, streamEvents: attached, request: parsed.request, providerName: parsed.providerName, permitsTextToolInference: parsed.permitsTextToolInference)
+            let result = ModelResponse(id: parsed.id, model: parsed.model, status: parsed.status, scope: parsed.scope, output: output, usage: parsed.usage, error: parsed.error, incomplete: parsed.incomplete, extra: parsed.extra, streamEvents: attached, request: parsed.request, providerName: parsed.providerName, permitsTextToolInference: parsed.permitsTextToolInference)
             retainedEvents = attached
             response = result; return [.terminal(result)]
         case "error": throw ModelError.providerError("模型流返回错误；没有自动重试")
@@ -148,6 +152,17 @@ public struct ResponsesReducer: Sendable {
             retainedExtensionEvent = true
             return []
         }
+    }
+    private static func matchesCompletedItem(_ final: ModelOutputItem, _ done: ModelOutputItem) -> Bool {
+        if final == done { return true }
+        // Opaque reasoning ciphertext is not an execution consistency key.
+        // Streaming replay uses the completed item, not the terminal's copy.
+        // Identity, readable content, extensions and every tool field must agree.
+        guard case .reasoning(let finalReasoning) = final, case .reasoning(let doneReasoning) = done,
+              finalReasoning.encryptedContentForReplay?.isEmpty == false,
+              doneReasoning.encryptedContentForReplay?.isEmpty == false else { return false }
+        return finalReasoning.id == doneReasoning.id && finalReasoning.scope == doneReasoning.scope
+            && finalReasoning.summary == doneReasoning.summary && finalReasoning.extra == doneReasoning.extra
     }
     private func address(_ o: [String: Any]) throws -> Int {
         guard let i = o["output_index"] as? Int, let id = o["item_id"] as? String ?? (o["item"] as? [String: Any])?["id"] as? String,

@@ -81,6 +81,51 @@ final class ProviderContractsTests: XCTestCase {
         _ = try decoder.consume(UInt8(ascii: "d"))
         XCTAssertThrowsError(try decoder.finish())
     }
+    private func reduceCompletedReasoning(
+        terminalReasoning: [String: Any] = [:], terminalCall: [String: Any] = [:]
+    ) throws -> ModelResponse {
+        var reducer = ResponsesReducer(codec: codec(), request: .init(model: "test", messages: []))
+        let reasoning: [String: Any] = ["id": "reason", "type": "reasoning", "summary": [], "encrypted_content": "opaque-before"]
+        let call: [String: Any] = ["id": "tool", "type": "function_call", "call_id": "call", "name": "bash", "arguments": "{\"command\":\"pwd\"}", "status": "completed"]
+        let events: [[String: Any]] = [
+            ["type": "response.created", "sequence_number": 0, "response": ["id": "r"]],
+            ["type": "response.output_item.added", "sequence_number": 1, "output_index": 0, "item": reasoning],
+            ["type": "response.output_item.done", "sequence_number": 2, "output_index": 0, "item": reasoning],
+            ["type": "response.output_item.added", "sequence_number": 3, "output_index": 1, "item": call],
+            ["type": "response.output_item.done", "sequence_number": 4, "output_index": 1, "item": call],
+            ["type": "response.completed", "sequence_number": 5, "response": ["id": "r", "status": "completed", "model": "test", "output": [
+                reasoning.merging(terminalReasoning) { _, new in new }, call.merging(terminalCall) { _, new in new }
+            ]]]
+        ]
+        for event in events {
+            _ = try reducer.consume(payload: String(decoding: JSONSerialization.data(withJSONObject: event), as: UTF8.self))
+        }
+        return try reducer.finish()
+    }
+    func testTerminalMayRefreshOpaqueReasoningAndReplaysDoneCiphertext() throws {
+        let response = try reduceCompletedReasoning(terminalReasoning: ["encrypted_content": "opaque-final"])
+        guard case .reasoning(let item) = response.output[0] else { return XCTFail("Missing reasoning") }
+        XCTAssertEqual(item.encryptedContentForReplay, "opaque-before")
+        let replay = try codec().inputObject(.replay(response.output[0]))
+        XCTAssertEqual(replay["encrypted_content"] as? String, "opaque-before")
+        XCTAssertEqual(response.toolCalls.first?.arguments, "{\"command\":\"pwd\"}")
+    }
+    func testTerminalReasoningRefreshCannotChangeOtherFieldsOrDropCiphertext() {
+        for change: [String: Any] in [
+            ["id": "other"], ["summary": [["type": "summary_text", "text": "changed"]]],
+            ["content": [["type": "reasoning_text", "text": "changed"]]],
+            ["custom": "changed"], ["encrypted_content": NSNull()], ["encrypted_content": ""]
+        ] {
+            XCTAssertThrowsError(try reduceCompletedReasoning(terminalReasoning: change))
+        }
+    }
+    func testTerminalReasoningRefreshCannotChangeToolCall() {
+        for change: [String: Any] in [
+            ["name": "write"], ["arguments": "{\"command\":\"ls\"}"], ["call_id": "other"], ["id": "other"], ["status": "in_progress"]
+        ] {
+            XCTAssertThrowsError(try reduceCompletedReasoning(terminalReasoning: ["encrypted_content": "opaque-final"], terminalCall: change))
+        }
+    }
     func testCompactionRetainsCanonicalMediaMetadata() throws {
         let adapter = codec()
         let data = Data(#"{"id":"c","object":"response.compaction","output":[{"id":"u","type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AQ==","detail":"low"}],"custom":"keep"},{"type":"compaction","encrypted_content":"opaque"}]}"#.utf8)
