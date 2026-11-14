@@ -2,6 +2,8 @@ import XCTest
 import AgentKit
 import ProviderCore
 import CommandKit
+import Network
+import Security
 @testable import PhoneAgent
 
 final class ExecutionToolTests: XCTestCase {
@@ -12,6 +14,88 @@ final class ExecutionToolTests: XCTestCase {
         }
         XCTAssertTrue(names.contains("python"))
         XCTAssertTrue(names.contains("python3"))
+        XCTAssertTrue(names.contains("curl"))
+        XCTAssertFalse(names.contains("ping"))
+        XCTAssertFalse(names.contains("nc"))
+    }
+
+    func testCurlVersionAndLoopbackDownload() async throws {
+        let workspace = try workspace()
+        let version = try await ShellRuntime.shared.run(command: "curl --version", workspace: workspace.root)
+        XCTAssertEqual(version.exitCode, 0, version.stderr)
+        XCTAssertTrue(version.stdout.contains("libcurl/"), version.stdout)
+        XCTAssertTrue(version.stdout.contains("https"), version.stdout)
+        let pythonTLS = try await ShellRuntime.shared.run(
+            command: #"python3 -c "import ssl; print(ssl.OPENSSL_VERSION)""#, workspace: workspace.root)
+        XCTAssertEqual(pythonTLS.exitCode, 0, pythonTLS.stderr)
+        XCTAssertTrue(pythonTLS.stdout.contains("OpenSSL"), pythonTLS.stdout)
+        let listener = try await curlListener(parameters: .tcp)
+        defer { listener.cancel() }
+        let port = try XCTUnwrap(listener.port).rawValue
+        let result = try await ShellRuntime.shared.run(
+            command: "curl --noproxy '*' --fail --silent --show-error --max-time 5 http://127.0.0.1:\(port)/fixture -o downloaded.txt",
+            workspace: workspace.root)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(try String(contentsOf: workspace.root.appendingPathComponent("downloaded.txt"), encoding: .utf8), "fixture")
+        let failed = try await ShellRuntime.shared.run(
+            command: "curl --noproxy '*' --fail --silent --show-error --max-time 5 http://127.0.0.1:\(port)/missing",
+            workspace: workspace.root)
+        XCTAssertEqual(failed.exitCode, 22, failed.stderr)
+        XCTAssertEqual(failed.stdout, "")
+    }
+
+    @MainActor func testCurlTLSVerifiesCertificatesAndHostnames() async throws {
+        let workspace = try workspace()
+        let bundle = try XCTUnwrap(Bundle.main.url(forResource: "curl-ca-bundle", withExtension: "pem"))
+        XCTAssertTrue(try String(contentsOf: bundle, encoding: .utf8).contains("-----BEGIN CERTIFICATE-----"))
+        let previousCABundle = ProcessInfo.processInfo.environment["CURL_CA_BUNDLE"]
+        let configured = try await ShellRuntime.shared.run(command: "printenv CURL_CA_BUNDLE", workspace: workspace.root)
+        XCTAssertEqual(configured.stdout.trimmingCharacters(in: .whitespacesAndNewlines), bundle.path)
+        XCTAssertEqual(ProcessInfo.processInfo.environment["CURL_CA_BUNDLE"], previousCABundle)
+        let provider = RemoteGeneratedIdentityProvider(namespace: "actell.tests.curl." + UUID().uuidString)
+        defer { try? provider.remove() }
+        let material = try provider.provision(host: "localhost")
+        let tls = NWProtocolTLS.Options()
+        let identity = try XCTUnwrap(sec_identity_create(material.identity))
+        sec_protocol_options_set_local_identity(tls.securityProtocolOptions, identity)
+        let listener = try await curlListener(parameters: NWParameters(tls: tls, tcp: NWProtocolTCP.Options()))
+        defer { listener.cancel() }
+        let port = try XCTUnwrap(listener.port).rawValue
+        let pem = "-----BEGIN CERTIFICATE-----\n" + material.certificateDER.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed]) + "\n-----END CERTIFICATE-----\n"
+        try pem.write(to: workspace.root.appendingPathComponent("trusted.pem"), atomically: true, encoding: .utf8)
+        func request(host: String, trust: String = "") async throws -> ShellResult {
+            try await ShellRuntime.shared.run(
+                command: "curl --noproxy '*' --silent --show-error --max-time 5 --resolve \(host):\(port):127.0.0.1 \(trust) https://\(host):\(port)/fixture",
+                workspace: workspace.root)
+        }
+        let untrusted = try await request(host: "localhost")
+        XCTAssertEqual(untrusted.exitCode, 60, untrusted.stderr)
+        let trusted = try await request(host: "localhost", trust: "--cacert trusted.pem")
+        XCTAssertEqual(trusted.exitCode, 0, trusted.stderr)
+        XCTAssertEqual(trusted.stdout, "fixture")
+        let wrongHost = try await request(host: "wrong.test", trust: "--cacert trusted.pem")
+        XCTAssertEqual(wrongHost.exitCode, 60, wrongHost.stderr)
+    }
+
+    private func curlListener(parameters: NWParameters) async throws -> NWListener {
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let ready = expectation(description: "curl loopback listener ready")
+        let queue = DispatchQueue(label: "actell.tests.curl")
+        listener.stateUpdateHandler = { state in if case .ready = state { ready.fulfill() } }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: queue)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                guard let data else { connection.cancel(); return }
+                let missing = String(decoding: data, as: UTF8.self).contains(" /missing ")
+                let status = missing ? "404 Not Found" : "200 OK"
+                let response = Data("HTTP/1.1 \(status)\r\nContent-Length: 7\r\nConnection: close\r\n\r\nfixture".utf8)
+                connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        listener.start(queue: queue)
+        await fulfillment(of: [ready], timeout: 3)
+        return listener
     }
 
     func testEmbeddedPythonScriptArgumentsFilesAndTenSecondCountdown() async throws {

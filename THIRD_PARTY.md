@@ -71,10 +71,12 @@ and Security framework interoperability APIs for an app-owned local TLS identity
 ## ios_system command runtime
 
 - Source: https://github.com/holzschu/ios_system
-- Binary release: v3.0.6, core/files/text/shell XCFrameworks only; exact URLs and SHA-256 checksums in `ios-app/CommandKit/Package.swift`.
+- Binary release: v3.0.6, core/files/text/shell/curl_ios XCFrameworks; exact URLs and SHA-256 checksums in `ios-app/CommandKit/Package.swift`.
 - Usage: App-embedded command runtime for workspace tools. No upstream system prompt or terminal UI copied.
 - The upstream BSD-style license is retained in `ios-app/Licenses/ios_system-LICENSE.txt` and the local package's `THIRD_PARTY` directory. Command implementations include upstream component notices; retain those when rebuilding or redistributing binaries. Review the selected release's full source/license distribution before shipping.
 - The pinned upstream command dictionaries are retained in `ios-app/CommandKit/THIRD_PARTY/`. The App registry is generated from those mappings and the command symbols actually exported by the bundled device/simulator frameworks; unbundled modules are not advertised. The host does not filter command names or flags at execution time.
+- `curl_ios` dynamically depends on [libssh2 1.11.0](https://github.com/holzschu/libssh2-apple/releases/tag/v1.11.0) and [OpenSSL 1.1.1w](https://github.com/holzschu/openssl-apple/releases/tag/v1.1.1w), pinned to the binary artifacts used by the upstream build. Their BSD-style and OpenSSL/SSLeay notices, plus curl's license, are retained in `ios-app/Licenses/`. The separate `network_ios` extension is not included.
+- HTTPS uses the unmodified Mozilla CA bundle distributed by [curl's CA Extract service](https://curl.se/docs/caextract.html), retained as `ios-app/PhoneAgent/Resources/curl-ca-bundle.pem` (SHA-256 `427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285`). The bundle is MPL-2.0; the license is retained in `ios-app/Licenses/Mozilla-MPL-2.0.txt`. Updating trust roots requires replacing this resource and its recorded digest together; the App does not download trust-store updates at runtime.
 
 ## Embedded Python
 

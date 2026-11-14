@@ -86,6 +86,13 @@
 		<string>cHLPRXafinprv</string>
 		<string>file</string>
 	</array>
+	<key>curl</key>
+	<array>
+		<string>curl_ios.framework/curl_ios</string>
+		<string>curl_main</string>
+		<string>2346aAbBcCdDeEfgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwxXYyz#</string>
+		<string>file</string>
+	</array>
 	<key>date</key>
 	<array>
 		<string>shell.framework/shell</string>

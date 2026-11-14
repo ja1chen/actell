@@ -8,9 +8,19 @@ On first access, a workspace from `Library/Application Support/AgentWorkspaces/<
 
 `bash` is a compatibility **tool name**, not GNU Bash. Ordinary iOS apps cannot spawn a system Bash process. This implementation uses precompiled ios_system commands in the App process. Command text is passed directly to the runtime without a host command-name or option allowlist. Missing programs return the runtime's `command not found` diagnostic and exit code 127; invalid options and unsupported syntax are likewise reported by the runtime.
 
-The bundled core, files, text and shell modules supply the command runtime. App-owned `python3` and `python` command entries use one embedded CPython with preinstalled Pillow and NumPy; they accept scripts, `-c`, `-m`, arguments and standard streams through the same `bash` tool. No separate Python Agent tool is registered. Tool descriptions do not enumerate available commands or options; the model uses returned output, exit codes and errors to choose its next action. Pipes, redirects, quoting, expansion and shell compatibility follow ios_system's behavior; arbitrary GNU Bash syntax is not promised. Further interpreters or network/archive modules require separate dependencies. See [Python behavior and limits](PYTHON-RUNTIME.md).
+The bundled core, files, text, shell and curl modules supply the command runtime. App-owned `python3` and `python` command entries use one embedded CPython with preinstalled Pillow and NumPy; they accept scripts, `-c`, `-m`, arguments and standard streams through the same `bash` tool. No separate Python Agent tool is registered. Tool descriptions do not enumerate available commands or options; the model uses returned output, exit codes and errors to choose its next action. Pipes, redirects, quoting, expansion and shell compatibility follow ios_system's behavior; arbitrary GNU Bash syntax is not promised. Further interpreters or network/archive modules require separate dependencies. See [Python behavior and limits](PYTHON-RUNTIME.md).
 
 Each invocation starts in the selected workspace directory. Working-directory changes, aliases and environment changes are not a persistent terminal session; use `workdir` on later invocations. The bridge restores the App's process working directory and resets its library-local environment after execution. The host does not set a mini-root or impose a workspace path boundary. Native commands and `read`/`edit`/`write` use the App's filesystem permissions. Relative paths start in the conversation working directory; absolute paths, `~`, parent traversal and symbolic links are supported. Model instructions require staying within the user's authorized task and avoiding credentials and unrelated files.
+
+`curl` uses the same command lane, streams, authorization and cancellation rules
+as file commands. It can transfer data over the protocols reported by
+`curl --version`; the host does not impose a destination allowlist. HTTPS uses
+OpenSSL with a bundled Mozilla CA file supplied through the invocation-local
+`CURL_CA_BUNDLE` default. Certificate and hostname verification remain enabled.
+The CA file is independent of the iOS trust store and updates with the App;
+explicit curl trust options or command-local environment overrides still apply.
+The default does not change the App process environment or Python's trust store.
+Dependency and CA provenance are in [THIRD_PARTY](../../THIRD_PARTY.md#ios_system-command-runtime).
 
 ## Working-directory identity and path aliases
 
@@ -69,7 +79,7 @@ Workspace text returned by tools is sent to the configured model provider as con
 
 ## Dependency and build
 
-Use the pinned ios_system core, files, text and shell modules rather than upstream's all-inclusive package product. The local package records upstream release URLs and checksums. `THIRD_PARTY` retains the pinned upstream command dictionaries and license. Before package resolution, run `python3 ios-app/scripts/prepare_python_runtime.py` to validate and install the locked Python binary target locally. After resolving artifacts, regenerate the App registry with `python3 ios-app/scripts/generate_command_dictionary.py`. It registers upstream aliases and exported command entry points present in both device and simulator binaries, correcting framework ownership from actual symbols, plus the App-owned Python command adapter. This is the runtime's symbol registry, not a host execution allowlist or a model-facing command inventory. Adding modules requires updating the generator's module inputs and preserving their notices.
+Use the pinned ios_system core, files, text, shell and curl modules plus curl's libssh2/OpenSSL dependencies rather than upstream's all-inclusive package product. The local package records upstream release URLs and checksums. `THIRD_PARTY` retains the pinned upstream command dictionaries and license. Before package resolution, run `python3 ios-app/scripts/prepare_python_runtime.py` to validate and install the locked Python binary target locally. After resolving artifacts, regenerate the App registry with `python3 ios-app/scripts/generate_command_dictionary.py`. It registers upstream aliases and exported command entry points present in both device and simulator binaries, correcting framework ownership from actual symbols, plus the App-owned Python command adapter. This is the runtime's symbol registry, not a host execution allowlist or a model-facing command inventory. Adding modules requires updating the generator's module inputs and preserving their notices.
 
 Regenerate the checked-in project with:
 

@@ -6,6 +6,7 @@ xcuserdata/
 secrets*
 *.p12
 *.pem
+!PhoneAgent/Resources/curl-ca-bundle.pem
 *.key
 __pycache__/
 .venv/

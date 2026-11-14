@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "ios-app/CommandKit"
-MODULES = ("ios_system", "files", "text", "shell")
+MODULES = ("ios_system", "files", "text", "shell", "curl_ios")
 
 
 def symbols(binary):

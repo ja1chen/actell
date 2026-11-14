@@ -180,6 +180,10 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
     // A fresh library-local environment and aliases prevent cross-invocation leakage.
     extern char **environ;
     storeEnvironment(environ);
+    NSString *caBundle = [[NSBundle mainBundle] pathForResource:@"curl-ca-bundle" ofType:@"pem"];
+    if (caBundle && !ios_getenv("CURL_CA_BUNDLE")) {
+        ios_setenv("CURL_CA_BUNDLE", caBundle.fileSystemRepresentation, 1);
+    }
     int status;
     if (directoryReady) {
         ios_system("unalias -a");

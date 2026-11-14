@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 ## 核心能力
 
-- 任务可使用文件工具 `read`、`edit`、`write`，并通过名为 `bash` 的工具调用内置 `ios_system` 命令（非 GNU Bash）。`python3` 和 `python` 使用内嵌 CPython，预装 Pillow 与 NumPy。工具操作由 App 自动授权，命令执行及文件修改不再逐次询问。各会话有独立的起始工作目录，文件工具与命令也可访问 App 沙盒权限允许的其他路径；参见[范围与集成说明](docs/agent/COMMAND-TOOLS.md)。
+- 任务可使用文件工具 `read`、`edit`、`write`，并通过名为 `bash` 的工具调用内置 `ios_system` 命令（非 GNU Bash）。`python3` 和 `python` 使用内嵌 CPython，预装 Pillow 与 NumPy；`curl` 支持网络传输。工具操作由 App 自动授权，命令执行及文件修改不再逐次询问。各会话有独立的起始工作目录，文件工具与命令也可访问 App 沙盒权限允许的其他路径；参见[范围与集成说明](docs/agent/COMMAND-TOOLS.md)。
 - 可配置服务商与模型的会话、流式回复、服务商提供的可读思考、附件与[本地文本技能](docs/agent/SKILLS.md)。技能可导入，也可通过对话使用内嵌 Skill Creator 创建，App 从 `Documents/skills/` 自动发现。AgentKit 保留完整会话历史，独立管理模型上下文与有预算的压缩。
 - 截图、点击、拖动和等待工具，按顺序执行；结果未知的输入不自动重放。普通聊天不要求设备连接。
 - 本地模型任务可选择截图、无障碍内容或两者；自动模式由模型每次选择观察方式，默认使用截图。所选内容会发送给模型服务商，无障碍内容可能包含屏幕外文本。所有模式都支持点击和拖动；纯无障碍模式使用所返回显示边界内的逻辑点坐标。试验性无障碍读取器仅支持已验证的系统构建，不启动 XCTest Runner；见[范围与限制](coredevice/docs/ACCESSIBILITY.md)。
@@ -76,7 +76,7 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | --- | --- |
 | [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | 远程 Swift Package 依赖，由 ProviderKit 用于模型协议编解码 |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package 依赖，用于 Markdown 消息渲染 |
-| [ios_system](https://github.com/holzschu/ios_system/tree/v3.0.6) | 内置命令运行时的固定版本二进制 Swift Package 依赖，包含 core、files、text、shell 四个 XCFramework，通过 App 自有的 `CommandKit` 集成；见[许可证与来源](THIRD_PARTY.md#ios_system-command-runtime) |
+| [ios_system](https://github.com/holzschu/ios_system/tree/v3.0.6) | 内置命令运行时的固定版本二进制 Swift Package 依赖，包含 core、files、text、shell、curl XCFramework 及 curl 所需的 TLS/SSH 依赖，通过 App 自有的 `CommandKit` 集成；见[许可证与来源](THIRD_PARTY.md#ios_system-command-runtime) |
 | [Python-Apple-support](https://github.com/beeware/Python-Apple-support)、[Pillow](https://github.com/python-pillow/Pillow)、[NumPy](https://github.com/numpy/numpy) | 为 `python3` 命令提供内嵌 CPython 与预装图像／数组库；解析 Xcode 工程前先准备锁定的真机和模拟器依赖。见[运行时与边界](docs/agent/PYTHON-RUNTIME.md)及[来源](THIRD_PARTY.md#embedded-python) |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | 复用 Device Hub 固定的补丁版 idevice 源码与 PNG validator，并进行本地适配；未整合完整 Device Hub App |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5)、[esp_tinyusb](https://github.com/espressif/esp-usb)、[TinyUSB](https://github.com/hathach/tinyusb) | ESP32 固件工具链与 USB 组件，分别固定为 ESP-IDF 5.5.5、esp_tinyusb 2.2.0 和 TinyUSB 0.21.0~2 |
