@@ -92,6 +92,7 @@
 		6279EBF847F3ED314DEEA7B2 /* PhoneAgent/Bridge/Bridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710338E51099F83DDCF6EC37 /* PhoneAgent/Bridge/Bridge.swift */; };
 		6496EE54E44F4EE525F3D38B /* PhoneAgent/App/AttachmentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA5A915E5D4E446BFF4B272 /* PhoneAgent/App/AttachmentPicker.swift */; };
 		667C957B5FF6CA45B4DDB0E3 /* PhoneAgent/Bridge/InputCoordinates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F53341C0C90C85283739D3 /* PhoneAgent/Bridge/InputCoordinates.swift */; };
+		67857C431BC81612760A5F40 /* PhoneAgent/AgentUI/Components/TerminalToolDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA48F29E05F6F94814EA938 /* PhoneAgent/AgentUI/Components/TerminalToolDetail.swift */; };
 		680DE408ED40DD774CEC0E59 /* PhoneAgent/Remote/MuseDiagnosticsLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2460BFFB18B6C8815F5644E /* PhoneAgent/Remote/MuseDiagnosticsLog.swift */; };
 		6B64ACFC7935F1ECAED4E717 /* ../coredevice/swift/Sources/CoreDeviceBackend/LocalVPNDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B9C240FD57FFCDA0F8001B /* ../coredevice/swift/Sources/CoreDeviceBackend/LocalVPNDiscovery.swift */; };
 		6CEE8BCC45FD118E2157672A /* PhoneAgentTests/ChatGPTOAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD155A9EF0F0391FDDDBCFFD /* PhoneAgentTests/ChatGPTOAuthTests.swift */; };
@@ -360,6 +361,7 @@
 		97888E6F9F38A1FBBC28A0CD /* PhoneAgent/Agent/ExecutionTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Agent/ExecutionTools.swift; sourceTree = SOURCE_ROOT; };
 		97B1189E1FC6D30FB8D48BD2 /* PhoneAgent/Models/ScreenInformationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Models/ScreenInformationMode.swift; sourceTree = SOURCE_ROOT; };
 		984D98C7222C096760657D9F /* PhoneAgentTests/LocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgentTests/LocalizationTests.swift; sourceTree = SOURCE_ROOT; };
+		9AA48F29E05F6F94814EA938 /* PhoneAgent/AgentUI/Components/TerminalToolDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/AgentUI/Components/TerminalToolDetail.swift; sourceTree = SOURCE_ROOT; };
 		9C1886A0EB3DF52AF67F3639 /* PhoneAgent/Agent/FileWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Agent/FileWorkspace.swift; sourceTree = SOURCE_ROOT; };
 		9C5E290536118A1A8AD380B6 /* PhoneAgent/Security/ChatGPTOAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Security/ChatGPTOAuth.swift; sourceTree = SOURCE_ROOT; };
 		A0F53341C0C90C85283739D3 /* PhoneAgent/Bridge/InputCoordinates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAgent/Bridge/InputCoordinates.swift; sourceTree = SOURCE_ROOT; };
@@ -545,6 +547,7 @@
 				2447FFBB798B50FA9E1C4C64 /* PhoneAgent/AgentUI/AgentPresentationAdapter.swift */,
 				C3644AF7CDEE511C80CF0412 /* PhoneAgent/AgentUI/Components/MessageHeaderIcon.swift */,
 				B2B89F7CB7E502F8E11E2FCE /* PhoneAgent/AgentUI/Components/ReasoningMessageView.swift */,
+				9AA48F29E05F6F94814EA938 /* PhoneAgent/AgentUI/Components/TerminalToolDetail.swift */,
 				AF389161C23696F00B05C5D3 /* PhoneAgent/AgentUI/Components/ToolApprovalCard.swift */,
 				4DC26DCEF40A51D15DB604D1 /* PhoneAgent/AgentUI/Components/ToolInvocationView.swift */,
 				E4A2CC33B18063F259531172 /* PhoneAgent/AgentUI/ConversationPreviews.swift */,
@@ -926,6 +929,7 @@
 				0B10E6EB90C115B46914C2F2 /* PhoneAgent/AgentUI/AgentPresentationAdapter.swift in Sources */,
 				2C31950EF181317F8384BC01 /* PhoneAgent/AgentUI/Components/MessageHeaderIcon.swift in Sources */,
 				92C6EFA151171E979D76A0B5 /* PhoneAgent/AgentUI/Components/ReasoningMessageView.swift in Sources */,
+				67857C431BC81612760A5F40 /* PhoneAgent/AgentUI/Components/TerminalToolDetail.swift in Sources */,
 				BCDBB8CFAB4F7E1291FE5BCB /* PhoneAgent/AgentUI/Components/ToolApprovalCard.swift in Sources */,
 				016FB23A8A939C7D4F500F5C /* PhoneAgent/AgentUI/Components/ToolInvocationView.swift in Sources */,
 				ADCAA69EA5C29DCA6C2C0D01 /* PhoneAgent/AgentUI/ConversationPreviews.swift in Sources */,

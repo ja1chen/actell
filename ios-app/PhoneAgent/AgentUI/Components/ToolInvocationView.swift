@@ -78,7 +78,9 @@ struct ToolInvocationView<Preview: View>: View {
     }
 
     @ViewBuilder private var resultArea: some View {
-        if hasTextContent {
+        if ToolDetailStyle.registered(for: configuration.tool.name) == .terminal {
+            TerminalToolDetail(tool: configuration.tool).padding(.top, 8)
+        } else if hasTextContent {
             ResultScrollRegion(maxHeight: 320, identifier: "toolResultScroll") {
                 VStack(alignment: .leading, spacing: 10) {
                     if let arguments = configuration.tool.displayArguments {
@@ -153,6 +155,7 @@ struct ToolArgumentsSection: View {
 struct ResultScrollRegion<Content: View>: View {
     let maxHeight: CGFloat
     let identifier: String
+    var backgroundColor = Color(uiColor: .secondarySystemBackground)
     @ViewBuilder let content: () -> Content
     @State private var atEnd = true
 
@@ -171,7 +174,7 @@ struct ResultScrollRegion<Content: View>: View {
             .accessibilityIdentifier(identifier)
             .accessibilityValue(atEnd ? String(localized: "End reached") : String(localized: "More content available"))
         }
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }

@@ -1,9 +1,40 @@
 import XCTest
+import UIKit
 import AgentKit
 import ProviderCore
 @testable import PhoneAgent
 
 @MainActor final class AgentPresentationTests: XCTestCase {
+    func testTerminalDetailPreservesCommandAndSeparatesOutput() throws {
+        let command = String(repeating: "echo hello; ", count: 100)
+        let data = try JSONSerialization.data(withJSONObject: ["command": command, "description": "Inspect files"])
+        let call = ToolInvocation(sessionID: UUID(), turnID: UUID(), call: .init(id: "terminal", name: "bash", arguments: String(decoding: data, as: UTF8.self)))
+        let tool = ToolStep(callID: "terminal", name: "bash", state: .succeeded, detail: "",
+            result: #"{"stdout":"hello\n","stderr":"missing","exitCode":127,"truncated":true,"timedOut":true}"#,
+            arguments: AgentEventProjection.arguments(for: call))
+        let content = TerminalToolContent(tool: tool)
+        XCTAssertEqual(tool.symbol, "apple.terminal")
+        XCTAssertNotNil(UIImage(systemName: tool.symbol))
+        XCTAssertEqual(ToolDetailStyle.registered(for: "bash"), .terminal)
+        XCTAssertEqual(ToolDetailStyle.registered(for: "read"), .standard)
+        XCTAssertEqual(content.command, command)
+        XCTAssertEqual(content.result?.stdout, "hello\n")
+        XCTAssertEqual(content.result?.stderr, "missing")
+        XCTAssertEqual(content.result?.exitCode, 127)
+        XCTAssertEqual(content.result?.timedOut, true)
+        XCTAssertEqual(content.result?.truncated, true)
+        XCTAssertTrue(content.fallback.isEmpty)
+    }
+
+    func testTerminalDetailKeepsUnstructuredAndUnknownResults() {
+        let failed = ToolStep(callID: "error", name: "bash", state: .failed, detail: "", result: "Command was not dispatched")
+        XCTAssertNil(TerminalToolContent(tool: failed).result)
+        XCTAssertEqual(TerminalToolContent(tool: failed).fallback, failed.result)
+        let unknown = ToolStep(callID: "unknown", name: "bash", state: .outcomeUnknown, detail: "")
+        XCTAssertEqual(TerminalToolContent(tool: unknown).fallback, unknown.displayResult)
+        XCTAssertFalse(TerminalToolContent(tool: unknown).fallback.isEmpty)
+    }
+
     func testScreenshotSummaryIsDisplayOnlyAndHistoryPreservesFullResult() throws {
         let input = #"{"image_id":"frame","width":100,"height":200,"accessibility":{"status":"available","nodes":[{"label":"PRIVATE_FIXTURE"}],"atomic":false}}"#
         let tool = ToolStep(callID: "screen", name: "screenshot", state: .succeeded, detail: "", result: input)

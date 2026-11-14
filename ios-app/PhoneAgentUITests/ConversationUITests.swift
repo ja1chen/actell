@@ -278,6 +278,23 @@ import XCTest
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
+    func testCommandExpandsIntoTerminal() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-test-terminal-tool", "-AppleLanguages", "(en)"]
+        app.launch()
+        app.staticTexts["Terminal presentation"].firstMatch.tap()
+        let group = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "1 tool call")).firstMatch
+        if group.waitForExistence(timeout: 3) { group.tap() }
+        let toggle = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Inspect working directory")).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertTrue(app.staticTexts["terminalCommand"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["terminalCommand"].label, "$ ls; missing")
+        XCTAssertTrue(app.staticTexts["terminalStdout"].label.contains("hello.txt"))
+        XCTAssertTrue(app.staticTexts["Error output (exit code: 127)"].exists)
+        capture("command-terminal-expanded")
+    }
+
     func testExpandingLongReasoningAndToolKeepsDisclosureInPlace() {
         continueAfterFailure = false
         let app = XCUIApplication()

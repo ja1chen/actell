@@ -42,7 +42,7 @@ struct ToolStep: Codable, Sendable, Equatable {
     var detail: String
     var result: String = ""
     // Optional keeps version-1 archives without parameter previews readable.
-    // Only bounded public fields from our five registered tools are stored.
+    // Argument previews are bounded independently from the authoritative history.
     var arguments: String?
     var skillName: String?
     var displayArguments: String? { Self.nonemptyArguments(arguments) }
@@ -84,6 +84,7 @@ struct ToolStep: Codable, Sendable, Equatable {
         return value
     }
     var symbol: String {
+        if name == "bash" { return "apple.terminal" }
         let operation = AgentActivityAttributes.Operation.tool(name)
         return operation == .processing ? "wrench.and.screwdriver" : operation.symbol
     }

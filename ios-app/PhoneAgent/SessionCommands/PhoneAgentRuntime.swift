@@ -191,6 +191,17 @@ import Foundation
                 _ = model.saveProvider(ProviderProfile(name: "Key Fixture", settings: .init(baseURL: "https://fixture.invalid/v1", model: "fixture")), key: "UI_TEST_ONLY_NOT_A_REAL_KEY")
                 return model
             }
+            if arguments.contains("--ui-test-terminal-tool") {
+                let id = sessions.create(mode: .live)
+                if let run = sessions.begin(in: id, query: "Terminal presentation") {
+                    sessions.beginAssistantTurn(run)
+                    sessions.updateTool(callID: "terminal-fixture", name: "bash", state: .succeeded,
+                        result: #"{"stdout":"hello.txt\nnotes.md\n","stderr":"missing: command not found\n","exitCode":127,"timedOut":false,"truncated":false}"#,
+                        arguments: #"{"description":"Inspect working directory","command":"ls; missing","workdir":"."}"#, identity: run)
+                    sessions.finish(run, phase: .completed, summary: "")
+                }
+                return AgentViewModel(sessions: sessions, loadPersistentState: false)
+            }
             if arguments.contains("--ui-test-disclosure-scroll") {
                 let id = sessions.create(mode: .live)
                 for index in 0..<20 { sessions.addNotice("展开滚动验收 \(index)\n本地历史记录", in: id) }
