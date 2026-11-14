@@ -94,7 +94,7 @@ targets:
   PhoneAgentTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [PhoneAgentTests]
+    sources: [PhoneAgentTests, TestSupport]
     settings:
       base:
         HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
@@ -108,6 +108,33 @@ targets:
         product: ProviderCore
       - package: ProviderKit
         product: OpenAIAdapter
+  RemoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RemoteTests
+        excludes: ['UI/**']
+      - TestSupport
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
+    dependencies:
+      - target: PhoneAgent
+      - package: AgentKit
+        product: AgentKit
+      - package: ProviderKit
+        product: ProviderCore
+      - package: ProviderKit
+        product: OpenAIAdapter
+  RemoteUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [RemoteTests/UI]
+    settings:
+      base:
+        TEST_TARGET_NAME: PhoneAgent
+    dependencies:
+      - target: PhoneAgent
   PhoneAgentUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -124,5 +151,13 @@ schemes:
         PhoneAgent: all
     test:
       targets: [PhoneAgentTests, PhoneAgentUITests]
+      environmentVariables:
+        PHONEAGENT_ISOLATED_TESTS: '1'
+  PhoneAgentRemote:
+    build:
+      targets:
+        PhoneAgent: all
+    test:
+      targets: [RemoteTests, RemoteUITests]
       environmentVariables:
         PHONEAGENT_ISOLATED_TESTS: '1'

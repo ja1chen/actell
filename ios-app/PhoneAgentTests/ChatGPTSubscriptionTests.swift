@@ -1,36 +1,9 @@
 import XCTest
 import CryptoKit
-import Network
 import ProviderCore
 @testable import PhoneAgent
 
 final class ChatGPTSubscriptionTests: XCTestCase {
-    /// Proves only an in-process, foreground iOS loopback listener. It does not
-    /// prove Safari keeps the app alive or can return to an OAuth session.
-    func testForegroundLoopbackHTTPCallbackFixture() async throws {
-        let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
-        let listener = try NWListener(using: parameters)
-        let ready = expectation(description: "loopback listener ready")
-        let queue = DispatchQueue(label: "subscription.callback.fixture")
-        listener.stateUpdateHandler = { state in if case .ready = state { ready.fulfill() } }
-        listener.newConnectionHandler = { connection in
-            connection.start(queue: queue)
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
-                let response = Data("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK".utf8)
-                connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
-            }
-        }
-        listener.start(queue: queue); defer { listener.cancel() }
-        await fulfillment(of: [ready], timeout: 3)
-        let port = try XCTUnwrap(listener.port)
-        let url = URL(string: "http://127.0.0.1:\(port.rawValue)/auth/callback?code=fixture")!
-        let configuration = URLSessionConfiguration.ephemeral; configuration.httpCookieStorage = nil
-        let session = URLSession(configuration: configuration); defer { session.invalidateAndCancel() }
-        let (data, response) = try await session.data(from: url)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-        XCTAssertEqual(String(decoding: data, as: UTF8.self), "OK")
-    }
     func testPKCEFreshnessCallbackStateNonceAndRegistration() throws {
         let redirect = URL(string: "http://127.0.0.1:54321/auth/callback")!
         let a = try ChatGPTAuthorizationAttempt(redirect: redirect)

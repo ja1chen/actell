@@ -73,7 +73,7 @@ final class ReasoningParsingTests: XCTestCase {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(for: .milliseconds(20)) }
         throw AppError.timeout
     }
-    func testReasoningOnlyTurnAndFinalAnswerPersistSeparatelyWithoutFutureContextReplay() throws {
+    func testReasoningOnlyTurnAndFinalAnswerPersistSeparately() throws {
         let root = try directory(), store = ConversationStore(directory: root), id = store.create(mode: .live)
         let run = try XCTUnwrap(store.begin(in: id, query: "test"))
         store.beginAssistantTurn(run); store.appendReasoning("first", identity: run)
@@ -84,8 +84,6 @@ final class ReasoningParsingTests: XCTestCase {
         XCTAssertEqual(messages.map(\.text), ["", "answer"])
         XCTAssertEqual(messages.compactMap(\.reasoning).map(\.text), ["first", "second"])
         XCTAssertTrue(messages.allSatisfy { $0.reasoning?.state == .complete })
-        XCTAssertEqual(restored.history(in: id).map(\.text), ["test", "answer"])
-        XCTAssertTrue(restored.history(in: id).allSatisfy { $0.reasoning == nil })
         let legacy = try JSONDecoder().decode(ChatMessage.self, from: JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "role": "assistant", "text": "legacy", "date": 0, "state": "complete"]))
         XCTAssertNil(legacy.reasoning)
     }

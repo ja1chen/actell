@@ -113,6 +113,9 @@ final class FileWorkspaceTests: XCTestCase {
     func testParentAndAbsolutePathsAreAllowed() async throws {
         let base = try workspace(), w = try FileWorkspace(root: base.root.appendingPathComponent("conversation"))
         _ = try await w.write(filePath: "../skills/test/SKILL.md", content: "parent")
+        let inside = w.root.appendingPathComponent("inside.txt")
+        _ = try await w.write(filePath: inside.path, content: "allowed")
+        XCTAssertEqual(try String(contentsOf: inside, encoding: .utf8), "allowed")
         let target = base.root.appendingPathComponent("skills/test/SKILL.md")
         XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "parent")
         _ = try await w.edit(filePath: target.path, oldString: "parent", newString: "absolute")
@@ -123,11 +126,6 @@ final class FileWorkspaceTests: XCTestCase {
             await assertFailure({ try await w.write(filePath: path, content: "x") }, code: "invalid_path")
         }
         await assertFailure({ try await w.write(filePath: w.root.path, content: "x") }, code: "not_regular_file")
-    }
-    func testAbsolutePathInsideWorkspaceAllowed() async throws {
-        let w = try workspace()
-        _ = try await w.write(filePath: w.root.appendingPathComponent("a").path, content: "allowed")
-        XCTAssertEqual(try String(contentsOf: w.root.appendingPathComponent("a"), encoding: .utf8), "allowed")
     }
     func testSymlinkDirectoryAndFileAccessAreAllowed() async throws {
         let w = try workspace()

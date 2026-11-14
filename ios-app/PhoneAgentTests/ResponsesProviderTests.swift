@@ -343,24 +343,6 @@ final class ResponsesProviderTests: XCTestCase {
         let response = try codec.parseResponse(json(envelope([["type": "future_call", "id": "unknown", "secret": "opaque"]])), request: request)
         XCTAssertThrowsError(try ResponsesReducer.requireExecutable(response)); XCTAssertThrowsError(try response.output[0].asReplayInput(scope: scope))
     }
-    func testSSEMultilineCRLFSplitUTF8AndTruncationLimits() throws {
-        var decoder = SSEFrameDecoder(), frames: [String] = []
-        let value = ": heartbeat\r\nevent: fixture\r\ndata: {\"text\":\r\ndata: \"你好\"}\r\n\r\n"
-        for byte in value.utf8 { if let frame = try decoder.consume(byte) { frames.append(frame) } }
-        try decoder.finish(); XCTAssertEqual(frames, ["{\"text\":\n\"你好\"}"])
-        _ = try decoder.consume(0xE4); XCTAssertThrowsError(try decoder.finish())
-        var limited = SSEFrameDecoder(); XCTAssertThrowsError(try (0...256*1024).forEach { _ in _ = try limited.consume(65) })
-    }
-    func testDurableCommitRejectsStaleRevisionAndPreservesCommittedContext() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), id = UUID()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = JSONLSessionStore(root: root, sessionID: id)
-        let transaction = SessionTransaction(sessionID: id, kind: .sessionCreated, contextItems: [.message(role: .user, content: [.text("original")])])
-        let receipt = try store.appendSync(transaction, expecting: 0)
-        XCTAssertEqual(receipt.revision, 1)
-        XCTAssertThrowsError(try store.appendSync(.init(sessionID: id, kind: .modelOutput), expecting: 0))
-        XCTAssertEqual(try store.loadContextSync(id).items, transaction.contextItems)
-    }
 
     func testNativeResponseNeverInfersToolsFromAnswerText() throws {
         let codec = OpenAIWireCodec(configuration: configuration, wire: .responses, scope: scope)
@@ -386,16 +368,6 @@ final class ResponsesProviderTests: XCTestCase {
         XCTAssertEqual(item["id"] as? String, "item-one")
     }
 
-    func testHundredPreparedScreenshotRoundsNeverPruneProviderInput() throws {
-        var messages: [ModelMessage] = [.user("attachment", images: [.init(data: Data([1]))])]
-        for i in 0..<100 {
-            let id = "call-\(i)"
-            messages += [.assistant(content: "", toolCalls: [.init(id: id, name: "screenshot", arguments: "{}")]), .init(role: .tool, content: "receipt-\(i)", images: [.init(data: Data([2]))], toolCallId: id)]
-        }
-        let items = try ModelInputProjection.input(messages: messages)
-        XCTAssertEqual(items.filter { if case .functionResult = $0 { return true }; return false }.count, 100)
-        XCTAssertEqual(items.filter { if case .message(_, let content) = $0 { return content.contains { if case .image = $0 { return true }; return false } }; return false }.count, 101)
-    }
 
     func testStreamCheckpointIsScopedAndFailedTerminalCannotExecute() throws {
         var r = try reducer([reasoning, call()])

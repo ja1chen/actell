@@ -37,8 +37,12 @@ swift test --package-path ios-app/AgentKit
 swift test --package-path ios-app/ProviderKit
 CC=clang bash devices/esp32/tools/test_usb.sh
 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
+# 按类或方法选择最小相关回归
+bash ios-app/scripts/test_core.sh <隔离模拟器-UDID> AttachmentStoreTests
 RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 ```
+
+默认 `PhoneAgent` scheme 只包含核心测试和核心 UI 测试，不包含 Muse 与远程通信。该分支文件统一放在 `RemoteTests`，UI 用例放在其 `UI` 子目录，共用 `PhoneAgentRemote` scheme；Xcode 按宿主要求分别使用 `RemoteTests` 单元测试 target 和 `RemoteUITests` UI 运行器。仅在明确要求执行时使用 `bash ios-app/scripts/test_remote.sh <隔离模拟器-UDID> [测试类[/测试方法] ...]`。`RUN_UI_TESTS=1` 只附加当前所选域的 UI 测试，不会跨域。
 
 测试使用合成模型、临时持久化目录和回环 USB peer；无真实凭据/设备动作。UI 模式会向指定的独立模拟器添加一张合成图片及 `ProjectTodosFixtures` 文件，用于系统选择器；只运行定向 UI 用例前可先执行 `python3 ios-app/scripts/prepare_ui_fixtures.py <UDID>`。默认 target 保留所有核心协议、审批、隔离、迁移、捕获和停止释放用例。能力边界见 [项目待办](../docs/PROJECT-TODOS.md)。
 

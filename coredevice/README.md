@@ -24,6 +24,8 @@ NCM 是 [USB CDC Network Control Model](https://www.usb.org/document-library/net
 bash tools/build_coredevice_rust.sh device
 bash tools/build_coredevice_rust.sh simulator
 bash tools/test_coredevice_rust.sh
+# Explicit upstream compatibility suite; not included above.
+bash tools/test_coredevice_rust.sh --upstream
 bash tools/test_coredevice_swift.sh
 bash tools/test_coredevice_chain.sh
 ```

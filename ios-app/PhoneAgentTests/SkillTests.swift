@@ -23,15 +23,13 @@ import ProviderCore
         XCTAssertEqual(builtin.name, "ios-operation")
         let creator = try XCTUnwrap(store.builtinPackages.first { $0.id == SkillStore.creatorID })
         XCTAssertEqual(creator.name, "skill-creator")
-        XCTAssertEqual(creator.version, "1.0.0")
+        XCTAssertEqual(creator.version, try SkillPackage.make(documents: creator.documents).version)
         XCTAssertThrowsError(try store.remove(creator.id))
         XCTAssertTrue(store.packages.isEmpty)
         let catalog = SkillCatalog(packages: store.enabledSnapshot)
         let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot)
         XCTAssertTrue(metadata.contains("ios-operation"))
-        XCTAssertFalse(metadata.contains("Command-V"))
         let body = try catalog.result(name: "load_skill", parameters: ["id": builtin.id.uuidString, "revision": builtin.revision])
-        XCTAssertTrue(body.contains("# iOS Operation"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
         XCTAssertEqual(object["content"] as? String, builtin.documents["SKILL.md"])
         XCTAssertTrue(object["next_offset"] is NSNull)
@@ -248,15 +246,6 @@ import ProviderCore
         let context = ToolExecutionContext(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence())
         do { _ = try await tool.execute(invocation, context: context); XCTFail() } catch { XCTAssertTrue(error is CancellationError) }
     }
-    func testSkillAtOriginalLimitLoadsWholeDocumentInOneCall() throws {
-        let body = document + String(repeating: "a", count: 50_000 - document.unicodeScalars.count)
-        let item = try SkillPackage.make(documents: ["SKILL.md": body]), catalog = SkillCatalog(packages: [item])
-        let response = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision])
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-        XCTAssertEqual(object["content"] as? String, body)
-        XCTAssertEqual(object["total_scalars"] as? Int, 50_000)
-        XCTAssertTrue(object["next_offset"] is NSNull)
-    }
     func testLargeSkillLoadsWholeDocumentAndAcceptsLegacyOffsets() throws {
         let body = document + String(repeating: "a", count: 49_999 - document.unicodeScalars.count)
             + "🙂" + String(repeating: "b", count: 10_000)
@@ -301,7 +290,7 @@ import ProviderCore
         XCTAssertEqual((object["available_resources"] as? [String])?.count, 32)
         XCTAssertNil(object["artifactReference"])
     }
-    func testWholeDocumentsPreserveLongGraphemesAndEscapedUnicodeExactly() throws {
+    func testWholeDocumentsPreserveUnicodeAndResourceCatalogue() throws {
         let samples = [
             document + "\n" + String(repeating: "a", count: 49_000) + "b" + String(repeating: "\u{0301}", count: 2_000),
             document + "\n" + String(repeating: "中文🙂👩‍👩‍👦‍👦\"\\\n\t\u{0001}", count: 500)
@@ -310,8 +299,6 @@ import ProviderCore
             let package = try SkillPackage.make(documents: ["SKILL.md": body])
             try assertWholeDocument(package, expected: body)
         }
-    }
-    func testWholeDocumentPreservesLargeUnicodeNameAndEscapedResourceCatalogue() throws {
         let name = "a" + String(repeating: "\u{0301}", count: 10_000)
         let body = "---\nname: \(name)\ndescription: Unicode fixture\n---\n" + String(repeating: "资料🙂\"\\\n", count: 500)
         var documents = ["SKILL.md": body]

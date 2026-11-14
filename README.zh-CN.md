@@ -53,6 +53,8 @@ CC=clang bash devices/esp32/tools/test_usb.sh
 SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 ```
 
+在模拟器 ID 后追加测试类或 `测试类/测试方法`，只运行相关核心回归。默认 `PhoneAgent` scheme 和核心测试命令不包含 Muse 与远程通信；仅在明确要求执行该域测试时，使用 `bash ios-app/scripts/test_remote.sh <隔离模拟器-UDID>`，对应独立的 `PhoneAgentRemote` scheme。`RUN_UI_TESTS=1` 只附加当前所选域的 UI 测试。
+
 上下文续接按服务商能力区分：支持的 Responses 服务可显式选择服务端响应链；ChatGPT 订阅 HTTP 每次请求发送本轮有效上下文窗口，压缩后发送摘要与保留项，不重新发送全部 JSONL 历史。原生 compact 仅对受支持的 OpenAI Responses 配置启用，其他服务商使用无工具摘要压缩。职责与限制见 [AgentKit](ios-app/AgentKit/README.md) 和 [ProviderKit](ios-app/ProviderKit/README.md)。
 
 固件产物位于 `.build/esp32-<mode>/`。App 测试使用合成服务商和临时存储，不代替实机验收；加 `RUN_UI_TESTS=1` 可运行 UI 测试。核心协议、授权、隔离、未知结果、迁移和停止释放覆盖保留在默认 target。

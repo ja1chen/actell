@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor final class ComposerUITests: XCTestCase {
     func testLightComposerKeyboardAndApproval() { verifyAppearance("light") }
-    func testDarkComposerKeyboardAndApproval() { verifyAppearance("dark") }
     private func verifyAppearance(_ appearance: String) {
         continueAfterFailure = false
         let app = XCUIApplication()

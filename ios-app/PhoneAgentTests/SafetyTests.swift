@@ -224,15 +224,6 @@ final class SafetyTests: XCTestCase {
         XCTAssertEqual(result.kind, .returned)
         let captures = await bridge.screenshotReads; XCTAssertEqual(captures, 0)
     }
-    func testRemoteScreenshotsKeepImageContractRegardlessOfLocalMode() async throws {
-        for mode in ScreenInformationMode.allCases {
-            let bridge = SpyBridge()
-            let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true }, onImage: { _, _ in }, onReceipt: { _ in }, screenInformationMode: mode)
-            let result = try await coordinator.executeRemote(name: "screenshot", parameters: [:], callID: "remote", expectedImageID: nil, deadline: Date().addingTimeInterval(10))
-            XCTAssertEqual(result.kind, .returned); XCTAssertEqual(result.images.count, 1)
-            let reads = await bridge.accessibilityReads; XCTAssertEqual(reads, 0)
-        }
-    }
     private func invoke(_ tool: any AgentTool, callID: String, parameters: [String: Any]) async throws -> ToolOutcome {
         let sessionID = UUID(), turnID = UUID()
         let call = ModelToolCall(id: callID, name: tool.descriptor.name, arguments: String(decoding: try JSONSerialization.data(withJSONObject: parameters), as: UTF8.self))

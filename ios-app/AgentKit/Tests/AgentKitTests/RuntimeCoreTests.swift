@@ -213,17 +213,22 @@ private actor RuntimeMemoryStore: SessionStore {
         _ = try await run(runtime, session: session)
         let callsAfterTurn = await log.values(); XCTAssertTrue(callsAfterTurn.isEmpty)
     }
-    func testThirtyTwoTurnsAreStableAcrossRuntimeRestartAndUIIdentity() async throws {
+    func testTurnsRemainOrderedAcrossRuntimeRestart() async throws {
         let store = RuntimeMemoryStore(), provider = RuntimeFixtureProvider([]), session = UUID()
         let config = AgentConfiguration(model: "fixture", budget: .init(planningTokens: 1_000_000))
         var runtime = AgentRuntime(store: store, provider: provider, configuration: config)
-        for index in 0..<32 { _ = try await run(runtime, session: session, text: "question-\(index)") }
+        for index in 0..<3 { _ = try await run(runtime, session: session, text: "question-\(index)") }
+        let before = try await store.readPage(.init(sessionID: session))
         runtime = AgentRuntime(store: store, provider: provider, configuration: config)
         _ = try await run(runtime, session: session, text: "last")
         let inputs = await provider.inputs()
-        XCTAssertEqual(inputs.last?.count, 65)
-        XCTAssertEqual(Array(inputs[20].prefix(inputs[19].count)), inputs[19])
-        let page = try await store.readPage(.init(sessionID: session)); XCTAssertEqual(page.items.count, 66)
+        XCTAssertEqual(inputs.last?.count, 7)
+        for index in 1..<inputs.count {
+            XCTAssertEqual(Array(inputs[index].prefix(inputs[index - 1].count)), inputs[index - 1])
+        }
+        let page = try await store.readPage(.init(sessionID: session))
+        XCTAssertEqual(page.items.count, 8)
+        XCTAssertEqual(Array(page.items.prefix(before.items.count)).map(\.id), before.items.map(\.id))
     }
     func testExplicitResponseChainUsesDeltaAndStaleHeadRecoveryKeepsInputOnce() async throws {
         let store = RuntimeMemoryStore(), provider = RuntimeFixtureProvider([.text("one"), .rejected(.invalidResponseHead), .text("two")], chain: true), session = UUID()

@@ -48,7 +48,9 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.appendSync(next, expecting: 0)) { XCTAssertEqual($0 as? StoreError, .revisionConflict) }
         _ = try store.appendSync(next, expecting: 1)
         let loaded = try JSONLSessionStore(root: root, sessionID: id).loadContextSync(id)
-        XCTAssertEqual(loaded.items.count, 2); XCTAssertEqual(loaded.sequence, 2)
+        XCTAssertEqual(loaded.items, [.message(role: .user, content: [.text("x")]),
+                                      .message(role: .user, content: [.text("y")])])
+        XCTAssertEqual(loaded.sequence, 2)
     }
     func testSynchronizationFaultPermitsFollowupWithoutIndex() throws {
         final class Fault: @unchecked Sendable {

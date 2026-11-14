@@ -46,9 +46,18 @@ class ProjectGenerationTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         generator.main([])
                 self.assertIn("ACTELL_DEVELOPMENT_TEAM = F012345678", local.read_text())
-                configs = [obj for obj in parse(before)["objects"].values() if obj["isa"] == "XCBuildConfiguration" and "PRODUCT_BUNDLE_IDENTIFIER" in obj["buildSettings"]]
-                self.assertEqual(len(configs), 8)
-                self.assertTrue(all("baseConfigurationReference" in config for config in configs))
+                objects = parse(before)["objects"]
+                targets = {obj["name"]: obj for obj in objects.values() if obj["isa"] == "PBXNativeTarget"}
+                self.assertEqual(set(targets), {"PhoneAgent", "PhoneAgentLiveActivity", "PhoneAgentTests",
+                                                "PhoneAgentUITests", "RemoteTests", "RemoteUITests"})
+                for name, target in targets.items():
+                    config_ids = objects[target["buildConfigurationList"]]["buildConfigurations"]
+                    configs = [objects[identifier] for identifier in config_ids]
+                    self.assertEqual({config["name"] for config in configs}, {"Debug", "Release"}, name)
+                    for config in configs:
+                        self.assertIn("PRODUCT_BUNDLE_IDENTIFIER", config["buildSettings"], name)
+                        signing = objects[config["baseConfigurationReference"]]
+                        self.assertEqual(signing["path"], "Config/Base.xcconfig", name)
 
     def test_xcode_saved_layout_round_trips_without_text_changes(self):
         project = ROOT / "PhoneAgent.xcodeproj/project.pbxproj"

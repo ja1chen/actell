@@ -53,6 +53,8 @@ CC=clang bash devices/esp32/tools/test_usb.sh
 SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <isolated-simulator-UDID>
 ```
 
+Pass test classes or `Class/testMethod` after the simulator ID to run only related core tests. Muse and remote communication tests are excluded from the default `PhoneAgent` scheme and core test command. Run them only when explicitly requested with `bash ios-app/scripts/test_remote.sh <isolated-simulator-UDID>`, using the separate `PhoneAgentRemote` scheme. `RUN_UI_TESTS=1` adds UI tests only for the selected domain.
+
 Provider continuation is capability-specific: supported Responses services can use an explicit stored response chain; ChatGPT subscription HTTP inference sends the effective context window with each request, including a summary and retained items after compaction. It does not resend the entire JSONL history. Native compact is enabled only for supported OpenAI Responses configurations; other providers use tool-free summary compaction. See [AgentKit](ios-app/AgentKit/README.md) and [ProviderKit](ios-app/ProviderKit/README.md) for responsibilities and limits.
 
 Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic providers and temporary storage; they do not replace device acceptance. Add `RUN_UI_TESTS=1` to include UI tests. Core protocol, authorization, isolation, unknown-result, migration and stop/release coverage stays in the default target.

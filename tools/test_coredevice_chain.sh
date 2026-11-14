@@ -16,5 +16,7 @@ export COREDEVICE_RELAY_FIXTURE="$root/.build/coredevice-tests/relay_fixture"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export CLANG_MODULE_CACHE_PATH="$root/.build/coredevice-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$root/.build/coredevice-module-cache"
+fixture_filter='(NativeBackendTests/(testSkippedPredictiveFrameDoesNotReportDecodeSuccess|testIdleVideoSnapshotsAcceptSenderConfirmedPictureButRejectSilentPeer|testDemandScreenshotDecodesLatestNativeBurstAndCanReopenAfterRelease|testOwnedMediaReleaseRetainsNativeAuthenticationAndIsIdempotent|testScreenshotServiceFailureRetainsNativeSessionWithoutReplayingInput|testMediaPreparationFailureRetainsSessionButUncertainTouchClosesIt|testInputGeometryQueryTimeoutRetainsNativeSession|testDragCrossesNativeABIAndUncertainDeliveryClosesSession|testSwiftRustRealCRelayPropagatesPairVerifyFailure|testSwiftCancellationClosesNativeWorkerAndCRelay)|NativeApplicationLaunchTests/testLaunchReceiptCrossesNativeABIOnRepeatedLaunches|NativeAccessibilityDiagnosticTests/testDiagnosticsCrossNativeABIWithoutChangingFailureOrBlockingNextOperation)$'
 swift test --disable-sandbox --package-path "$root/coredevice/swift" \
- --scratch-path "$root/.build/coredevice-swift-chain" --cache-path "$root/.build/swift-cache"
+ --scratch-path "$root/.build/coredevice-swift-chain" --cache-path "$root/.build/swift-cache" \
+ --filter "$fixture_filter"

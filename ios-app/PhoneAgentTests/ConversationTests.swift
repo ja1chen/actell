@@ -233,17 +233,6 @@ import ProviderCore
         XCTAssertNil(store.begin(in: actual, query: "重复"))
         XCTAssertEqual(store.conversation(actual)?.messages.count, 1)
     }
-    func testHistoryContainsOnlyCompletedPublicTextFromSelectedConversation() throws {
-        let store = ConversationStore(inMemory: true)
-        let id = store.create(mode: .demo)
-        let token = try XCTUnwrap(store.begin(in: id, query: "问题"))
-        store.beginAssistantTurn(token); store.completeAssistantTurn("公开答案", identity: token)
-        store.updateTool(callID: "s", name: "screenshot", state: .succeeded, result: "private image metadata", identity: token)
-        store.beginAssistantTurn(token); store.appendText("中断片段", identity: token)
-        store.finish(token, phase: .interrupted, summary: "中断")
-        XCTAssertEqual(store.history(in: id).map(\.text), ["问题", "公开答案"])
-        XCTAssertTrue(store.history(in: UUID()).isEmpty)
-    }
     func testUnreadableHistoryIsNeverOverwritten() throws {
         let directory = try temporaryDirectory()
         let file = directory.appendingPathComponent("conversations-v1.json")
@@ -327,27 +316,6 @@ import ProviderCore
         }
     }
 
-    func testMuseOwnershipDisablesOnlyPhoneToolsForLocalChat() async throws {
-        let store = ConversationStore(inMemory: true), provider = AdmissionInspectionProvider()
-        let model = AgentViewModel(sessions: store, loadPersistentState: false,
-            runServices: .init(provider: provider, bridge: UnavailableBridge()), makeRemoteBridge: { UnavailableBridge() })
-        _ = try model.acquireRemoteRun("fixture-owner", onImage: { _ in }, onStop: {})
-        defer { model.releaseRemoteRun("fixture-owner") }
-        let id = model.createConversation(mode: .live)
-        XCTAssertTrue(model.send("chat during Muse control", in: id, cloudConsent: true))
-        try await waitUntil { !model.running }
-        XCTAssertEqual(store.conversation(id)?.phase, .completed)
-        let request = try XCTUnwrap(provider.requests.first)
-        XCTAssertTrue(request.tools.contains { $0.name == "bash" })
-        XCTAssertFalse(request.tools.contains { ["screenshot", "tap", "home", "launch_app", "type_text"].contains($0.name) })
-        XCTAssertTrue(model.remoteAdmissionSnapshot["remote_lease"] == "true")
-        XCTAssertNotNil(model.errorMessage)
-        XCTAssertTrue(model.send("cancel only local chat", in: id, cloudConsent: true))
-        let localRun = try XCTUnwrap(model.currentRun)
-        XCTAssertTrue(model.stop(run: localRun))
-        try await waitUntil { !model.stopping }
-        XCTAssertTrue(model.remoteAdmissionSnapshot["remote_lease"] == "true")
-    }
 
     func testToolReceiptsAreSavedBeforeNextModelRequest() async throws {
         let store = ConversationStore(inMemory: true)
@@ -494,24 +462,6 @@ import ProviderCore
         XCTAssertFalse(model.send("测试", in: id))
         XCTAssertFalse(model.running)
         XCTAssertTrue(store.conversation(id)?.messages.isEmpty == true)
-    }
-}
-
-final class AdmissionInspectionProvider: ModelProvider, @unchecked Sendable {
-    static let name = "admission-inspection"
-    let configuration = DemoProvider().configuration
-    private let lock = NSLock()
-    private var captured: [ModelRequest] = []
-    var requests: [ModelRequest] { lock.withLock { captured } }
-    func complete(_ request: ModelRequest) async throws -> ModelResponse {
-        ModelResponse(text: "Chat completed", finishReason: .stop, request: request, providerName: Self.name)
-    }
-    func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
-        lock.withLock { captured.append(request) }
-        return AsyncThrowingStream { continuation in
-            continuation.yield(.terminal(ModelResponse(text: "Chat completed", finishReason: .stop, request: request, providerName: Self.name)))
-            continuation.finish()
-        }
     }
 }
 

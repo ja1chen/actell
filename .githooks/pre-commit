@@ -42,7 +42,7 @@ def main():
                    if before.get((identity, key)) != after.get((identity, key))
                    and not (key == "DEVELOPMENT_TEAM" and after.get((identity, key)) == "$(ACTELL_DEVELOPMENT_TEAM)")
                    and not (key == "PRODUCT_BUNDLE_IDENTIFIER" and isinstance(after.get((identity, key)), str)
-                            and re.fullmatch(r"\$\(ACTELL_BUNDLE_ID_PREFIX\)(?:Tests|UITests|\.LiveActivity)?", after[(identity, key)]))}
+                            and re.fullmatch(r"\$\(ACTELL_BUNDLE_ID_PREFIX\)(?:Tests|UITests|RemoteTests|RemoteUITests|\.LiveActivity)?", after[(identity, key)]))}
         if changed:
             blocked.append((path, changed))
     if not blocked:

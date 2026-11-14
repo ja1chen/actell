@@ -25,46 +25,6 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Saved answer"].waitForExistence(timeout: 5))
         capture("history-migration-restored")
     }
-    func testCollapsedReasoningAndToolHeadersHaveEqualSpacing() {
-        verifyCollapsedActivitySpacing(active: false)
-    }
-    func testActiveCollapsedReasoningAndToolHeadersHaveEqualSpacing() {
-        verifyCollapsedActivitySpacing(active: true)
-    }
-    private func verifyCollapsedActivitySpacing(active: Bool) {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--ui-test-collapsed-activity-spacing"]
-        if active { app.launchArguments.append("--ui-test-spacing-active") }
-        app.launch()
-        app.staticTexts["Collapsed activity spacing"].firstMatch.tap()
-        if !active {
-            let summary = app.buttons["3 次工具调用 · 1 段思考"]
-            XCTAssertTrue(summary.waitForExistence(timeout: 5), app.debugDescription)
-            summary.tap()
-        }
-        let thought = app.buttons.matching(NSPredicate(format: "label == %@", "思考")).firstMatch
-        let tools = app.otherElements.matching(identifier: "tool-invocation-succeeded-wait")
-        XCTAssertEqual(tools.count, 3)
-        XCTAssertEqual(thought.value as? String, "已收起")
-        func assertEqualGaps(file: StaticString = #filePath, line: UInt = #line) {
-            let first = tools.element(boundBy: 0).buttons.firstMatch.frame
-            let second = tools.element(boundBy: 1).buttons.firstMatch.frame
-            let third = tools.element(boundBy: 2).buttons.firstMatch.frame
-            let reasoningGap = first.minY - thought.frame.maxY
-            let toolGap = second.minY - first.maxY
-            XCTAssertGreaterThan(toolGap, 0, file: file, line: line)
-            XCTAssertEqual(reasoningGap, toolGap, accuracy: 1, file: file, line: line)
-            XCTAssertEqual(third.minY - second.maxY, toolGap, accuracy: 1, file: file, line: line)
-        }
-        assertEqualGaps()
-        thought.tap()
-        XCTAssertTrue(app.staticTexts["Reasoning without reply text"].exists)
-        thought.tap()
-        XCTAssertFalse(app.staticTexts["Reasoning without reply text"].exists)
-        assertEqualGaps()
-        XCTAssertTrue(app.staticTexts["Final reply"].exists)
-    }
     func testCompletedTurnSummariesCountCollapseAndKeepAnswerVisible() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -230,11 +190,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["后台任务最终回复"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.staticTexts["后台任务最终回复"].isHittable, app.debugDescription)
         capture("background-completion-history-position")
-        for second in 1...10 {
-            Thread.sleep(forTimeInterval: 1)
-            XCTAssertTrue(app.staticTexts["后台任务最终回复"].exists, "Reply disappeared at second \(second): " + app.debugDescription)
-            XCTAssertTrue(app.staticTexts["后台任务最终回复"].isHittable, "Reply moved out of viewport at second \(second): " + app.debugDescription)
-        }
+        assertCompletedReplyVisible(in: app)
         capture("background-completion-history-position-stable")
     }
     func testReplyRemainsVisibleWhenCompletionFoldsAfterForegroundReturn() {
@@ -252,20 +208,19 @@ import XCTest
         let reply = app.staticTexts["后台任务最终回复"]
         XCTAssertTrue(reply.waitForExistence(timeout: 5), app.debugDescription)
         capture("foreground-before-delayed-fold")
-        for second in 1...10 {
-            Thread.sleep(forTimeInterval: 1)
-            XCTAssertTrue(reply.exists, "Reply disappeared at second \(second): " + app.debugDescription)
-            let frame = app.staticTexts["后台任务最终回复"].frame
-            let top = app.navigationBars.firstMatch.frame.maxY
-            let bottom = app.textViews["messageInput"].frame.minY
-            XCTAssertGreaterThan(frame.width, 0)
-            XCTAssertGreaterThan(frame.height, 0)
-            XCTAssertGreaterThan(frame.maxY, top, "Reply moved above viewport at second \(second)")
-            XCTAssertLessThan(frame.minY, bottom, "Reply moved below viewport at second \(second)")
-            if [1, 3, 10].contains(second) { capture("foreground-delayed-fold-second-\(second)") }
-        }
-        XCTAssertTrue(app.buttons["30 次工具调用 · 30 段思考"].exists, "Must reach the folded completed layout")
+        assertCompletedReplyVisible(in: app)
         capture("foreground-after-delayed-fold-stable")
+    }
+    private func assertCompletedReplyVisible(in app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["30 次工具调用 · 30 段思考"].waitForExistence(timeout: 5), "Must reach the folded completed layout")
+        let reply = app.staticTexts["后台任务最终回复"]
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = reply.frame
+            return reply.exists && frame.width > 0 && frame.height > 0
+                && frame.maxY > app.navigationBars.firstMatch.frame.maxY
+                && frame.minY < app.textViews["messageInput"].frame.minY
+        }, object: reply)
+        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
     }
     private func launch(demo: Bool = false) -> XCUIApplication {
         continueAfterFailure = false

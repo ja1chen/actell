@@ -37,6 +37,15 @@ final class ProviderContractsTests: XCTestCase {
         var first = ModelMessage.tool("one", toolCallId: "a"); first.images = [image]
         var second = ModelMessage.tool("two", toolCallId: "b"); second.images = [image]
         XCTAssertEqual(try ModelInputProjection.input(messages: [first, second]).count, 4)
+        var messages: [ModelMessage] = [.user("attachment", images: [image])]
+        for index in 0..<100 {
+            let id = "call-\(index)"
+            messages += [.assistant(content: "", toolCalls: [.init(id: id, name: "screenshot", arguments: "{}")]),
+                         .init(role: .tool, content: "receipt-\(index)", images: [image], toolCallId: id)]
+        }
+        let items = try ModelInputProjection.input(messages: messages)
+        XCTAssertEqual(items.filter { if case .functionResult = $0 { return true }; return false }.count, 100)
+        XCTAssertEqual(items.filter { if case .message(_, let content) = $0 { return content.contains { if case .image = $0 { return true }; return false } }; return false }.count, 101)
     }
     func testChatInterleavedToolArgumentsAndCachedUsage() throws {
         var decoder = ModelStreamDecoder()
@@ -73,13 +82,22 @@ final class ProviderContractsTests: XCTestCase {
         XCTAssertEqual(try reducer.finish().streamEvents.count, 128)
     }
     func testSSEHandlesFragmentedUTF8AndRejectsTruncation() throws {
-        var decoder = SSEFrameDecoder()
-        var frames: [String] = []
-        for byte in Data("data: 执言\r\n\r\n".utf8) { if let frame = try decoder.consume(byte) { frames.append(frame) } }
-        try decoder.finish()
-        XCTAssertEqual(frames, ["执言"])
-        _ = try decoder.consume(UInt8(ascii: "d"))
-        XCTAssertThrowsError(try decoder.finish())
+        for (input, expected) in [
+            ("data: 执言\r\n\r\n", "执言"),
+            (": heartbeat\r\nevent: fixture\r\ndata: {\"text\":\r\ndata: \"你好\"}\r\n\r\n", "{\"text\":\n\"你好\"}")
+        ] {
+            var decoder = SSEFrameDecoder(), frames: [String] = []
+            for byte in input.utf8 { if let frame = try decoder.consume(byte) { frames.append(frame) } }
+            try decoder.finish()
+            XCTAssertEqual(frames, [expected])
+        }
+        for trailing in [UInt8(ascii: "d"), 0xE4] {
+            var decoder = SSEFrameDecoder()
+            _ = try decoder.consume(trailing)
+            XCTAssertThrowsError(try decoder.finish())
+        }
+        var limited = SSEFrameDecoder()
+        XCTAssertThrowsError(try (0...256 * 1024).forEach { _ in _ = try limited.consume(65) })
     }
     private func reduceCompletedReasoning(
         terminalReasoning: [String: Any] = [:], terminalCall: [String: Any] = [:]

@@ -142,7 +142,18 @@ def update_local_signing():
     path.write_text("\n".join(lines) + "\n")
 
 
+def validate_test_domains():
+    for folder in ("PhoneAgentTests", "PhoneAgentUITests"):
+        for path in (ROOT / folder).rglob("*.swift"):
+            if path.name.startswith(("Muse", "Remote", "SimpleLAN")):
+                raise ValueError(f"Remote-domain test {path.name} belongs in RemoteTests (UI tests in RemoteTests/UI), not {folder}")
+    for path in (ROOT / "TestSupport").rglob("*.swift"):
+        if re.search(r"\bclass\s+\w+\s*:\s*XCTestCase\b", path.read_text()):
+            raise ValueError(f"TestSupport must contain fixtures only, not XCTestCase classes: {path.name}")
+
+
 def generate():
+    validate_test_domains()
     packages = [
         add("AgentKit", "XCLocalSwiftPackageReference", relativePath="AgentKit"),
         add("ProviderKit", "XCLocalSwiftPackageReference", relativePath="ProviderKit"),
@@ -156,18 +167,26 @@ def generate():
     for name, extension, product_type, bundle_suffix in [
         ("PhoneAgent", "app", "application", ""),
         ("PhoneAgentTests", "xctest", "bundle.unit-test", "Tests"),
+        ("RemoteTests", "xctest", "bundle.unit-test", "RemoteTests"),
         ("PhoneAgentUITests", "xctest", "bundle.ui-testing", "UITests"),
+        ("RemoteUITests", "xctest", "bundle.ui-testing", "RemoteUITests"),
         ("PhoneAgentLiveActivity", "appex", "app-extension", ".LiveActivity"),
     ]:
         sources, children = [], []
-        paths = list((ROOT / name).rglob("*.swift"))
+        source_root = ROOT / ("RemoteTests/UI" if name == "RemoteUITests" else name)
+        paths = list(source_root.rglob("*.swift"))
+        if name == "RemoteTests":
+            paths = [path for path in paths if path.relative_to(source_root).parts[0] != "UI"]
+        if name in ("PhoneAgentTests", "RemoteTests"):
+            paths += list((ROOT / "TestSupport").rglob("*.swift"))
         if name in ("PhoneAgent", "PhoneAgentLiveActivity"):
             paths += list((ROOT / "Shared").rglob("*.swift"))
         for path in sorted(paths):
             relative = Path(os.path.relpath(path, ROOT)).as_posix()
-            ref = add((name if relative.startswith("Shared/") else "") + relative, "PBXFileReference", lastKnownFileType="sourcecode.swift", path=relative, sourceTree="SOURCE_ROOT")
+            prefix = name if relative.startswith(("Shared/", "TestSupport/")) else ""
+            ref = add(prefix + relative, "PBXFileReference", lastKnownFileType="sourcecode.swift", path=relative, sourceTree="SOURCE_ROOT")
             children.append(ref)
-            sources.append(add((name if relative.startswith("Shared/") else "") + relative + "Build", "PBXBuildFile", fileRef=ref))
+            sources.append(add(prefix + relative + "Build", "PBXBuildFile", fileRef=ref))
         if name == "PhoneAgent":
             for path in sorted((ROOT.parent / "coredevice/swift/Sources/CoreDeviceBackend").glob("*.swift")):
                 relative = "../coredevice/swift/Sources/CoreDeviceBackend/" + path.name
@@ -204,14 +223,18 @@ def generate():
             ref = add("BuiltinSkills", "PBXFileReference", lastKnownFileType="folder", path="PhoneAgent/BuiltinSkills", sourceTree="SOURCE_ROOT")
             children.append(ref)
             resources.append(add("BuiltinSkillsBuild", "PBXBuildFile", fileRef=ref))
-        group = add(name + "Group", "PBXGroup", name=name, children=children, sourceTree="<group>")
-        groups.append(group)
+        group = add(name + "Group", "PBXGroup", name="UI" if name == "RemoteUITests" else name,
+                    children=children, sourceTree="<group>")
+        if name == "RemoteUITests":
+            objects[uid("RemoteTestsGroup")]["children"].append(group)
+        else:
+            groups.append(group)
         file_type = {"app": "wrapper.application", "appex": "wrapper.app-extension", "xctest": "wrapper.cfbundle"}[extension]
         product = add(name + "Product", "PBXFileReference", explicitFileType=file_type,
                       includeInIndex=0, path=name + "." + extension, sourceTree="BUILT_PRODUCTS_DIR")
         products.append(product)
         package_products, frameworks = [], []
-        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("AgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
+        linked_products = [] if name.endswith("UITests") or name == "PhoneAgentLiveActivity" else [("AgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
         # Hosted tests resolve X509 through the app's BUNDLE_LOADER. Linking its
         # product into both promotes transitive Crypto to an empty dynamic
         # framework on Xcode 27, which fails before the app can compile.
@@ -269,7 +292,7 @@ def generate():
                             INFOPLIST_KEY_CFBundleDisplayName="Actell", APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
                             LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"])
         else:
-            if name == "PhoneAgentUITests":
+            if name.endswith("UITests"):
                 settings.update(TEST_TARGET_NAME="PhoneAgent")
             else:
                 settings.update(TEST_HOST="$(BUILT_PRODUCTS_DIR)/PhoneAgent.app/PhoneAgent", BUNDLE_LOADER="$(TEST_HOST)",
@@ -299,8 +322,13 @@ def generate():
     schemes.mkdir(parents=True, exist_ok=True)
     def reference(name, extension):
         return f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{uid(name + "Target")}" BuildableName="{name}.{extension}" BlueprintName="{name}" ReferencedContainer="container:PhoneAgent.xcodeproj"/>'
-    app, tests, ui_tests = reference("PhoneAgent", "app"), reference("PhoneAgentTests", "xctest"), reference("PhoneAgentUITests", "xctest")
-    (schemes / "PhoneAgent.xcscheme").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+    app = reference("PhoneAgent", "app")
+    for scheme_name, unit_name, ui_name in [
+        ("PhoneAgent", "PhoneAgentTests", "PhoneAgentUITests"),
+        ("PhoneAgentRemote", "RemoteTests", "RemoteUITests"),
+    ]:
+        tests, ui_tests = reference(unit_name, "xctest"), reference(ui_name, "xctest")
+        (schemes / (scheme_name + ".xcscheme")).write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2700" version="1.7">
   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries>
     <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{app}</BuildActionEntry>
@@ -310,7 +338,7 @@ def generate():
   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{app}</BuildableProductRunnable></ProfileAction>
   <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>
-''')
+    '''.rstrip() + "\n")
     print(path)
 
 
