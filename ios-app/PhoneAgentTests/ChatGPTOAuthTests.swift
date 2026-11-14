@@ -342,7 +342,7 @@ extension ChatGPTOAuthTests {
             XCTAssertNotNil(p.safeFailureMessage)
             XCTAssertNotNil(p.lastDiagnostic)
             if index == streams.count - 1 {
-                XCTAssertEqual(p.safeFailureMessage, String(localized: "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again."))
+                XCTAssertEqual(p.safeFailureMessage, String(localized: "The reply could not be verified."))
             }
             XCTAssertEqual(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.requests.count }, 1)
         }
@@ -354,7 +354,7 @@ extension ChatGPTOAuthTests {
         SubscriptionWireFixture.reset(try responseFrames([["type": "computer_call", "id": "SECRET", "arguments": "SECRET"]], unknownEvents: true))
         do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])); XCTFail("Unsupported output accepted") } catch {}
         let message = await MainActor.run { AgentViewModel.runFailure(ModelError.providerError("SECRET"), provider: p) }
-        XCTAssertEqual(message, String(localized: "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again."))
+        XCTAssertEqual(message, String(localized: "The reply could not be verified."))
         XCTAssertFalse(message.contains("SECRET"))
         XCTAssertTrue(p.lastDiagnostic?.contains("unsupportedCapability") == true)
         XCTAssertEqual(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.requests.count }, 1)
@@ -789,14 +789,50 @@ extension ChatGPTOAuthTests {
             // Reset only this in-memory mock account between admission cases.
             do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])) ; XCTFail("Admission accepted") } catch {}
             let message = AgentViewModel.runFailure(ModelError.providerError("raw SECRET wrapper"), provider: p)
-            XCTAssertTrue(message.contains("HTTP \(status)"), message)
-            XCTAssertTrue(message.contains("unsupported_parameter"), message)
-            XCTAssertTrue(message.contains("字段 tools"), message)
+            XCTAssertFalse(message.contains("ChatGPT"), message)
+            XCTAssertFalse(message.contains("unsupported_parameter"), message)
+            XCTAssertFalse(message.contains("tools"), message)
+            XCTAssertTrue(p.lastDiagnostic?.contains("httpStatus=\(status)") == true)
+            XCTAssertTrue(p.lastDiagnostic?.contains("errorCode=unsupported_parameter") == true)
+            XCTAssertTrue(p.lastDiagnostic?.contains("field=tools") == true)
             XCTAssertFalse(message.contains("SECRET"), message)
             XCTAssertEqual(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.requests.count }, 1)
         }
         let unknown = ChatGPTAdmissionFailure(response: HTTPURLResponse(url: ChatGPTSubscriptionPolicy.resource, statusCode: 400, httpVersion: nil, headerFields: nil)!, body: Data(#"{"error":{"message":"SECRET","code":"SECRET","param":"SECRET"}}"#.utf8))
         XCTAssertFalse(unknown.localizedDescription.contains("SECRET"))
+    }
+    func testSubscriptionBurstFramesSurviveSlowConsumerWithoutLossOrRetry() async throws {
+        let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)
+        let account = try await login(manager, http, profile: id)
+        let p = try subscription(manager: manager, profileID: id, account: account); defer { p.cancel() }
+        let frames = (0..<200).map { "{\"sequence_number\":\($0)}" }
+        let data = Data(frames.map { "data: " + $0 + "\n\n" }.joined().utf8)
+        for contentType in ["text/event-stream", nil] {
+            SubscriptionWireFixture.reset(data, contentType: contentType)
+            var received: [String] = []
+            for try await payload in p.payloads(URLRequest(url: ChatGPTSubscriptionPolicy.resource), attempt: UUID()) {
+                received.append(payload)
+                // The entire burst is already available while validation yields.
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            XCTAssertEqual(received, frames)
+            XCTAssertEqual(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.requests.count }, 1)
+        }
+    }
+    func testSubscriptionEarlyFrameConsumerExitCancelsNetworkTask() async throws {
+        let transport = ResponsesTransport(protocolClasses: [SubscriptionWireFixture.self])
+        defer { transport.cancel() }
+        SubscriptionWireFixture.reset(Data("data: first\n\n".utf8), blocked: true)
+        do {
+            let cursor = ChatGPTPayloadCursor(session: transport.session, request: URLRequest(url: ChatGPTSubscriptionPolicy.resource), attempt: UUID())
+            let frame = try await cursor.next()
+            XCTAssertEqual(frame, "first")
+        }
+        for _ in 0..<40 {
+            if SubscriptionWireFixture.lock.withLock({ SubscriptionWireFixture.stopped > 0 }) { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertGreaterThan(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.stopped }, 0)
     }
     func testSubscriptionCancellationAndAdmissionDiagnosticsAreBoundedAndRedacted() async throws {
         let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)

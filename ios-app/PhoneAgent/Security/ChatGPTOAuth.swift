@@ -16,7 +16,7 @@ enum ChatGPTAuthError: Error, LocalizedError {
         case .revoked: return ChatGPTConnectionStatus.revoked.message
         case .usageLimited: return ChatGPTConnectionStatus.usageLimited.message
         case .noModels: return ChatGPTConnectionStatus.noModels.message
-        case .network: return String(localized: "The ChatGPT service request failed. The model request was not replayed automatically.")
+        case .network: return String(localized: "Could not reach the account service.")
         case .persistence: return String(localized: "ChatGPT credentials could not be saved securely. Unlock your device and reconnect.")
         }
     }

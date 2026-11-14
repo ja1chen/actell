@@ -206,23 +206,6 @@
         }
       }
     },
-    "%@ (%@); no automatic retry or billing change was made": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (%@); no automatic retry or billing change was made"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（%@）；未自动重试或更改计费"
-          }
-        }
-      }
-    },
     "%@ authentication, tunnel, and service checks succeeded. You can test screenshots and input.": {
       "extractionState": "manual",
       "localizations": {
@@ -740,19 +723,19 @@
         }
       }
     },
-    "A secure connection to OpenAI inference failed. Check the network. The request was not retried automatically.": {
+    "Could not establish a secure connection to the model service.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A secure connection to OpenAI inference failed. Check the network. The request was not retried automatically."
+            "value": "Could not establish a secure connection to the model service."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenAI 推理服务的安全连接失败；请检查网络，未自动重试"
+            "value": "无法与模型服务建立安全连接。"
           }
         }
       }
@@ -1573,19 +1556,19 @@
         }
       }
     },
-    "Authorization refresh failed. No request was sent or retried.": {
+    "Authorization refresh failed. Sign in again.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Authorization refresh failed. No request was sent or retried."
+            "value": "Authorization refresh failed. Sign in again."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "授权刷新失败，未发送或重试请求"
+            "value": "授权刷新失败，请重新登录。"
           }
         }
       }
@@ -2299,19 +2282,19 @@
         }
       }
     },
-    "ChatGPT request parameters were rejected. Check the request format.": {
+    "The request settings were rejected.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT request parameters were rejected. Check the request format."
+            "value": "The request settings were rejected."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求参数被拒绝；需要检查请求格式"
+            "value": "请求设置被拒绝。"
           }
         }
       }
@@ -2435,19 +2418,19 @@
         }
       }
     },
-    "ChatGPT subscription usage could not be checked. Credentials were kept. No retry or billing change was made.": {
+    "Subscription usage could not be checked.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT subscription usage could not be checked. Credentials were kept. No retry or billing change was made."
+            "value": "Subscription usage could not be checked."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 订阅额度暂时无法核验；凭据保留，未重试或改变计费"
+            "value": "无法查询订阅用量。"
           }
         }
       }
@@ -3574,19 +3557,19 @@
         }
       }
     },
-    "Could not connect to OpenAI inference. Check the network. The request was not retried automatically.": {
+    "Could not connect to the model service.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not connect to OpenAI inference. Check the network. The request was not retried automatically."
+            "value": "Could not connect to the model service."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法连接 OpenAI 推理服务；请检查网络，未自动重试"
+            "value": "无法连接模型服务。"
           }
         }
       }
@@ -5206,19 +5189,19 @@
         }
       }
     },
-    "Execution stopped. Check or complete the configuration.": {
+    "Task stopped.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Execution stopped. Check or complete the configuration."
+            "value": "Task stopped."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "运行停止：需要检查或补充配置"
+            "value": "任务已停止。"
           }
         }
       }
@@ -7780,19 +7763,19 @@
         }
       }
     },
-    "No valid image was received within 5 seconds. This run has stopped. %@": {
+    "No screen image received.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No valid image was received within 5 seconds. This run has stopped. %@"
+            "value": "No screen image received."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "采集启动后 5 秒仍未收到有效画面；本轮已停止。%@"
+            "value": "未收到屏幕画面。"
           }
         }
       }
@@ -11702,19 +11685,19 @@
         }
       }
     },
-    "Subscription access is limited or rate-limited for this app. Check ChatGPT usage settings. No credits were purchased and no paid API was used.": {
+    "Subscription access is limited. Check account usage settings.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscription access is limited or rate-limited for this app. Check ChatGPT usage settings. No credits were purchased and no paid API was used."
+            "value": "Subscription access is limited. Check account usage settings."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 App 的订阅额度受限或限流；请查看 ChatGPT 使用设置。未购买额度或改用付费 API"
+            "value": "订阅使用受限，请检查账户用量设置。"
           }
         }
       }
@@ -11749,23 +11732,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "订阅请求需要本地上下文，不能使用保存的响应链"
-          }
-        }
-      }
-    },
-    "Subscription usage could not be checked. Retry manually later.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subscription usage could not be checked. Retry manually later."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "订阅额度暂时无法核验；请稍后手动重试"
           }
         }
       }
@@ -12484,19 +12450,19 @@
         }
       }
     },
-    "The approval record could not be written. This turn stopped. Previous approvals cannot resume execution.": {
+    "Could not save the approval record.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The approval record could not be written. This turn stopped. Previous approvals cannot resume execution."
+            "value": "Could not save the approval record."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "审批记录不可写；本轮已停止，旧审批不能恢复执行"
+            "value": "无法保存授权记录。"
           }
         }
       }
@@ -12756,257 +12722,240 @@
         }
       }
     },
-    "The capture session, image, or USB connection is no longer valid. This run has stopped.": {
+    "Screen capture or device connection is unavailable.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The capture session, image, or USB connection is no longer valid. This run has stopped."
+            "value": "Screen capture or device connection is unavailable."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "采集会话、画面或 USB 心跳已失效，本轮已停止"
+            "value": "屏幕采集或设备连接不可用。"
           }
         }
       }
     },
-    "The ChatGPT identity or subscription permission was not accepted. Reconnect.": {
+    "Authorization failed. Sign in again.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT identity or subscription permission was not accepted. Reconnect."
+            "value": "Authorization failed. Sign in again."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 身份或订阅权限未被接受；请重新连接"
+            "value": "授权失败，请重新登录。"
           }
         }
       }
     },
-    "The ChatGPT model or inference route is unavailable. Refresh this account's model list.": {
+    "The model is unavailable. Refresh the model list.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT model or inference route is unavailable. Refresh this account's model list."
+            "value": "The model is unavailable. Refresh the model list."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 模型或推理路由不可用；请刷新此账户的模型列表"
+            "value": "模型不可用，请刷新模型列表。"
           }
         }
       }
     },
-    "The ChatGPT request did not finish because the device is offline. It was not retried automatically.": {
+    "You are offline.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request did not finish because the device is offline. It was not retried automatically."
+            "value": "You are offline."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求未完成：设备未联网；未自动重试"
+            "value": "网络未连接。"
           }
         }
       }
     },
-    "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again.": {
+    "The reply could not be verified.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again."
+            "value": "The reply could not be verified."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法确认 ChatGPT 回复是否完整，本轮已停止。请检查回复后再试。"
+            "value": "无法确认回复是否完整。"
           }
         }
       }
     },
-    "The ChatGPT request timed out. Acceptance is unknown. It was not retried automatically.": {
+    "The request timed out.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request timed out. Acceptance is unknown. It was not retried automatically."
+            "value": "The request timed out."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求超时；受理结果不明，未自动重试"
+            "value": "请求超时。"
           }
         }
       }
     },
-    "The ChatGPT request was denied (HTTP %lld). It was not retried automatically.": {
+    "The request was denied (HTTP %lld).": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request was denied (HTTP %lld). It was not retried automatically."
+            "value": "The request was denied (HTTP %lld)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求被拒绝（HTTP %lld）；未自动重试"
+            "value": "请求被拒绝（HTTP %lld）。"
           }
         }
       }
     },
-    "The ChatGPT request was limited. Subscription usage or request frequency may be restricted.": {
+    "Usage or request rate limit reached.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request was limited. Subscription usage or request frequency may be restricted."
+            "value": "Usage or request rate limit reached."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求受限；可能是订阅额度或请求频率限制"
+            "value": "已达到用量或请求频率限制。"
           }
         }
       }
     },
-    "The ChatGPT request was not sent. The current model or context parameters are incompatible.": {
+    "The model or context settings are incompatible.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request was not sent. The current model or context parameters are incompatible."
+            "value": "The model or context settings are incompatible."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求未发送：当前模型或上下文参数不兼容"
+            "value": "模型或上下文设置不兼容。"
           }
         }
       }
     },
-    "The ChatGPT request was stopped locally. Remote cancellation was not confirmed.": {
+    "Stopped locally; the service may still be processing.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT request was stopped locally. Remote cancellation was not confirmed."
+            "value": "Stopped locally; the service may still be processing."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 请求已在本地停止；未核实远端取消"
+            "value": "已在本机停止，服务端可能仍在处理。"
           }
         }
       }
     },
-    "The ChatGPT response stream was interrupted. Acceptance is unknown. It was not retried automatically.": {
+    "The reply was interrupted.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT response stream was interrupted. Acceptance is unknown. It was not retried automatically."
+            "value": "The reply was interrupted."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 响应流中断；受理结果不明，未自动重试"
+            "value": "回复已中断。"
           }
         }
       }
     },
-    "The ChatGPT service request failed. The model request was not replayed automatically.": {
+    "Could not reach the account service.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT service request failed. The model request was not replayed automatically."
+            "value": "Could not reach the account service."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 服务请求失败；未自动重放模型请求"
+            "value": "无法连接账户服务。"
           }
         }
       }
     },
-    "The ChatGPT subscription request failed": {
+    "The model request failed.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT subscription request failed"
+            "value": "The model request failed."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 订阅请求失败"
+            "value": "模型请求失败。"
           }
         }
       }
     },
-    "The ChatGPT subscription request was denied (HTTP %lld). Check account permissions. No retry or billing change was made.": {
+    "The subscription service is temporarily unavailable.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The ChatGPT subscription request was denied (HTTP %lld). Check account permissions. No retry or billing change was made."
+            "value": "The subscription service is temporarily unavailable."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT 订阅请求被拒绝（HTTP %lld）；请检查账户权限，未重试或改变计费"
-          }
-        }
-      }
-    },
-    "The ChatGPT subscription service or usage check is temporarily unavailable. Credentials were kept.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The ChatGPT subscription service or usage check is temporarily unavailable. Credentials were kept."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ChatGPT 订阅服务或额度核验暂时不可用；凭据已保留"
+            "value": "订阅服务暂时不可用。"
           }
         }
       }
@@ -14235,19 +14184,19 @@
         }
       }
     },
-    "The USB action was not fully acknowledged. This run has stopped. Check your device.": {
+    "The action result is unconfirmed. Check your device.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The USB action was not fully acknowledged. This run has stopped. Check your device."
+            "value": "The action result is unconfirmed. Check your device."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "USB 动作未完成确认，本轮已停止；请核对设备"
+            "value": "动作结果未确认，请核对设备。"
           }
         }
       }
@@ -14303,19 +14252,19 @@
         }
       }
     },
-    "This account, workspace, service region, or route does not permit this subscription request. Check permissions.": {
+    "This account cannot use the selected service.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This account, workspace, service region, or route does not permit this subscription request. Check permissions."
+            "value": "This account cannot use the selected service."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此账户、工作区、服务地区或路由不允许该订阅请求；请核对权限"
+            "value": "此账户无权使用所选服务。"
           }
         }
       }
@@ -15000,19 +14949,19 @@
         }
       }
     },
-    "This turn was interrupted. Review the model response or tool records before retrying.": {
+    "The task was interrupted.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This turn was interrupted. Review the model response or tool records before retrying."
+            "value": "The task was interrupted."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本轮执行中断，请查看模型响应或工具记录后重试"
+            "value": "任务已中断。"
           }
         }
       }
@@ -20695,36 +20644,36 @@
         }
       }
     },
-    "This turn could not be saved. Check available storage and try again. Previous actions will not be replayed.": {
+    "Could not save this reply. Check available storage.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This turn could not be saved. Check available storage and try again. Previous actions will not be replayed."
+            "value": "Could not save this reply. Check available storage."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本轮内容无法保存。请检查可用存储空间后重试，之前的操作不会重放。"
+            "value": "无法保存回复，请检查可用存储空间。"
           }
         }
       }
     },
-    "The conversation could not be reduced to fit this model. Your history is preserved. Try again or choose a model with a larger context window.": {
+    "This conversation exceeds the model context limit. Choose a model with a larger context window.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The conversation could not be reduced to fit this model. Your history is preserved. Try again or choose a model with a larger context window."
+            "value": "This conversation exceeds the model context limit. Choose a model with a larger context window."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "会话未能压缩到此模型可接受的范围。历史记录已保留，请重试或选择上下文窗口更大的模型。"
+            "value": "对话超出模型上下文限制，请选择上下文更大的模型。"
           }
         }
       }
@@ -20746,19 +20695,19 @@
         }
       }
     },
-    "The model stopped responding. This turn ended without an automatic retry.": {
+    "The model stopped responding.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The model stopped responding. This turn ended without an automatic retry."
+            "value": "The model stopped responding."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "模型停止响应。本轮已结束，没有自动重试。"
+            "value": "模型无响应。"
           }
         }
       }

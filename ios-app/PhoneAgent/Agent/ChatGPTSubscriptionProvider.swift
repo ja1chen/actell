@@ -160,7 +160,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                                     try await manager.report(.usageLimited, account: account); throw ChatGPTAuthError.usageLimited
                                 }
                                 if response.error?.code == "subscription_sharing_usage_unavailable" {
-                                    recordFailure(String(localized: "ChatGPT subscription usage could not be checked. Credentials were kept. No retry or billing change was made."))
+                                    recordFailure(String(localized: "Subscription usage could not be checked."))
                                     throw ModelError.providerError("Subscription usage unavailable")
                                 }
                                 stage = "terminal.validate"
@@ -187,7 +187,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     } else if case ModelError.httpError(let status, _) = error {
                         if status == 401 { try? await manager.report(.expired, account: account) }
                         if status == 429 { try? await manager.report(.usageLimited, account: account) }
-                        continuation.finish(throwing: ModelError.providerError(status == 429 ? ChatGPTConnectionStatus.usageLimited.message : String(localized: "The ChatGPT subscription request was denied (HTTP \(status)). Check account permissions. No retry or billing change was made.")))
+                        continuation.finish(throwing: ModelError.providerError(status == 429 ? ChatGPTConnectionStatus.usageLimited.message : String(localized: "The request was denied (HTTP \(status)).")))
                     } else if let safe = error as? ChatGPTAuthError { continuation.finish(throwing: ModelError.providerError(safe.localizedDescription)) }
                     else if let safe = error as? ModelError { continuation.finish(throwing: safe) }
                     else { continuation.finish(throwing: ModelError.interrupted) }
@@ -202,37 +202,57 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         if let auth = error as? ChatGPTAuthError { return auth.localizedDescription }
         if let network = error as? URLError {
             switch network.code {
-            case .notConnectedToInternet: return String(localized: "The ChatGPT request did not finish because the device is offline. It was not retried automatically.")
-            case .timedOut: return String(localized: "The ChatGPT request timed out. Acceptance is unknown. It was not retried automatically.")
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Could not connect to OpenAI inference. Check the network. The request was not retried automatically.")
-            case .secureConnectionFailed, .serverCertificateUntrusted: return String(localized: "A secure connection to OpenAI inference failed. Check the network. The request was not retried automatically.")
+            case .notConnectedToInternet: return String(localized: "You are offline.")
+            case .timedOut: return String(localized: "The request timed out.")
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Could not connect to the model service.")
+            case .secureConnectionFailed, .serverCertificateUntrusted: return String(localized: "Could not establish a secure connection to the model service.")
             default: break
             }
         }
         if let model = error as? ModelError {
             switch model {
-            case .httpError(let status, _): return String(localized: "The ChatGPT request was denied (HTTP \(status)). It was not retried automatically.")
-            case .invalidRequest: return String(localized: "The ChatGPT request was not sent. The current model or context parameters are incompatible.")
-            case .protocolViolation, .invalidResponse, .streamingError, .unsupportedCapability, .interrupted: return String(localized: "The ChatGPT reply could not be fully verified. This turn stopped. Review the reply before trying again.")
-            case .cancelledLocally: return String(localized: "The ChatGPT request was stopped locally. Remote cancellation was not confirmed.")
+            case .httpError(let status, _): return String(localized: "The request was denied (HTTP \(status)).")
+            case .invalidRequest: return String(localized: "The model or context settings are incompatible.")
+            case .protocolViolation, .invalidResponse, .streamingError, .unsupportedCapability, .interrupted: return String(localized: "The reply could not be verified.")
+            case .cancelledLocally: return String(localized: "Stopped locally; the service may still be processing.")
             default: break
             }
         }
-        return String(localized: "The ChatGPT response stream was interrupted. Acceptance is unknown. It was not retried automatically.")
+        return String(localized: "The reply was interrupted.")
     }
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
         var terminal: ModelResponse?
         for try await event in stream(request) { if case .terminal(let response) = event { terminal = response } }
         guard let terminal else { throw ModelError.interrupted }; return terminal
     }
-    private func payloads(_ request: URLRequest, attempt: UUID) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
-            let cancellation = ChatGPTStreamCancellation()
-            let task = Task {
-                do {
-                    let (bytes, response) = try await transport.session.bytes(for: request)
+    func payloads(_ request: URLRequest, attempt: UUID) -> AsyncThrowingStream<String, Error> {
+        let cursor = ChatGPTPayloadCursor(session: transport.session, request: request, attempt: attempt)
+        return AsyncThrowingStream(unfolding: { try await cursor.next() })
+    }
+}
+
+/// Pull frames as validation consumes them, without a separate producer queue.
+/// The iterator is serial; only cancellation crosses threads.
+final class ChatGPTPayloadCursor: @unchecked Sendable {
+    private let session: URLSession, request: URLRequest, attempt: UUID
+    private let cancellation = ChatGPTStreamCancellation()
+    private var iterator: URLSession.AsyncBytes.Iterator?
+    private var decoder = SSEFrameDecoder()
+    private var pendingProbeFrame: String?
+    private var finished = false
+    init(session: URLSession, request: URLRequest, attempt: UUID) {
+        self.session = session; self.request = request; self.attempt = attempt
+    }
+    deinit { cancellation.cancel() }
+    func next() async throws -> String? {
+        try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                guard !finished else { return nil }
+                if iterator == nil {
+                    let (bytes, response) = try await session.bytes(for: request)
                     cancellation.install(bytes.task)
-                    defer { cancellation.cancel() }
+                    try Task.checkCancellation()
                     guard let h = response as? HTTPURLResponse else { throw ChatGPTAuthError.network }
                     LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=stream.headers httpStatus=\(h.statusCode)")
                     if !(200..<300).contains(h.statusCode) {
@@ -250,7 +270,6 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                         }
                         throw LLMUnexpectedResponse(response: h, body: body, truncated: truncated)
                     }
-                    var decoder = SSEFrameDecoder()
                     var iterator = bytes.makeAsyncIterator()
                     if mediaType == "missing" {
                         // Some successful native responses omit Content-Type.
@@ -268,18 +287,24 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                         }
                         LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=stream.headers notice=MissingContentType action=parseValidatedSSE httpStatus=\(h.statusCode)")
                         for byte in probe {
-                            if let payload = try decoder.consume(byte), case .dropped = continuation.yield(payload) { throw ModelError.protocolViolation("Subscription SSE buffer exceeded") }
+                            if let payload = try decoder.consume(byte) { pendingProbeFrame = payload }
                         }
                     }
-                    while let byte = try await iterator.next() {
-                        try Task.checkCancellation()
-                        if let payload = try decoder.consume(byte), case .dropped = continuation.yield(payload) { throw ModelError.protocolViolation("Subscription SSE buffer exceeded") }
-                    }
-                    try decoder.finish(); continuation.finish()
-                } catch { continuation.finish(throwing: Task.isCancelled ? CancellationError() : error) }
+                    self.iterator = iterator
+                }
+                if let frame = pendingProbeFrame { pendingProbeFrame = nil; return frame }
+                while let byte = try await iterator!.next() {
+                    try Task.checkCancellation()
+                    if let payload = try decoder.consume(byte) { return payload }
+                }
+                try decoder.finish()
+                finished = true; cancellation.cancel()
+                return nil
+            } catch {
+                finished = true; cancellation.cancel()
+                throw Task.isCancelled ? CancellationError() : error
             }
-            continuation.onTermination = { _ in cancellation.cancel(); task.cancel() }
-        }
+        } onCancel: { cancellation.cancel() }
     }
 }
 
@@ -301,28 +326,27 @@ struct ChatGPTAdmissionFailure: Error, LocalizedError {
         code = e?["code"] as? String; param = e?["param"] as? String
         bodyShape = e != nil ? "error" : o?["detail"] != nil ? "detail" : o != nil ? "object" : "non-json"
     }
+    var diagnosticSummary: String {
+        let codes: Set<String> = ["invalid_request_error", "unsupported_parameter", "unknown_parameter", "invalid_value", "model_not_found", "permission_denied", "insufficient_permissions", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable"]
+        let fields = ["model", "input", "tools", "instructions", "include", "reasoning", "store", "stream"]
+        let safeParam = fields.first { param == $0 || param?.hasPrefix($0 + ".") == true || param?.hasPrefix($0 + "[") == true }
+        return "httpStatus=\(status) bodyShape=\(bodyShape)" + (code.flatMap { codes.contains($0) ? $0 : nil }.map { " errorCode=" + $0 } ?? "") + (safeParam.map { " field=" + $0 } ?? "")
+    }
     var errorDescription: String? {
         let summary: String
         if code == "subscription_sharing_usage_limit_exceeded" { summary = ChatGPTConnectionStatus.usageLimited.message }
-        else if code == "subscription_sharing_usage_unavailable" { summary = String(localized: "Subscription usage could not be checked. Retry manually later.") }
+        else if code == "subscription_sharing_usage_unavailable" { summary = String(localized: "Subscription usage could not be checked.") }
         else {
             switch status {
-            case 400, 422: summary = String(localized: "ChatGPT request parameters were rejected. Check the request format.")
-            case 401: summary = String(localized: "The ChatGPT identity or subscription permission was not accepted. Reconnect.")
-            case 403: summary = String(localized: "This account, workspace, service region, or route does not permit this subscription request. Check permissions.")
-            case 404: summary = String(localized: "The ChatGPT model or inference route is unavailable. Refresh this account's model list.")
-            case 429: summary = String(localized: "The ChatGPT request was limited. Subscription usage or request frequency may be restricted.")
-            case 503: summary = String(localized: "The ChatGPT subscription service or usage check is temporarily unavailable. Credentials were kept.")
-            default: summary = String(localized: "The ChatGPT subscription request failed")
+            case 400, 422: summary = String(localized: "The request settings were rejected.")
+            case 401: summary = String(localized: "Authorization failed. Sign in again.")
+            case 403: summary = String(localized: "This account cannot use the selected service.")
+            case 404: summary = String(localized: "The model is unavailable. Refresh the model list.")
+            case 429: summary = String(localized: "Usage or request rate limit reached.")
+            case 503: summary = String(localized: "The subscription service is temporarily unavailable.")
+            default: summary = String(localized: "The model request failed.")
             }
         }
-        let codes: Set<String> = ["invalid_request_error", "unsupported_parameter", "unknown_parameter", "invalid_value", "model_not_found", "permission_denied", "insufficient_permissions", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable"]
-        let safeCode = code.flatMap { codes.contains($0) ? $0 : nil }
-        let fields = ["model", "input", "tools", "instructions", "include", "reasoning", "store", "stream"]
-        let safeParam = fields.first { param == $0 || param?.hasPrefix($0 + ".") == true || param?.hasPrefix($0 + "[") == true }
-        var details = ["HTTP \(status)"]
-        if let safeCode { details.append(safeCode) }
-        if let safeParam { details.append(String(localized: "Field \(safeParam)")) }
-        return String(localized: "\(summary) (\(details.joined(separator: "; "))); no automatic retry or billing change was made")
+        return summary
     }
 }

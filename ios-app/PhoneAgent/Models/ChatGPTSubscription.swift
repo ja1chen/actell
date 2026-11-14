@@ -88,9 +88,9 @@ enum ChatGPTConnectionStatus: Equatable {
         case .identityOnly: return String(localized: "Identity connected. Subscription access has not been authorized.")
         case .planAuthorized: return String(localized: "Subscription access authorized. Check available models and usage limits.")
         case .expired: return String(localized: "Authorization expired. Sign in again.")
-        case .refreshFailed: return String(localized: "Authorization refresh failed. No request was sent or retried.")
+        case .refreshFailed: return String(localized: "Authorization refresh failed. Sign in again.")
         case .revoked: return String(localized: "Authorization revoked. Sign in again.")
-        case .usageLimited: return String(localized: "Subscription access is limited or rate-limited for this app. Check ChatGPT usage settings. No credits were purchased and no paid API was used.")
+        case .usageLimited: return String(localized: "Subscription access is limited. Check account usage settings.")
         case .noModels: return String(localized: "No models are available for this account")
         }
     }

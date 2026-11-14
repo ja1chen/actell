@@ -1055,13 +1055,13 @@ struct AgentRunServices {
         runIdentity = nil
         provider?.cancel(); running = false
         approvalContinuation?.resume(returning: false); approvalContinuation = nil; approval = nil
-        mutate { $0.phase = phase; $0.result = String(result.prefix(1_000)); $0.log(phase == .completed ? String(localized: "This conversation turn has ended") : String(localized: "Execution stopped. Check or complete the configuration.")) }
+        mutate { $0.phase = phase; $0.result = String(result.prefix(1_000)); $0.log(phase == .completed ? String(localized: "This conversation turn has ended") : String(localized: "Task stopped.")) }
         status = phase == .completed ? String(localized: "Run finished. Check the result and screenshots.") : String(localized: "Blocked. Review the result details.")
         agent = nil; provider = nil; coordinator = nil; bridge = nil
     }
     private func invalidateApprovals(_ identity: RunIdentity) {
         do { try approvalRecords.invalidate(run: identity) }
-        catch { storageWarning = String(localized: "The approval record could not be written. This turn stopped. Previous approvals cannot resume execution.") }
+        catch { storageWarning = String(localized: "Could not save the approval record.") }
     }
     private func publishActivity(_ phase: AgentActivityAttributes.Phase, tool: String? = nil) {
         guard let identity = runIdentity else { return }
@@ -1167,11 +1167,11 @@ struct AgentRunServices {
         switch failure {
         case .provider(let error): return error
         case .cancelled: return CancellationError()
-        case .storage: return AppError.unavailable(String(localized: "This turn could not be saved. Check available storage and try again. Previous actions will not be replayed."))
-        case .contextCapacity, .contextCompression: return AppError.unavailable(String(localized: "The conversation could not be reduced to fit this model. Your history is preserved. Try again or choose a model with a larger context window."))
+        case .storage: return AppError.unavailable(String(localized: "Could not save this reply. Check available storage."))
+        case .contextCapacity, .contextCompression: return AppError.unavailable(String(localized: "This conversation exceeds the model context limit. Choose a model with a larger context window."))
         case .unsupportedCapability: return AppError.unavailable(String(localized: "The selected model does not support this context mode. Choose local replay or another provider."))
-        case .timeout: return AppError.unavailable(String(localized: "The model stopped responding. This turn ended without an automatic retry."))
-        default: return AppError.unavailable(String(localized: "This turn was interrupted. Review the model response or tool records before retrying."))
+        case .timeout: return AppError.unavailable(String(localized: "The model stopped responding."))
+        default: return AppError.unavailable(String(localized: "The task was interrupted."))
         }
     }
     private static func safeError(_ error: Error, stage: String = "app.failure") -> String {
@@ -1186,7 +1186,7 @@ struct AgentRunServices {
             default: break
             }
         }
-        return String(localized: "This turn was interrupted. Review the model response or tool records before retrying.")
+        return String(localized: "The task was interrupted.")
     }
     static func systemPrompt(skills: [SkillPackage]) -> String {
         let metadata = skills.filter(\.enabled).map {

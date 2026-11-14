@@ -768,7 +768,7 @@ enum LLMDiagnostics {
             detail = "error=ModelStreamStalled seconds=\(stalled.seconds)"
         } else if let response = error as? LLMUnexpectedResponse {
             detail = "error=UnexpectedResponse httpStatus=\(response.status) contentType=\(response.contentType) bodyShape=\(response.bodyShape) truncated=\(response.truncated)" + (response.errorCode.map { " errorCode=" + $0 } ?? "")
-        } else if let admission = error as? ChatGPTAdmissionFailure { detail = "error=HTTP status=\(admission.status) " + admission.localizedDescription }
+        } else if let admission = error as? ChatGPTAdmissionFailure { detail = "error=HTTP " + admission.diagnosticSummary }
         else if let decoding = error as? DecodingError {
             let kind: String, path: [any CodingKey]
             switch decoding {

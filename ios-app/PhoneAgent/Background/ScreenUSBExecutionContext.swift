@@ -142,7 +142,7 @@ final class ScreenUSBExecutionContext: @unchecked Sendable {
             // Only the initial empty session gets this bounded startup grace.
             if frames.diagnostics(now: time).accepted == 0 {
                 checking = .firstFrameTimeout
-                guard time < firstFrameDeadline else { throw AppError.unavailable(String(localized: "No valid image was received within 5 seconds. This run has stopped. \(frames.diagnostics(now: time).summary)")) }
+                guard time < firstFrameDeadline else { throw AppError.unavailable(String(localized: "No screen image received.")) }
             } else {
                 // Static content may produce no new samples. Only capture
                 // invalidation, not the age of the retained frame, ends this run.

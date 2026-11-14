@@ -4,9 +4,9 @@ enum USBBridgeStopReason: String, Error, Sendable {
     case sessionInvalid, screenshotTimeout, inputFailed
     var message: String {
         switch self {
-        case .sessionInvalid: return String(localized: "The capture session, image, or USB connection is no longer valid. This run has stopped.")
+        case .sessionInvalid: return String(localized: "Screen capture or device connection is unavailable.")
         case .screenshotTimeout: return String(localized: "Timed out waiting for a valid screenshot. Input has stopped for this run.")
-        case .inputFailed: return String(localized: "The USB action was not fully acknowledged. This run has stopped. Check your device.")
+        case .inputFailed: return String(localized: "The action result is unconfirmed. Check your device.")
         }
     }
 }
