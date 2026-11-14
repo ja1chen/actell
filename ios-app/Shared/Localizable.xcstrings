@@ -4900,40 +4900,6 @@
         }
       }
     },
-    "Enter a task of 1–2,000 characters": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter a task of 1–2,000 characters"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请输入 1 至 2000 字的任务"
-          }
-        }
-      }
-    },
-    "Enter a task of 1–2,000 characters.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter a task of 1–2,000 characters."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请输入 1 至 2000 字的任务。"
-          }
-        }
-      }
-    },
     "Enter an HTTPS base URL without credentials, query parameters, or a fragment": {
       "extractionState": "manual",
       "localizations": {
@@ -21207,6 +21173,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "已自动授权"
+          }
+        }
+      }
+    },
+    "Conversation files could not be opened. You can still chat and use other available tools. Check available storage and start a new task to retry file tools.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation files could not be opened. You can still chat and use other available tools. Check available storage and start a new task to retry file tools."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开会话文件，仍可聊天和使用可用的手机控制功能。请检查存储空间，并在新一轮任务中重试文件工具。"
+          }
+        }
+      }
+    },
+    "Conversation history is unavailable. Check available storage and reopen the app. If this history is damaged, continue in a new conversation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation history is unavailable. Check available storage and reopen the app. If this history is damaged, continue in a new conversation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话历史不可用。请检查存储空间并重新打开 App；若历史已损坏，请恢复到新会话后继续。"
+          }
+        }
+      }
+    },
+    "Could not save task progress. Check available storage, reopen the app, and try again. No model request or phone action was sent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save task progress. Check available storage, reopen the app, and try again. No model request or phone action was sent."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存任务进度。请检查可用存储空间，重新打开 App 后重试。未向模型发送请求，也未操作手机。"
+          }
+        }
+      }
+    },
+    "Enter a task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a task"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入任务"
+          }
+        }
+      }
+    },
+    "Muse is using phone controls. You can chat and use files; phone controls are unavailable for this task. Stop the Muse task and send again to use them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse is using phone controls. You can chat and use files; phone controls are unavailable for this task. Stop the Muse task and send again to use them."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 正在操控手机，仍可聊天和使用文件，本轮无法操控手机。如需操控，请停止 Muse 任务后重新发送。"
+          }
+        }
+      }
+    },
+    "Phone controls could not be prepared. Chat and file tools remain available. Check the connection in Settings and start a new task to retry phone controls.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone controls could not be prepared. Chat and file tools remain available. Check the connection in Settings and start a new task to retry phone controls."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机控制暂不可用，仍可聊天和使用文件工具。请在设置中检查连接，并在新一轮任务中重试手机控制。"
+          }
+        }
+      }
+    },
+    "Recovering readable messages. Wait for the new conversation to open before sending.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering readable messages. Wait for the new conversation to open before sending."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复可读消息，请等新会话打开后再发送。"
+          }
+        }
+      }
+    },
+    "Stopping the previous task. You can send when it finishes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping the previous task. You can send when it finishes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止上一项任务，结束后即可发送。"
+          }
+        }
+      }
+    },
+    "The selected conversation changed. Open the conversation you want and send again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected conversation changed. Open the conversation you want and send again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前会话已切换。请打开目标会话后重新发送。"
+          }
+        }
+      }
+    },
+    "This conversation contains images that this model cannot read. Choose a model with image support, or start a new text-only conversation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation contains images that this model cannot read. Choose a model with image support, or start a new text-only conversation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此会话包含当前模型无法读取的图片。请选择支持图片的模型，或新建纯文本会话。"
+          }
+        }
+      }
+    },
+    "This conversation is unavailable. Open it again or start a new conversation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation is unavailable. Open it again or start a new conversation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此会话不可用。请重新打开，或新建会话。"
+          }
+        }
+      }
+    },
+    "This message was not sent. Wait for the current task, attachment preparation, or history recovery to finish, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message was not sent. Wait for the current task, attachment preparation, or history recovery to finish, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息尚未发送。请等当前任务、附件准备或历史恢复结束后重试。"
+          }
+        }
+      }
+    },
+    "This model cannot read images. Remove the image attachments or choose a model that supports images, then send again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model cannot read images. Remove the image attachments or choose a model that supports images, then send again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模型无法读取图片。请移除图片附件，或选择支持图片的模型后重新发送。"
+          }
+        }
+      }
+    },
+    "This model cannot read images. Text chat and text tools remain available; screenshot controls are unavailable unless Accessibility Only is selected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model cannot read images. Text chat and text tools remain available; screenshot controls are unavailable unless Accessibility Only is selected."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模型无法读取图片，仍可进行文本聊天和使用文字工具。如需查看和操作屏幕，请选择支持图片的模型，或将屏幕信息模式设为“仅辅助功能”。"
+          }
+        }
+      }
+    },
+    "This model does not support text generation. Select a chat model and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model does not support text generation. Select a chat model and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模型不支持生成文本。请选择聊天模型后重试。"
+          }
+        }
+      }
+    },
+    "This model does not support tools. You can chat, but this task cannot use phone controls, files, commands, or skills. Choose a model with tool support to use them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model does not support tools. You can chat, but this task cannot use phone controls, files, commands, or skills. Choose a model with tool support to use them."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模型不支持工具。仍可聊天，但本轮无法操控手机、访问文件、执行命令或加载技能。如需使用，请选择支持工具的模型。"
           }
         }
       }

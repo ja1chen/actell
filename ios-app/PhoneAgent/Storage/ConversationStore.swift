@@ -309,7 +309,7 @@ import ProviderCore
     /// reports a saved task when the archive is locked, corrupt, or full.
     func prepare(_ command: SessionCommand, task: String) throws -> UUID {
         let text = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text.count <= 2_000 else { throw SessionCommandError.invalidTask }
+        guard !text.isEmpty else { throw SessionCommandError.invalidTask }
         if let previous = records.first(where: { $0.entry?.commandID == command.commandID }) {
             guard previous.entry?.source == command.source else { throw SessionCommandError.conflictingCommand }
             return previous.id
@@ -340,7 +340,7 @@ import ProviderCore
     }
     func setDraft(_ text: String, in id: UUID) {
         guard let index = index(id) else { return }
-        records[index].draft = String(text.prefix(2_000)); dirtyIDs.insert(id); scheduleSave()
+        records[index].draft = text; dirtyIDs.insert(id); scheduleSave()
     }
     func addDraftAttachment(_ attachment: StoredAttachment, in id: UUID) {
         guard attachment.conversationID == id, activeRuns[id] == nil, let index = index(id) else { return }

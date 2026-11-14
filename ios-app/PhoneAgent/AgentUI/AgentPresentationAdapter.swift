@@ -106,10 +106,16 @@ struct ToolPresentation {
     }
 
     @discardableResult func dispatch(_ intent: AgentUIIntent) -> Bool {
-        guard navigationModel.selectedConversationID == sessionID else { return false }
+        guard navigationModel.selectedConversationID == sessionID else {
+            model.errorMessage = String(localized: "The selected conversation changed. Open the conversation you want and send again.")
+            return false
+        }
         switch intent {
         case .send(let id, let text, let consent):
-            guard id == sessionID else { return false }
+            guard id == sessionID else {
+                model.errorMessage = String(localized: "This conversation is unavailable. Open it again or start a new conversation.")
+                return false
+            }
             return model.send(text, in: id, cloudConsent: consent)
         case .approve(let step, let id), .deny(let step, let id):
             guard step.run == activeRun, let request = model.approval(in: sessionID),

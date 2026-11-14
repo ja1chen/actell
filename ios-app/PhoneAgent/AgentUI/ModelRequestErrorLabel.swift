@@ -5,6 +5,7 @@ import Foundation
 enum ModelRequestErrorLabel {
     static func title(_ message: String) -> String {
         switch message {
+        case "model_images_unsupported": return String(localized: "This conversation contains images that this model cannot read. Choose a model with image support, or start a new text-only conversation.")
         case "Unsupported image type": return String(localized: "Unsupported image type")
         case "Image exceeds byte limit": return String(localized: "Image exceeds the size limit")
         case "Runtime message coordinator requires portable messages; explicit native context belongs at the wire adapter boundary": return String(localized: "This message context is not supported. Start a new conversation.")

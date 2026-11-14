@@ -5,6 +5,20 @@ import ProviderCore
 @testable import PhoneAgent
 
 @MainActor final class ConversationTests: XCTestCase {
+    func testLongPreparedTaskAndEditedDraftPersistWithoutTruncation() throws {
+        let directory = try temporaryDirectory()
+        let store = ConversationStore(directory: directory)
+        let text = String(repeating: "长文本🙂\n", count: 10_000)
+        let id = try store.prepare(SessionCommand(.prepare(text)), task: text)
+        XCTAssertEqual(store.conversation(id)?.draft, text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let edited = text + "完整草稿结尾"
+        store.setDraft(edited, in: id)
+        store.saveNow()
+        XCTAssertEqual(store.conversation(id)?.draft, edited)
+        XCTAssertEqual(ConversationStore(directory: directory).conversation(id)?.draft, edited)
+        XCTAssertThrowsError(try store.prepare(SessionCommand(.prepare(" \n")), task: " \n"))
+    }
+
     func testTurnSummaryGroupsWholeRunsAndCountsOnlyNonemptyThoughtsAndToolCalls() {
         let first = UUID(), second = UUID()
         let messages = [
@@ -264,6 +278,77 @@ import ProviderCore
 }
 
 @MainActor final class ConversationRuntimeTests: XCTestCase {
+    func testUnavailableWorkspaceDisablesOnlyFileTools() async throws {
+        let store = ConversationStore(inMemory: true), provider = AdmissionInspectionProvider()
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: provider, bridge: UnavailableBridge()))
+        let id = model.createConversation(mode: .live)
+        let workspace = try store.workspaceDirectory(id)
+        try FileManager.default.removeItem(at: workspace)
+        try Data("workspace blocked".utf8).write(to: workspace)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        XCTAssertTrue(model.send("chat without workspace", in: id, cloudConsent: true))
+        try await waitUntil { !model.running }
+        XCTAssertEqual(store.conversation(id)?.phase, .completed)
+        let request = try XCTUnwrap(provider.requests.first)
+        XCTAssertFalse(request.tools.contains { ["bash", "read", "write", "edit"].contains($0.name) })
+        XCTAssertTrue(request.tools.contains { $0.name == "screenshot" })
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    func testModelCapabilityDegradationStillCompletesTextChat() async throws {
+        let combinations: [(CapabilitySupport, CapabilitySupport)] = [(.unsupported, .unsupported), (.unsupported, .supported), (.unknown, .unknown)]
+        for (vision, toolSupport) in combinations {
+            let store = ConversationStore(inMemory: true), providers = ProviderStore(defaults: nil)
+            var profile = ProviderProfile(name: "fixture", settings: .init(baseURL: "https://example.com/v1", model: "fixture"))
+            profile.catalog = ModelCatalog(endpoint: try profile.catalogEndpoint(), fetchedAt: Date(), models: [
+                DiscoveredModel(id: "fixture", name: "fixture", vision: vision, tools: toolSupport)
+            ])
+            XCTAssertNoThrow(try profile.requireInference(model: "fixture"))
+            try providers.save(profile)
+            let provider = AdmissionInspectionProvider()
+            let model = AgentViewModel(sessions: store, loadPersistentState: false,
+                runServices: .init(provider: provider, bridge: UnavailableBridge()), providers: providers)
+            let id = model.createConversation(mode: .live)
+            XCTAssertTrue(model.send("text chat", in: id, cloudConsent: true))
+            try await waitUntil { !model.running }
+            XCTAssertEqual(store.conversation(id)?.phase, .completed)
+            let request = try XCTUnwrap(provider.requests.first)
+            if toolSupport == .unsupported {
+                XCTAssertTrue(request.tools.isEmpty)
+                XCTAssertNotNil(model.errorMessage)
+            } else {
+                XCTAssertTrue(request.tools.contains { $0.name == "bash" })
+                if vision == .unsupported && ScreenInformationMode.load() != .accessibility {
+                    XCTAssertFalse(request.tools.contains { ["screenshot", "tap", "drag"].contains($0.name) })
+                }
+            }
+            XCTAssertTrue(store.conversation(id)?.messages.contains { $0.role == .assistant && $0.text == "Chat completed" } == true)
+        }
+    }
+
+    func testMuseOwnershipDisablesOnlyPhoneToolsForLocalChat() async throws {
+        let store = ConversationStore(inMemory: true), provider = AdmissionInspectionProvider()
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: provider, bridge: UnavailableBridge()), makeRemoteBridge: { UnavailableBridge() })
+        _ = try model.acquireRemoteRun("fixture-owner", onImage: { _ in }, onStop: {})
+        defer { model.releaseRemoteRun("fixture-owner") }
+        let id = model.createConversation(mode: .live)
+        XCTAssertTrue(model.send("chat during Muse control", in: id, cloudConsent: true))
+        try await waitUntil { !model.running }
+        XCTAssertEqual(store.conversation(id)?.phase, .completed)
+        let request = try XCTUnwrap(provider.requests.first)
+        XCTAssertTrue(request.tools.contains { $0.name == "bash" })
+        XCTAssertFalse(request.tools.contains { ["screenshot", "tap", "home", "launch_app", "type_text"].contains($0.name) })
+        XCTAssertTrue(model.remoteAdmissionSnapshot["remote_lease"] == "true")
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertTrue(model.send("cancel only local chat", in: id, cloudConsent: true))
+        let localRun = try XCTUnwrap(model.currentRun)
+        XCTAssertTrue(model.stop(run: localRun))
+        try await waitUntil { !model.stopping }
+        XCTAssertTrue(model.remoteAdmissionSnapshot["remote_lease"] == "true")
+    }
+
     func testToolReceiptsAreSavedBeforeNextModelRequest() async throws {
         let store = ConversationStore(inMemory: true)
         let provider = ReceiptInspectionProvider {
@@ -409,6 +494,24 @@ import ProviderCore
         XCTAssertFalse(model.send("测试", in: id))
         XCTAssertFalse(model.running)
         XCTAssertTrue(store.conversation(id)?.messages.isEmpty == true)
+    }
+}
+
+final class AdmissionInspectionProvider: ModelProvider, @unchecked Sendable {
+    static let name = "admission-inspection"
+    let configuration = DemoProvider().configuration
+    private let lock = NSLock()
+    private var captured: [ModelRequest] = []
+    var requests: [ModelRequest] { lock.withLock { captured } }
+    func complete(_ request: ModelRequest) async throws -> ModelResponse {
+        ModelResponse(text: "Chat completed", finishReason: .stop, request: request, providerName: Self.name)
+    }
+    func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
+        lock.withLock { captured.append(request) }
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.terminal(ModelResponse(text: "Chat completed", finishReason: .stop, request: request, providerName: Self.name)))
+            continuation.finish()
+        }
     }
 }
 

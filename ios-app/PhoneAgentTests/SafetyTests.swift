@@ -529,6 +529,6 @@ final class SafetyTests: XCTestCase {
         XCTAssertEqual(messages.map { $0["role"] as? String }, ["assistant", "tool", "user"])
         XCTAssertTrue(messages[1]["content"] is String)
         XCTAssertTrue(messages[2]["content"] is [[String: Any]])
-        XCTAssertEqual(object["parallel_tool_calls"] as? Bool, true)
+        XCTAssertNil(object["parallel_tool_calls"])
     }
 }

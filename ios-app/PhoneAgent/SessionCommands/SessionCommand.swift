@@ -39,7 +39,7 @@ enum SessionCommandError: LocalizedError {
         switch self {
         case .executionFailed(let reason): return reason
         case .startFailed: return String(localized: "The task could not start. Open Zhiyan and check the task and provider settings.")
-        case .invalidTask: return String(localized: "Enter a task of 1–2,000 characters.")
+        case .invalidTask: return String(localized: "Enter a task")
         case .unavailableStorage: return String(localized: "The draft could not be saved. Open Zhiyan and check storage.")
         case .missingSession: return String(localized: "This draft is no longer available.")
         case .conflictingCommand: return String(localized: "This request identifier has already been used.")

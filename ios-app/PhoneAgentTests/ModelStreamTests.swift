@@ -84,7 +84,12 @@ final class ModelStreamTests: XCTestCase {
         let body = try XCTUnwrap(provider.prepareRequest(request, stream: true).httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(json["stream"] as? Bool, true)
-        XCTAssertEqual(json["parallel_tool_calls"] as? Bool, true)
+        XCTAssertNil(json["parallel_tool_calls"])
+        var withTools = request
+        withTools.tools = [.init(name: "wait", description: "Wait", parameters: ["type": "object", "properties": [:]])]
+        let toolBody = try XCTUnwrap(provider.prepareRequest(withTools, stream: true).httpBody)
+        let toolJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: toolBody) as? [String: Any])
+        XCTAssertEqual(toolJSON["parallel_tool_calls"] as? Bool, true)
     }
     func testNonStreamingBatchPreservesIDsAndRejectsMissingOrRepeatedIdentity() throws {
         let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits(), sessionID: UUID())

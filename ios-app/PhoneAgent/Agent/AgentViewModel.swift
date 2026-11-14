@@ -503,12 +503,19 @@ struct AgentRunServices {
         sessions.addDraftAttachment(asset, in: id)
     }
     private func canImportAttachment(in id: UUID) throws {
-        guard !running, !stopping, !appOwner.clearingAssets, appOwner.selectedConversationID == id, sessions.conversation(id) != nil else { throw AppError.stopped }
+        guard appOwner.selectedConversationID == id, sessions.conversation(id) != nil else {
+            throw AppError.unavailable(String(localized: "The selected conversation changed. Open the conversation you want and send again."))
+        }
+        guard !running else { throw AppError.unavailable(String(localized: "A task is already running in this conversation")) }
+        guard !stopping else { throw AppError.unavailable(String(localized: "The previous task is still stopping. Try again shortly.")) }
+        guard !appOwner.clearingAssets else { throw AppError.unavailable(String(localized: "Files are being cleaned up. Try again shortly.")) }
     }
     @discardableResult func sendDraft(_ text: String, in id: UUID, cloudConsent: Bool) async throws -> Bool {
         let worker = executionModel(for: id)
         if worker !== self { return try await worker.sendDraft(text, in: id, cloudConsent: cloudConsent) }
-        guard let before = sessions.conversation(id) else { return false }
+        guard let before = sessions.conversation(id) else {
+            throw AppError.unavailable(String(localized: "This conversation is unavailable. Open it again or start a new conversation."))
+        }
         let providerBefore = selectedProvider(in: id)
         try canImportAttachment(in: id); appOwner.assetMutations += 1
         defer { appOwner.assetMutations -= 1 }
@@ -536,13 +543,11 @@ struct AgentRunServices {
             usbDiagnostics.record("run.startRejected reason=\(reason) foreground=\(foreground) protectedData=\(protectedDataAvailable)")
             return false
         }
-        guard appOwner.remoteLeaseID == nil else { return reject("remoteBusy", String(localized: "Muse is using this device. Stop its task first.")) }
         guard !running else { return reject("running", String(localized: "A task is already running in this conversation")) }
         guard !stopping else { return reject("stopping", String(localized: "The previous task is still stopping. Try again shortly.")) }
-        guard !appOwner.clearingAssets else { return reject("clearingAssets", String(localized: "Files are being cleaned up. Try again shortly.")) }
+        guard prepared.references.isEmpty || !appOwner.clearingAssets else { return reject("clearingAssets", String(localized: "Files are being cleaned up. Try again shortly.")) }
         guard foreground || (allowBackgroundStart && commandCanStart) else { return reject("notForeground", String(localized: "The app has not entered the foreground. The task has not started.")) }
         guard protectedDataAvailable else { return reject("protectedData", String(localized: "Unlock the device to run a task")) }
-        guard listenerTask == nil else { return reject("listenerBusy", String(localized: "Device connection setup has not finished. Try again shortly.")) }
         guard primarySessionID == conversationID, let session = sessions.conversation(conversationID) else {
             return reject("missingSession", String(localized: "This execution session is unavailable. Start a new task."))
         }
@@ -551,15 +556,30 @@ struct AgentRunServices {
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = trimmed.isEmpty && !prepared.references.isEmpty ? String(localized: "Please review the attachment") : trimmed
-        guard !query.isEmpty, query.count <= 2_000 else { return reject("invalidTask", String(localized: "Enter a task of 1–2,000 characters")) }
+        guard !query.isEmpty else { return reject("invalidTask", String(localized: "Enter a task")) }
         guard session.mode == .demo || cloudConsent else { return reject("cloudConsent", String(localized: "Confirm sending this task to the selected model provider")) }
+        let profile = session.mode == .live ? self.selectedProvider(in: conversationID) : nil
+        let metadata = profile?.metadata(for: selectedModel(in: conversationID))
+        let supportsImages = metadata?.vision != .unsupported
+        let supportsTools = metadata?.tools != .unsupported
+        var deviceAvailable = appOwner.remoteLeaseID == nil
+        guard supportsImages || prepared.images.isEmpty else {
+            return reject("imagesUnsupported", String(localized: "This model cannot read images. Remove the image attachments or choose a model that supports images, then send again."))
+        }
+        var runNotices: [String] = []
+        if !supportsTools { runNotices.append(String(localized: "This model does not support tools. You can chat, but this task cannot use phone controls, files, commands, or skills. Choose a model with tool support to use them.")) }
+        if !supportsImages && supportsTools { runNotices.append(String(localized: "This model cannot read images. Text chat and text tools remain available; screenshot controls are unavailable unless Accessibility Only is selected.")) }
+        if !deviceAvailable && supportsTools { runNotices.append(String(localized: "Muse is using phone controls. You can chat and use files; phone controls are unavailable for this task. Stop the Muse task and send again to use them.")) }
         cancelPreview()
         let selectedMode = session.mode, token = UUID()
         var runSettings = ProviderSettings()
         let selectedBridge: any DeviceBridge
         let selectedProvider: any ModelProvider
         do {
-            if let services = runServicesFactory?(conversationID) ?? runServices { selectedBridge = services.bridge; selectedProvider = services.provider }
+            if let services = runServicesFactory?(conversationID) ?? runServices {
+                selectedBridge = supportsTools && deviceAvailable ? services.bridge : UnavailableBridge()
+                selectedProvider = services.provider
+            }
             else if selectedMode == .demo { selectedBridge = DemoBridge(); selectedProvider = DemoProvider() }
             else {
                 guard let profile = self.selectedProvider(in: conversationID) else { throw AppError.invalid(String(localized: "Select a provider for this conversation. The previous provider may have been removed.")) }
@@ -583,18 +603,28 @@ struct AgentRunServices {
                     LiveDeviceBridgeRouter.USBInput(transport: client, health: client.health,
                                                    supportsHID: appOwner.usbConnectionStatus == .ready(hid: true))
                 }
-                switch DeviceControlRoute.current {
-                case .ncmDeveloper, .vpnLoopback:
-                    selectedBridge = try CoreDeviceBridge()
-                case .localCaptureUSB:
-                    selectedBridge = try LiveDeviceBridgeRouter.make(frames: capture.frames, captureActive: capture.active,
-                    usb: usbInput, backgroundEnabled: true,
-                    usbStatus: appOwner.usbConnectionStatus, diagnostics: usbDiagnostics) { [weak self] reason in
-                        Task { @MainActor in
-                            guard self?.generation == token, self?.finishingRun == false else { return }
-                            let message = reason == .sessionInvalid ? (self?.screenExecutionContext?.failureMessage ?? reason.message) : reason.message
-                            self?.stop(message: message)
+                if !supportsTools || !deviceAvailable {
+                    selectedBridge = UnavailableBridge()
+                } else {
+                    do {
+                        switch DeviceControlRoute.current {
+                        case .ncmDeveloper, .vpnLoopback:
+                            selectedBridge = try CoreDeviceBridge()
+                        case .localCaptureUSB:
+                            selectedBridge = try LiveDeviceBridgeRouter.make(frames: capture.frames, captureActive: capture.active,
+                            usb: usbInput, backgroundEnabled: true,
+                            usbStatus: appOwner.usbConnectionStatus, diagnostics: usbDiagnostics) { [weak self] reason in
+                                Task { @MainActor in
+                                    guard self?.generation == token, self?.finishingRun == false else { return }
+                                    let message = reason == .sessionInvalid ? (self?.screenExecutionContext?.failureMessage ?? reason.message) : reason.message
+                                    self?.stop(message: message)
+                                }
+                            }
                         }
+                    } catch {
+                        selectedBridge = UnavailableBridge()
+                        deviceAvailable = false
+                        runNotices.append(String(localized: "Phone controls could not be prepared. Chat and file tools remain available. Check the connection in Settings and start a new task to retry phone controls."))
                     }
                 }
                 selectedProvider = cloud; provider = cloud
@@ -604,6 +634,9 @@ struct AgentRunServices {
         }
         guard let identity = sessions.begin(in: conversationID, query: query, attachments: prepared.references) else {
             provider?.cancel(); provider = nil
+            if !sessions.storageReady {
+                return reject("storageUnavailable", String(localized: "Conversation history is unavailable. Check available storage and reopen the app. If this history is damaged, continue in a new conversation."))
+            }
             return reject("sessionAlreadyActive", String(localized: "This conversation already has a run record. The task was not started again."))
         }
         screenExecutionContext = selectedBridge.executionContext
@@ -615,9 +648,10 @@ struct AgentRunServices {
             stopHealthObservation()
             screenExecutionContext?.revoke(); screenExecutionContext = nil; executionScheduler.configure(context: nil, allowSystemProcessing: false)
             provider?.cancel(); provider = nil
-            sessions.finish(identity, phase: .blocked, summary: String(localized: "The execution checkpoint could not be saved. Execution has not started."))
+            let message = String(localized: "Could not save task progress. Check available storage, reopen the app, and try again. No model request or phone action was sent.")
+            sessions.finish(identity, phase: .blocked, summary: message)
             Task { await selectedBridge.stop() }
-            errorMessage = String(localized: "The execution checkpoint could not be saved. Execution has not started."); return false
+            errorMessage = message; return false
         }
         runIdentity = identity; generation = token; mode = selectedMode; finishingRun = false
         usbDiagnostics.record("run.authorization policy=host fixedDurationLimit=false")
@@ -637,8 +671,13 @@ struct AgentRunServices {
             lifecycle: lifecycle, generation: token, authorizationMode: toolAuthorizationPolicy.inputGrantMode, diagnostics: usbDiagnostics,
             screenInformationMode: screenInformationMode)
         coordinator = action
-        let names = selectedMode == .demo ? ["screenshot", "tap", "drag", "wait", "finish"] : ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text", "wait"]
-        let skillSnapshot = skills.enabledSnapshot
+        var names = selectedMode == .demo ? ["screenshot", "tap", "drag", "wait", "finish"] : ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text", "wait"]
+        if !deviceAvailable { names = [] }
+        if !supportsImages && screenInformationMode != .accessibility {
+            names.removeAll { ["screenshot", "tap", "drag"].contains($0) }
+        }
+        if !supportsTools { names = [] }
+        let skillSnapshot = supportsTools ? skills.enabledSnapshot : []
         runSkillNames = Dictionary(uniqueKeysWithValues: skillSnapshot.map { ($0.id.uuidString, $0.name) })
         var tools: [any AgentTool] = names.map { DeviceTool(name: $0, coordinator: action, onResult: { [weak self] call, result in
             await self?.recordToolResult(call, result: result, generation: token)
@@ -653,34 +692,35 @@ struct AgentRunServices {
                 })
             }
         }
-        do {
-            let workspace = try FileWorkspace(root: sessions.workspaceDirectory(conversationID))
-            tools += ExecutionTool.Kind.allCases.map { kind in
-                ExecutionTool(kind: kind, workspace: workspace, canExecute: { [weak self] in
-                    guard let self else { return false }
-                    return await self.canReadSkill(identity: identity, generation: token)
-                }, authorizeMutation: { [weak self] call, detail in
-                    await self?.authorizeExecutionMutation(call, detail: detail, generation: token) ?? false
-                }, onResult: { [weak self] call, result in
-                    await self?.finishExecutionTool(call, result: result, generation: token)
-                })
+        if supportsTools {
+            do {
+                let workspace = try FileWorkspace(root: sessions.workspaceDirectory(conversationID))
+                tools += ExecutionTool.Kind.allCases.map { kind in
+                    ExecutionTool(kind: kind, workspace: workspace, canExecute: { [weak self] in
+                        guard let self else { return false }
+                        return await self.canReadSkill(identity: identity, generation: token)
+                    }, authorizeMutation: { [weak self] call, detail in
+                        await self?.authorizeExecutionMutation(call, detail: detail, generation: token) ?? false
+                    }, onResult: { [weak self] call, result in
+                        await self?.finishExecutionTool(call, result: result, generation: token)
+                    })
+                }
+            } catch {
+                runNotices.append(String(localized: "Conversation files could not be opened. You can still chat and use other available tools. Check available storage and start a new task to retry file tools."))
             }
-        } catch {
-            cancelRun(message: String(localized: "The conversation workspace could not be opened."), phase: .blocked)
-            return false
         }
-        let profile = self.selectedProvider(in: conversationID)
+        for notice in runNotices { sessions.addNotice(notice, in: conversationID) }
+        errorMessage = runNotices.isEmpty ? nil : runNotices.joined(separator: "\n")
         let scope = (selectedProvider as? PrivateVisionProvider)?.replayScope
             ?? (selectedProvider as? ChatGPTSubscriptionProvider)?.replayScope
         let storage: StoragePolicy = profile?.contextPolicy == .responseChain ? .responseChain : .none
-        let metadata = profile?.metadata(for: runSettings.model)
         // Older OpenRouter/Ollama catalogs used inputTokenLimit for a total window.
         let reportsTotalWindow = profile?.providerKind == .openRouter || profile?.providerKind == .ollama
         let inputLimit = reportsTotalWindow ? nil : metadata?.inputTokenLimit
         let contextLimit = metadata?.contextTokenLimit ?? (reportsTotalWindow ? metadata?.inputTokenLimit : nil)
         let planning = Self.contextPlanningBudget(default: inputLimit ?? contextLimit ?? ContextBudget.defaultPlanningTokens)
         let config = AgentConfiguration(model: selectedProvider.configuration.defaultModel ?? runSettings.model,
-            instructions: Self.systemPrompt(skills: skillSnapshot) + "\nLocal skills directory: \(skills.directory?.path ?? SkillStore.localDirectory.path). Store each skill in its own folder with SKILL.md at the root. The library is rescanned before each run; this run keeps its starting skill snapshot.", scope: scope, storage: storage,
+            instructions: Self.systemPrompt(skills: skillSnapshot) + "\nOnly the tools supplied in this request are available. Do not claim that an unavailable tool was used.\n" + runNotices.joined(separator: "\n") + "\nLocal skills directory: \(skills.directory?.path ?? SkillStore.localDirectory.path). Store each skill in its own folder with SKILL.md at the root. The library is rescanned before each run; this run keeps its starting skill snapshot.", scope: scope, storage: storage,
             budget: ContextBudget(planningTokens: planning, hardInputTokens: inputLimit, hardContextTokens: contextLimit,
                 outputReserve: limits.maxOutputTokens ?? ContextBudget.defaultOutputReserve), maxOutputTokens: limits.maxOutputTokens,
             cacheKey: conversationID.uuidString, maximumInferences: limits.maxTurns)
@@ -689,7 +729,9 @@ struct AgentRunServices {
             runner = AgentRuntime(store: try sessions.engineStore(for: conversationID), provider: selectedProvider,
                                   configuration: config, tools: tools)
         } catch {
-            let message = Self.safeError(error)
+            let message = (error is StoreError || error is SessionCommandError)
+                ? String(localized: "Conversation history is unavailable. Check available storage and reopen the app. If this history is damaged, continue in a new conversation.")
+                : Self.safeError(error)
             cancelRun(message: message, phase: .blocked)
             errorMessage = message
             return false
@@ -784,11 +826,12 @@ struct AgentRunServices {
         end(phase, result: result, publishNotice: publishNotice)
     }
     func stop(message: String = String(localized: "Stopped. An action already sent may have run. Check the device."), interrupted: Bool = false) {
-        endRemoteContinuity()
-        if let remoteRuntime {
+        if let remoteRuntime, !running {
+            endRemoteContinuity()
             remoteRuntime.stop(message: message, interrupted: interrupted)
             return
         }
+        if remoteRuntime == nil { endRemoteContinuity() }
         cancelRun(message: message, phase: interrupted ? .interrupted : .stopped)
     }
     private static func contextPlanningBudget(default value: Int) -> Int {
@@ -811,6 +854,7 @@ struct AgentRunServices {
             return
         }
         cancelPreview()
+        let preserveUSBSetup = running && listenerTask != nil && !(bridge is USBDeviceBridge) && !disconnectUSB
         generation = UUID() // Fence late callbacks before cancelling anything.
         finishingRun = false
         stopHealthObservation()
@@ -829,12 +873,12 @@ struct AgentRunServices {
         approvalTimeout?.cancel(); approvalTimeout = nil
         if let identity = runIdentity { sessions.finish(identity, phase: phase, summary: publishNotice ? message : "") }
         runIdentity = nil
-        listenerGeneration = UUID(); listenerTask?.cancel()
-        let oldListenerTask = listenerTask; listenerTask = nil
+        let oldListenerTask = preserveUSBSetup ? nil : listenerTask
+        if !preserveUSBSetup { listenerGeneration = UUID(); listenerTask?.cancel(); listenerTask = nil }
         approvalContinuation?.resume(returning: false); approvalContinuation = nil; approval = nil
         let old = coordinator, oldBridge = bridge, oldTask = runTask
-        let closingUSB = disconnectUSB || usbConnectionStatus.isConnecting ? usbClient : nil
-        if closingUSB != nil || usbConnectionStatus.isConnecting {
+        let closingUSB = disconnectUSB || (!preserveUSBSetup && usbConnectionStatus.isConnecting) ? usbClient : nil
+        if closingUSB != nil || (!preserveUSBSetup && usbConnectionStatus.isConnecting) {
             usbGeneration = UUID(); usbClient = nil; usbConnectionStatus = .disconnected(message)
         }
         stopping = true

@@ -16,10 +16,12 @@ final class PrivateVisionProvider: ModelCompactingProvider, @unchecked Sendable 
     private let transport: ResponsesTransport
     private let providerKind: ProviderKind
     private let parameterFields: [String: Any]
+    private let supportsImages: Bool
     init(settings: ProviderSettings, apiKey: String, limits: AgentLimits,
          providerKind: ProviderKind = .openAI, parameters: ModelParameters = ModelParameters(), metadata: DiscoveredModel? = nil,
          inferenceAPI: InferenceAPI = .chatCompletions, contextPolicy: ProviderContextPolicy = .stateless, accountReference: String = "",
          sessionID: UUID, transport: ResponsesTransport? = nil) throws {
+        supportsImages = metadata?.vision != .unsupported
         // A plain bearer/API key must never impersonate a subscription grant.
         guard providerKind != .chatGPTSubscription else { throw AppError.unavailable(ChatGPTSubscriptionPolicy.mobileLoginNotice) }
         let endpoint = try providerKind.inferenceBase(settings.baseURL)
@@ -63,6 +65,13 @@ final class PrivateVisionProvider: ModelCompactingProvider, @unchecked Sendable 
         return try wireRequest(request, stream: stream)
     }
     private func wireRequest(_ request: ModelRequest, stream: Bool) throws -> URLRequest {
+        if !supportsImages {
+            let hasImages = request.messages.contains { !$0.images.isEmpty } || (request.input ?? []).contains { item in
+                guard case .message(_, let content) = item else { return false }
+                return content.contains { if case .image = $0 { return true }; return false }
+            }
+            if hasImages { throw ModelError.invalidRequest("model_images_unsupported") }
+        }
         var explicit = request
         explicit.temperature = nil; explicit.topP = nil; explicit.maxTokens = nil; explicit.reasoningEffort = nil
         var value = try codec.prepareRequest(explicit, stream: stream)

@@ -5,6 +5,27 @@ import AgentKit
 @testable import PhoneAgent
 
 final class ResponsesProviderTests: XCTestCase {
+    func testTextOnlyRequestsOmitToolParametersAndImageIncompatibilityIsActionable() throws {
+        let metadata = DiscoveredModel(id: "fixture", name: "fixture", vision: .unsupported, tools: .unsupported)
+        for api in [InferenceAPI.chatCompletions, .responses] {
+            let provider = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: .init(), metadata: metadata, inferenceAPI: api, sessionID: UUID())
+            let outgoing = try provider.prepareRequest(request, stream: true)
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(outgoing.httpBody)) as? [String: Any])
+            XCTAssertNil(body["tools"])
+            XCTAssertNil(body["parallel_tool_calls"])
+            var images = request
+            images.messages = [.user("image", images: [ModelImage(data: Data([1]))])]
+            XCTAssertThrowsError(try provider.prepareRequest(images, stream: true)) { error in
+                guard case ModelError.invalidRequest(let reason) = error else { return XCTFail("Unexpected error: \(error)") }
+                XCTAssertEqual(reason, "model_images_unsupported")
+                XCTAssertNotEqual(ModelRequestErrorLabel.title(reason), reason)
+            }
+            images.messages = [.user("text")]
+            images.input = [.message(role: .user, content: [.image(ModelImage(data: Data([1])))])]
+            XCTAssertThrowsError(try provider.prepareRequest(images, stream: false))
+        }
+    }
+
     func testUnknownEventsRetainBusinessValuesRedactCredentialsAndBindToResponse() throws {
         var r = try reducer([call()])
         let payload = try event("response.metadata", seq: 3, fields: ["response_id": "resp1", "metadata": ["unregistered_business_field": ["is_blocked": false, "results": ["allowed"], "large_id": NSNumber(value: Int64(9_007_199_254_740_993)), "Authorization": "Bearer SECRET", "nested": ["api-key": "SECRET"]]]])
@@ -409,6 +430,8 @@ final class ResponsesProviderTests: XCTestCase {
         var prohibited = request; prohibited.storage = .responseChain; XCTAssertThrowsError(try codec.prepareRequest(prohibited, stream: false))
         prohibited.storage = .none; prohibited.context = .previousResponse(.init("old", scope: scope)); XCTAssertThrowsError(try codec.prepareRequest(prohibited, stream: false))
         native.contextKind = .stateless; native.catalog = .init(endpoint: try native.catalogEndpoint(), fetchedAt: Date(), models: [.init(id: original.settings.model, name: "unsupported", vision: .unsupported)])
+        XCTAssertNoThrow(try native.requireInference(model: original.settings.model))
+        native.catalog?.models[0].generation = .unsupported
         XCTAssertThrowsError(try native.requireInference(model: original.settings.model))
     }
     func testOpenRouterChatOpaqueReasoningRoundTripNeverProjectsSignaturesToUI() throws {

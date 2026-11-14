@@ -62,8 +62,8 @@ struct ProviderProfile: Identifiable, Codable, Equatable, Sendable {
         guard contextPolicy == .stateless || providerKind.supportsResponseChain else { throw AppError.invalid(String(localized: "This provider does not support server response chains. Select local replay.")) }
         guard providerKind.supportsInference else { throw AppError.unavailable(providerKind.inferenceNotice) }
         guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.invalid(String(localized: "Select or enter a model ID first")) }
-        if let metadata = metadata(for: model), metadata.vision == .unsupported || metadata.tools == .unsupported || metadata.generation == .unsupported {
-            throw AppError.unavailable(String(localized: "This provider reports that the model does not support images, tools, or text generation. Select a compatible model for screen tasks."))
+        if metadata(for: model)?.generation == .unsupported {
+            throw AppError.unavailable(String(localized: "This model does not support text generation. Select a chat model and try again."))
         }
     }
 }

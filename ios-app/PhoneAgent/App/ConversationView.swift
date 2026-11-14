@@ -29,7 +29,7 @@ struct ConversationView: View {
     private var running: Bool { presentation.running }
     private var canSend: Bool {
         !running && !presentation.stopping && !recoveringHistory && !presentation.canRecoverHistory && !importingAttachments && !sendingAttachments &&
-        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session?.draftAttachments?.isEmpty == false) && draft.count <= 2_000
+        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session?.draftAttachments?.isEmpty == false)
     }
     var body: some View {
         Group {
@@ -354,6 +354,14 @@ struct ConversationView: View {
                 }.id(request.id)
             }
             if let warning = presentation.warning { Text(warning).font(.caption).foregroundStyle(.orange) }
+            if presentation.stopping {
+                Text(String(localized: "Stopping the previous task. You can send when it finishes."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if recoveringHistory {
+                ProgressView(String(localized: "Recovering readable messages. Wait for the new conversation to open before sending."))
+                    .font(.caption)
+            }
             if presentation.canRecoverHistory {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "Only part of this history could be read. Continue with the readable messages in a new conversation; the original is kept."))
@@ -467,11 +475,16 @@ struct ConversationView: View {
             .accessibilityIdentifier("selectMessageText")
     }
     private func send() {
-        guard !presentation.awaitingTaskConfirmation else { return }
         sendConfirmedTask()
     }
     private func sendConfirmedTask() {
-        guard canSend else { return }
+        guard canSend else {
+            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session?.draftAttachments?.isEmpty == false {
+                attachmentFailure = String(localized: "This message was not sent. Wait for the current task, attachment preparation, or history recovery to finish, then try again.")
+            }
+            return
+        }
+        attachmentFailure = nil
         // The Send button and keyboard submission both authorize this request.
         if session?.draftAttachments?.isEmpty != false {
             if presentation.dispatch(.send(sessionID: presentation.sessionID, text: draft, cloudConsent: true)) {

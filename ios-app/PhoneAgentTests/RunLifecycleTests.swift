@@ -59,6 +59,22 @@ import ProviderCore
     }
 }
 @MainActor final class RunLifecycleTests: XCTestCase {
+    func testFailedInitialProgressSaveShowsRecoveryAndNeverContactsModel() throws {
+        let journal = FailingJournal()
+        let lifecycle = RunLifecycleCoordinator(scheduler: FakeScheduler(), storage: journal)
+        journal.fail = true
+        let store = ConversationStore(inMemory: true), provider = AdmissionInspectionProvider()
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: provider, bridge: UnavailableBridge()), lifecycle: lifecycle)
+        let id = model.createConversation(mode: .live)
+        XCTAssertFalse(model.send("unsaved task", in: id, cloudConsent: true))
+        XCTAssertFalse(model.running)
+        XCTAssertNil(store.activeRun)
+        XCTAssertTrue(provider.requests.isEmpty)
+        XCTAssertEqual(store.conversation(id)?.phase, .blocked)
+        XCTAssertEqual(model.errorMessage, String(localized: "Could not save task progress. Check available storage, reopen the app, and try again. No model request or phone action was sent."))
+    }
+
     private let identity = RunIdentity(conversationID: UUID(), runID: UUID())
     private let token = UUID()
     private func tool(_ id: String = "tap") -> RunCheckpoint.Tool {

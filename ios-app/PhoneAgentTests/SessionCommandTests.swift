@@ -22,6 +22,20 @@ import AppIntents
 }
 
 @MainActor final class SessionCommandTests: XCTestCase {
+    func testLongTaskStartsAndPreservesFullUserMessage() async throws {
+        let store = ConversationStore(inMemory: true)
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()))
+        let id = model.createConversation(mode: .live)
+        XCTAssertFalse(model.send(" \n", in: id, cloudConsent: true))
+        let text = String(repeating: "长文本🙂\n", count: 10_000) + "完整消息结尾"
+        XCTAssertTrue(model.send(text, in: id, cloudConsent: true))
+        XCTAssertEqual(store.conversation(id)?.messages.first(where: { $0.role == .user })?.text, text)
+        let run = try XCTUnwrap(model.currentRun)
+        XCTAssertTrue(model.stop(run: run))
+        try await waitUntil { !model.stopping }
+    }
+
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -171,7 +185,7 @@ import AppIntents
     func testPrepareValidatesBeforeSavingAndDoesNotRun() throws {
         let store = ConversationStore(inMemory: true), runner = CommandMockRunner()
         let service = SessionCommandService(sessions: store, runner: runner)
-        for text in ["", " \n ", String(repeating: "字", count: 2_001)] {
+        for text in ["", " \n "] {
             XCTAssertThrowsError(try service.perform(SessionCommand(.prepare(text))))
         }
         XCTAssertTrue(store.conversations.isEmpty)
@@ -180,6 +194,9 @@ import AppIntents
         XCTAssertEqual(store.conversation(id)?.entry?.state, .pendingConfirmation)
         XCTAssertEqual(store.conversation(id)?.mode, .live)
         XCTAssertEqual(store.conversation(id)?.messages.count, 0)
+        let longText = String(repeating: "字", count: 2_001)
+        guard case .prepared(let longID) = try service.perform(SessionCommand(.prepare(longText))) else { return XCTFail() }
+        XCTAssertEqual(store.conversation(longID)?.draft, longText)
         XCTAssertNil(runner.currentRun)
         XCTAssertTrue(runner.cancellations.isEmpty)
     }

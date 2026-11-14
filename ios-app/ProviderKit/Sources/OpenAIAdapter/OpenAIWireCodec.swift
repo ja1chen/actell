@@ -100,7 +100,7 @@ public struct OpenAIWireCodec: Sendable {
             let query = CreateModelResponseQuery(input: .inputItemList([]), model: request.model,
                 include: [.init(rawValue: "reasoning.encrypted_content")!],
                 instructions: request.instructions ?? request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n"),
-                maxOutputTokens: request.maxTokens, parallelToolCalls: true, previousResponseId: previous,
+                maxOutputTokens: request.maxTokens, parallelToolCalls: tools.isEmpty ? nil : true, previousResponseId: previous,
                 reasoning: try request.reasoningEffort.map { effort in
                     try JSONDecoder().decode(Components.Schemas.Reasoning.self, from: JSONSerialization.data(withJSONObject: ["effort": effort.rawValue]))
                 },
@@ -139,7 +139,7 @@ public struct OpenAIWireCodec: Sendable {
                 parameters: try JSONDecoder().decode(JSONSchema.self, from: JSONEncoder().encode(tool.schema)), strict: false))
         }
         return ChatQuery(messages: messages, model: request.model, reasoningEffort: request.reasoningEffort.map { .customValue($0.rawValue) }, maxCompletionTokens: request.maxTokens,
-            parallelToolCalls: true, store: false, temperature: request.temperature, tools: tools.isEmpty ? nil : tools,
+            parallelToolCalls: tools.isEmpty ? nil : true, store: false, temperature: request.temperature, tools: tools.isEmpty ? nil : tools,
             topP: request.topP, stream: stream, streamOptions: stream ? .init(includeUsage: true) : nil)
     }
     private func userMessage(_ text: String, images: [ModelImage]) throws -> ChatQuery.ChatCompletionMessageParam {

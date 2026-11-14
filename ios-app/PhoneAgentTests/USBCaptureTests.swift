@@ -33,7 +33,10 @@ private actor USBSessionFixture: USBConnectionSession {
     private(set) var connections = 0
     private(set) var stops = 0
     private(set) var commands: [String] = []
+    var holdConnection = false
+    func hold(_ value: Bool) { holdConnection = value }
     func connect(attempt: UUID) async throws {
+        while holdConnection { try await Task.sleep(nanoseconds: 10_000_000) }
         token = attempt; connections += 1; health.begin(token)
     }
     func command(_ body: String) async throws {
@@ -45,6 +48,32 @@ private actor USBSessionFixture: USBConnectionSession {
 }
 
 final class USBCaptureTests: XCTestCase {
+    @MainActor func testChatCompletesWithoutCancellingIndependentUSBSetup() async throws {
+        let transport = USBSessionFixture(), store = ConversationStore(inMemory: true)
+        await transport.hold(true)
+        let provider = AdmissionInspectionProvider()
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: provider, bridge: UnavailableBridge()), makeUSBClient: { _, _ in transport })
+        let id = model.createConversation(mode: .live)
+        model.connectUSB()
+        XCTAssertTrue(model.isListening)
+        XCTAssertTrue(model.send("chat while connecting", in: id, cloudConsent: true))
+        try await waitUntil { !model.running }
+        XCTAssertEqual(store.conversation(id)?.phase, .completed)
+        XCTAssertTrue(model.isListening)
+        XCTAssertTrue(model.send("stop only this chat", in: id, cloudConsent: true))
+        XCTAssertTrue(model.stop(run: try XCTUnwrap(model.currentRun)))
+        try await waitUntil { !model.stopping }
+        XCTAssertTrue(model.isListening)
+        let stops = await transport.stops
+        XCTAssertEqual(stops, 0)
+        await transport.hold(false)
+        try await waitUntil { !model.isListening }
+        XCTAssertEqual(model.usbConnectionStatus, .ready(hid: true))
+        model.disconnect()
+        try await waitUntil { !model.stopping }
+    }
+
     @MainActor private func waitUntil(_ predicate: @MainActor () -> Bool) async throws {
         for _ in 0..<500 {
             if predicate() { return }
