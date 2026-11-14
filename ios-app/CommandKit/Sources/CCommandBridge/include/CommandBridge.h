@@ -4,6 +4,6 @@ NS_ASSUME_NONNULL_BEGIN
 @interface CommandExecution : NSObject
 + (NSArray<NSString *> *)availableCommands;
 - (void)cancel;
-- (NSDictionary<NSString *, id> *)run:(NSString *)command directory:(NSURL *)directory root:(NSURL *)root timeout:(double)timeout NS_SWIFT_NAME(run(command:directory:root:timeout:));
+- (NSDictionary<NSString *, id> *)run:(NSString *)command directory:(NSURL *)directory timeout:(double)timeout NS_SWIFT_NAME(run(command:directory:timeout:));
 @end
 NS_ASSUME_NONNULL_END

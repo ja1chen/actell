@@ -5,6 +5,12 @@ import ProviderCore
 
 @MainActor final class SkillTests: XCTestCase {
     private let document = "---\nname: Synthetic Guide\ndescription: Read synthetic fixtures\nversion: 1\n---\nBODY_NOT_A_SUMMARY\nSee [reference](references/guide.md)."
+    private lazy var defaults: UserDefaults = {
+        let suite = "skill-tests-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return defaults
+    }()
     private func directory() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("skills-test-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -15,6 +21,10 @@ import ProviderCore
         let builtin = try XCTUnwrap(store.builtinPackages.first)
         XCTAssertEqual(builtin.id, SkillStore.builtinID)
         XCTAssertEqual(builtin.name, "ios-operation")
+        let creator = try XCTUnwrap(store.builtinPackages.first { $0.id == SkillStore.creatorID })
+        XCTAssertEqual(creator.name, "skill-creator")
+        XCTAssertEqual(creator.version, "1.0.0")
+        XCTAssertThrowsError(try store.remove(creator.id))
         XCTAssertTrue(store.packages.isEmpty)
         let catalog = SkillCatalog(packages: store.enabledSnapshot)
         let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot)
@@ -27,18 +37,138 @@ import ProviderCore
         XCTAssertTrue(object["next_offset"] is NSNull)
         XCTAssertThrowsError(try store.remove(builtin.id))
     }
+    func testVersionComesFromEntrypointMetadataAndRemainsOptional() throws {
+        let versioned = try SkillPackage.make(documents: ["SKILL.md": document.replacingOccurrences(of: "version: 1", with: "version: 2.3.4")])
+        XCTAssertEqual(versioned.version, "2.3.4")
+        XCTAssertEqual(versioned.displayVersion, "v2.3.4")
+        let unversioned = try SkillPackage.make(documents: ["SKILL.md": document.replacingOccurrences(of: "version: 1\n", with: "")])
+        XCTAssertEqual(unversioned.version, "未标注")
+        XCTAssertNil(unversioned.displayVersion)
+        let emptyVersion = try SkillPackage.make(documents: ["SKILL.md": document.replacingOccurrences(of: "version: 1", with: "version: ''")])
+        XCTAssertNil(emptyVersion.displayVersion)
+        let prefixed = try SkillPackage.make(documents: ["SKILL.md": document.replacingOccurrences(of: "version: 1", with: "version: v2.0.0")])
+        XCTAssertEqual(prefixed.displayVersion, "v2.0.0")
+    }
     func testImportVersionsDuplicateDisableDeleteAndRestart() throws {
-        let root = try directory(), store = SkillStore(directory: root)
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
         let first = try store.add(documents: ["SKILL.md": document])
         XCTAssertEqual(try store.add(documents: ["SKILL.md": document]).id, first.id)
         let next = try store.add(documents: ["SKILL.md": document + "\nUpdated"])
         XCTAssertNotEqual(first.id, next.id); XCTAssertNotEqual(first.revision, next.revision)
         try store.setEnabled(false, id: first.id)
-        XCTAssertEqual(store.enabledSnapshot.filter { $0.id != SkillStore.builtinID }.map(\.id), [next.id])
-        let restored = SkillStore(directory: root)
+        XCTAssertEqual(store.enabledSnapshot.filter { ![SkillStore.builtinID, SkillStore.creatorID].contains($0.id) }.map(\.id), [next.id])
+        let restored = SkillStore(directory: root, defaults: defaults)
         XCTAssertEqual(restored.packages, store.packages)
         try restored.remove(next.id); XCTAssertEqual(restored.packages.count, 1)
-        XCTAssertTrue(restored.enabledSnapshot.filter { $0.id != SkillStore.builtinID }.isEmpty)
+        XCTAssertTrue(restored.enabledSnapshot.filter { ![SkillStore.builtinID, SkillStore.creatorID].contains($0.id) }.isEmpty)
+    }
+    func testDirectoryScanDiscoversEditsDeletionAndKeepsFrozenRun() async throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        let work = try FileWorkspace(root: root.appendingPathComponent("../work-" + UUID().uuidString))
+        addTeardownBlock { try? FileManager.default.removeItem(at: work.root) }
+        let folder = root.appendingPathComponent("conversation-guide")
+        _ = try await work.write(filePath: folder.appendingPathComponent("SKILL.md").path, content: document)
+        let first = try XCTUnwrap(store.enabledSnapshot.first { $0.name == "Synthetic Guide" })
+        XCTAssertEqual(store.packages.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("skills-v1.json").path))
+        let frozen = SkillCatalog(packages: store.enabledSnapshot)
+        _ = try await work.edit(filePath: folder.appendingPathComponent("SKILL.md").path, oldString: "BODY_NOT_A_SUMMARY", newString: "EDITED_BODY")
+        let next = try XCTUnwrap(store.enabledSnapshot.first { $0.id == first.id })
+        XCTAssertNotEqual(next.revision, first.revision)
+        XCTAssertEqual(next.id, first.id)
+        XCTAssertEqual(SkillStore(directory: root, defaults: defaults).packages.first?.id, first.id)
+        XCTAssertTrue(try frozen.result(name: "load_skill", parameters: ["id": first.id.uuidString, "revision": first.revision]).contains("BODY_NOT_A_SUMMARY"))
+        try store.setEnabled(false, id: first.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent(".disabled").path))
+        XCTAssertEqual(defaults.stringArray(forKey: SkillStore.disabledIDsKey), [first.id.uuidString])
+        XCTAssertFalse(store.enabledSnapshot.contains { $0.id == first.id })
+        try store.setEnabled(true, id: first.id)
+        XCTAssertNil(defaults.object(forKey: SkillStore.disabledIDsKey))
+        XCTAssertTrue(store.enabledSnapshot.contains { $0.id == first.id })
+        try FileManager.default.removeItem(at: folder)
+        store.refresh()
+        XCTAssertTrue(store.packages.isEmpty)
+    }
+    func testDisabledMarkerMigratesToDefaultsAndIsRemoved() throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        let item = try store.add(documents: ["SKILL.md": document])
+        let marker = root.appendingPathComponent(item.id.uuidString).appendingPathComponent(".disabled")
+        XCTAssertNil(defaults.object(forKey: SkillStore.disabledIDsKey))
+        try Data().write(to: marker)
+        let restored = SkillStore(directory: root, defaults: defaults)
+        XCTAssertFalse(try XCTUnwrap(restored.packages.first).enabled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(defaults.stringArray(forKey: SkillStore.disabledIDsKey), [item.id.uuidString])
+        try restored.setEnabled(true, id: item.id)
+        XCTAssertNil(defaults.object(forKey: SkillStore.disabledIDsKey))
+        XCTAssertTrue(try XCTUnwrap(SkillStore(directory: root, defaults: defaults).packages.first).enabled)
+    }
+    func testDeletingDisabledSkillClearsPreferenceAndReimportDefaultsToEnabled() throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        let item = try store.add(documents: ["SKILL.md": document])
+        try store.setEnabled(false, id: item.id)
+        XCTAssertEqual(defaults.stringArray(forKey: SkillStore.disabledIDsKey), [item.id.uuidString])
+        try store.remove(item.id)
+        XCTAssertNil(defaults.object(forKey: SkillStore.disabledIDsKey))
+        XCTAssertTrue(try store.add(documents: ["SKILL.md": document]).enabled)
+    }
+    func testLegacyArchiveMigratesDocumentsIDsAndEnabledState() throws {
+        let root = try directory(), legacy = try directory()
+        var package = try SkillPackage.make(documents: ["SKILL.md": document, "references/guide.md": "REFERENCE"])
+        package.enabled = false
+        struct Archive: Encodable { let version = 1; let packages: [SkillPackage] }
+        let archive = legacy.appendingPathComponent("skills-v1.json")
+        try JSONEncoder().encode(Archive(packages: [package])).write(to: archive)
+        let store = SkillStore(directory: root, legacyDirectory: legacy, defaults: defaults)
+        XCTAssertNil(store.warning)
+        XCTAssertEqual(store.packages, [package])
+        XCTAssertEqual(defaults.stringArray(forKey: SkillStore.disabledIDsKey), [package.id.uuidString])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(package.id.uuidString + "/.disabled").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent(package.id.uuidString + "/references/guide.md"), encoding: .utf8), "REFERENCE")
+        XCTAssertEqual(SkillStore(directory: root, defaults: defaults).packages, [package])
+    }
+    func testMigrationConflictPreservesArchiveAndDirectoryContents() throws {
+        let root = try directory(), legacy = try directory()
+        let package = try SkillPackage.make(documents: ["SKILL.md": document])
+        struct Archive: Encodable { let version = 1; let packages: [SkillPackage] }
+        let bytes = try JSONEncoder().encode(Archive(packages: [package]))
+        let archive = legacy.appendingPathComponent("skills-v1.json")
+        try bytes.write(to: archive)
+        let folder = root.appendingPathComponent(package.id.uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let edited = document + "\nUser edits"
+        try Data(edited.utf8).write(to: folder.appendingPathComponent("SKILL.md"))
+        let store = SkillStore(directory: root, legacyDirectory: legacy, defaults: defaults)
+        XCTAssertNotNil(store.warning)
+        XCTAssertEqual(try Data(contentsOf: archive), bytes)
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("SKILL.md"), encoding: .utf8), edited)
+    }
+    func testDirectoryIDsCannotCollideWithBuiltinCatalog() throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        for id in [SkillStore.builtinID, SkillStore.creatorID] {
+            let folder = root.appendingPathComponent(id.uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(document.utf8).write(to: folder.appendingPathComponent("SKILL.md"))
+        }
+        let snapshot = store.enabledSnapshot
+        XCTAssertEqual(Set(snapshot.map(\.id)).count, snapshot.count)
+        XCTAssertTrue(store.packages.isEmpty)
+        XCTAssertNotNil(store.warning)
+    }
+    func testInvalidDirectoryDoesNotHideValidSkillsAndRecoversAfterCorrection() throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        let package = try store.add(documents: ["SKILL.md": document])
+        let folder = root.appendingPathComponent("invalid")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("No metadata".utf8).write(to: folder.appendingPathComponent("SKILL.md"))
+        store.refresh()
+        XCTAssertNotNil(store.warning)
+        XCTAssertEqual(store.packages.map(\.id), [package.id])
+        try Data(document.utf8).write(to: folder.appendingPathComponent("SKILL.md"))
+        store.refresh()
+        XCTAssertNil(store.warning)
+        XCTAssertEqual(store.packages.count, 2)
     }
     func testNativePackageCopyRetainsReferencesAndRejectsScriptsSymlinksAndBadPaths() throws {
         let root = try directory(), bundle = root.appendingPathComponent("bundle")
@@ -66,7 +196,7 @@ import ProviderCore
         XCTAssertEqual(multi.summary, "first line second line")
         let root = try directory(), file = root.appendingPathComponent("skills-v1.json"), bytes = Data("unreadable".utf8)
         try bytes.write(to: file)
-        let broken = SkillStore(directory: root)
+        let broken = SkillStore(directory: root, defaults: defaults)
         XCTAssertNotNil(broken.warning); XCTAssertThrowsError(try broken.add(documents: ["SKILL.md": document]))
         XCTAssertEqual(try Data(contentsOf: file), bytes)
     }

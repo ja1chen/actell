@@ -1,7 +1,7 @@
 import Foundation
 
-/// App-owned scratch files, isolated by conversation. This is not access to arbitrary
-/// device files. Keep this actor shared for a workspace; no external writers are supported.
+/// Text operations with a conversation working directory. Filesystem access follows
+/// platform permissions; absolute paths, parent paths, and links are supported.
 actor FileWorkspace {
     struct Failure: Error, LocalizedError, Sendable {
         let code: String
@@ -11,8 +11,6 @@ actor FileWorkspace {
 
     nonisolated let root: URL
     static let maximumFileBytes = 2 * 1024 * 1024
-    static let maximumWorkspaceBytes = 20 * 1024 * 1024
-    static let maximumEntries = 1_000
     static let maximumOutputBytes = 64 * 1024
     private let files = FileManager.default
 
@@ -44,14 +42,7 @@ actor FileWorkspace {
     init(root: URL) throws {
         guard root.isFileURL else { throw Failure(code: "invalid_root", message: "A local workspace is required.") }
         let candidate = root.standardizedFileURL
-        // The host selects the root, never model input. Resolving the parent permits
-        // normal platform aliases such as /var -> /private/var, but not a symlink root.
-        let parent = candidate.deletingLastPathComponent().resolvingSymlinksInPath()
-        let resolved = parent.appendingPathComponent(candidate.lastPathComponent, isDirectory: true)
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path),
-           attributes[.type] as? FileAttributeType != .typeDirectory {
-            throw Failure(code: "invalid_root", message: "The workspace root must be a real directory.")
-        }
+        let resolved = candidate.resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: resolved, withIntermediateDirectories: true,
                                                attributes: [.posixPermissions: 0o700])
         self.root = resolved
@@ -123,16 +114,7 @@ actor FileWorkspace {
 
     func directory(filePath: String = ".") throws -> URL {
         try Task.checkCancellation()
-        guard !filePath.isEmpty, filePath.utf8.count <= 4096, !filePath.contains("\0"),
-              !filePath.contains("\\"), !filePath.hasPrefix("~"),
-              !filePath.split(separator: "/", omittingEmptySubsequences: false).contains("..") else {
-            throw fail("invalid_path", "Use a workspace-relative directory without traversal or aliases.")
-        }
-        let url = (filePath.hasPrefix("/") ? URL(fileURLWithPath: filePath) : root.appendingPathComponent(filePath)).standardizedFileURL
-        guard url.path == root.path || url.path.hasPrefix(root.path + "/") else {
-            throw fail("outside_workspace", "The directory must be inside this conversation's workspace.")
-        }
-        try validateComponents(url, allowDirectory: true)
+        let url = try resolve(filePath)
         let attributes = try files.attributesOfItem(atPath: url.path)
         guard attributes[.type] as? FileAttributeType == .typeDirectory else {
             throw fail("not_directory", "The workdir must be an existing directory.")
@@ -141,49 +123,29 @@ actor FileWorkspace {
     }
 
     private func fail(_ code: String, _ message: String) -> Failure { Failure(code: code, message: message) }
-    private func relative(_ url: URL) -> String { String(url.path.dropFirst(root.path.count + 1)) }
-
-    private func resolve(_ path: String) throws -> URL {
-        guard !path.isEmpty, path.utf8.count <= 4096, !path.contains("\0"), !path.contains("\\"),
-              !path.hasPrefix("~"), !path.split(separator: "/", omittingEmptySubsequences: false).contains("..") else {
-            throw fail("invalid_path", "Use a workspace-relative file path without traversal or aliases.")
-        }
-        let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
-        guard url.path.hasPrefix(root.path + "/"), url.path != root.path else {
-            throw fail("outside_workspace", "The path must name a file inside this conversation's workspace.")
-        }
-        try validateComponents(url)
-        return url
+    private func relative(_ url: URL) -> String {
+        url.path.hasPrefix(root.path + "/") ? String(url.path.dropFirst(root.path.count + 1)) : url.path
     }
 
-    private func validateComponents(_ url: URL, allowDirectory: Bool = false) throws {
-        let rootAttributes = try files.attributesOfItem(atPath: root.path)
-        guard rootAttributes[.type] as? FileAttributeType == .typeDirectory else {
-            throw fail("invalid_root", "The workspace root changed.")
+    private func resolve(_ path: String) throws -> URL {
+        guard !path.isEmpty, path.utf8.count <= 4096, !path.contains("\0") else {
+            throw fail("invalid_path", "Provide a nonempty file path without NUL bytes.")
         }
-        var current = root
-        let components = url.path.dropFirst(root.path.count + 1).split(separator: "/")
-        for (index, part) in components.enumerated() {
-            current.appendPathComponent(String(part))
-            let attributes: [FileAttributeKey: Any]
-            do { attributes = try files.attributesOfItem(atPath: current.path) }
-            catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError { break }
-            let type = attributes[.type] as? FileAttributeType
-            guard type != .typeSymbolicLink else { throw fail("symlink_denied", "Symbolic links are not allowed in a workspace path.") }
-            if index < components.count - 1 {
-                guard type == .typeDirectory else { throw fail("not_directory", "A parent path is not a directory.") }
-            } else {
-                if allowDirectory && type == .typeDirectory { continue }
-                guard type == .typeRegular else { throw fail("not_regular_file", "Only regular text files are supported.") }
-                guard ((attributes[.referenceCount] as? NSNumber)?.intValue ?? 1) <= 1 else {
-                    throw fail("hardlink_denied", "Hard-linked files are not supported.")
-                }
-            }
+        let expanded = (path as NSString).expandingTildeInPath
+        return (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded) : root.appendingPathComponent(expanded))
+            .standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private func validateFile(_ url: URL) throws {
+        guard files.fileExists(atPath: url.path) else { return }
+        let attributes = try files.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw fail("not_regular_file", "Only regular text files are supported.")
         }
     }
 
     private func loadText(_ url: URL) throws -> String {
-        try validateComponents(url)
+        try validateFile(url)
         let attributes = try files.attributesOfItem(atPath: url.path)
         guard ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= Self.maximumFileBytes else {
             throw fail("file_too_large", "The file exceeds the 2 MiB text limit.")
@@ -204,34 +166,6 @@ actor FileWorkspace {
         return Data(content.utf8)
     }
 
-    private func usage() throws -> (bytes: Int, entries: Int) {
-        var bytes = 0, entries = 0
-        var enumerationFailed = false
-        guard let enumerator = files.enumerator(at: root, includingPropertiesForKeys: nil,
-                                               options: [], errorHandler: { _, _ in enumerationFailed = true; return false }) else {
-            throw fail("workspace_unavailable", "Cannot inspect the workspace quota.")
-        }
-        while let url = enumerator.nextObject() as? URL {
-            entries += 1
-            guard entries <= Self.maximumEntries else { throw fail("workspace_full", "Workspace entry quota exceeded.") }
-            let attributes = try files.attributesOfItem(atPath: url.path)
-            let type = attributes[.type] as? FileAttributeType
-            guard type == .typeDirectory || type == .typeRegular else {
-                throw fail("unsafe_workspace", "The workspace contains a link or special file.")
-            }
-            if type == .typeRegular {
-                guard ((attributes[.referenceCount] as? NSNumber)?.intValue ?? 1) <= 1 else {
-                    throw fail("hardlink_denied", "Hard-linked files are not supported.")
-                }
-                let size = (attributes[.size] as? NSNumber)?.intValue ?? Self.maximumWorkspaceBytes + 1
-                guard size >= 0, size <= Self.maximumWorkspaceBytes - bytes else { throw fail("workspace_full", "Workspace byte quota exceeded.") }
-                bytes += size
-            }
-        }
-        guard !enumerationFailed else { throw fail("workspace_unavailable", "Cannot inspect all workspace entries.") }
-        return (bytes, entries)
-    }
-
     private func commit(_ data: Data, to url: URL, expectedText: String?,
                         check: @Sendable () async throws -> Void) async throws {
         try await check()
@@ -240,28 +174,18 @@ actor FileWorkspace {
         if let expectedText, !(try loadText(url)).utf8.elementsEqual(expectedText.utf8) {
             throw fail("concurrent_change", "The file changed while authorization was checked; read it again.")
         }
-        try validateComponents(url)
+        try validateFile(url)
         let attributes = try? files.attributesOfItem(atPath: url.path)
-        let priorSize = (attributes?[.size] as? NSNumber)?.intValue ?? 0
-        let used = try usage()
-        guard used.bytes - priorSize + data.count <= Self.maximumWorkspaceBytes else {
-            throw fail("workspace_full", "Writing this file would exceed the workspace byte quota.")
-        }
-        // Account for newly created parent directories as well as the file.
-        var missing = attributes == nil ? 1 : 0
-        var parent = url.deletingLastPathComponent()
-        while parent.path != root.path && !files.fileExists(atPath: parent.path) { missing += 1; parent.deleteLastPathComponent() }
-        guard used.entries + missing <= Self.maximumEntries else { throw fail("workspace_full", "Workspace entry quota exceeded.") }
         try Task.checkCancellation()
         try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                   attributes: [.posixPermissions: 0o700])
-        try validateComponents(url)
+        try validateFile(url)
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".actell-write-\(UUID().uuidString)")
         defer { try? files.removeItem(at: temporary) }
         try data.write(to: temporary, options: .withoutOverwriting)
         try files.setAttributes([.posixPermissions: attributes?[.posixPermissions] ?? 0o600], ofItemAtPath: temporary.path)
         try Task.checkCancellation()
-        try validateComponents(url)
+        try validateFile(url)
         if attributes != nil {
             _ = try files.replaceItemAt(url, withItemAt: temporary, backupItemName: nil, options: .usingNewMetadataOnly)
         } else {

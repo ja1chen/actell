@@ -29,7 +29,7 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
 - (void)cancel {
     [_stateLock lock]; _cancelled = YES; [_stateLock unlock];
 }
-- (NSDictionary<NSString *, id> *)run:(NSString *)command directory:(NSURL *)directory root:(NSURL *)root timeout:(double)timeout {
+- (NSDictionary<NSString *, id> *)run:(NSString *)command directory:(NSURL *)directory timeout:(double)timeout {
     pthread_mutex_lock(&runtimeLock);
     [_stateLock lock];
     if (_cancelled) {
@@ -88,10 +88,8 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
     sideLoading = false;
     (void)commandsAsArray();
     sideLoading = true; joinMainThread = true;
-    // Mini-root constrains cd/tilde expansion, not absolute file access.
-    BOOL directoryReady = ios_setMiniRoot(root.path) != 0;
-    if (directoryReady) ios_setDirectoryURL(directory);
-    directoryReady = directoryReady && [[NSFileManager.defaultManager currentDirectoryPath]
+    ios_setDirectoryURL(directory);
+    BOOL directoryReady = [[NSFileManager.defaultManager currentDirectoryPath]
         isEqualToString:directory.path.stringByResolvingSymlinksInPath];
     ios_setStreams(input, output, error);
     thread_stdin = input; thread_stdout = output; thread_stderr = error;

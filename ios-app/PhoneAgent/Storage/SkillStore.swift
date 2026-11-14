@@ -10,7 +10,11 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
     let revision: String
     let documents: [String: String]
     var enabled: Bool
-    var displayVersion: String { version == "未标注" ? String(localized: "Unspecified") : version }
+    var displayVersion: String? {
+        let value = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != "未标注" else { return nil }
+        return value.hasPrefix("v") ? value : "v" + value
+    }
     var resources: [String] { documents.keys.sorted() }
     static func validResource(_ path: String) -> Bool {
         !path.isEmpty && path.utf8.count <= 240 && !path.hasPrefix("/") && !path.contains("\\") && !path.contains(":") &&
@@ -58,48 +62,100 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
 @MainActor final class SkillStore: ObservableObject {
     @Published private(set) var packages: [SkillPackage] = []
     @Published private(set) var warning: String?
-    private let file: URL?
+    let directory: URL?
+    private var locations: [UUID: URL] = [:]
     private var writable = true
-    private struct Archive: Codable { var version = 1; let packages: [SkillPackage] }
-    init(directory: URL? = nil, inMemory: Bool = false) {
-        if inMemory { file = nil; return }
-        let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PhoneAgent/Skills")
-        file = root.appendingPathComponent("skills-v1.json")
+    static let disabledIDsKey = "disabledSkillIDs"
+    private let defaults: UserDefaults?
+    private var disabledIDs: Set<UUID> = []
+    private struct Archive: Codable { let version: Int; let packages: [SkillPackage] }
+    static var localDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("skills", isDirectory: true)
+    }
+    init(directory: URL? = nil, inMemory: Bool = false, legacyDirectory: URL? = nil, defaults: UserDefaults? = .standard) {
+        self.defaults = inMemory ? nil : defaults
+        self.directory = inMemory ? nil : directory ?? Self.localDirectory
+        reloadDisabledIDs()
+        guard let root = self.directory else { return }
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
-            var url = root, values = URLResourceValues(); values.isExcludedFromBackup = true; try url.setResourceValues(values)
-            if let file, FileManager.default.fileExists(atPath: file.path) {
-                let info = try file.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
-                guard info.isSymbolicLink != true, (info.fileSize ?? Int.max) <= 16 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Invalid skill archive")) }
-                let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: file))
-                guard archive.version == 1, Set(archive.packages.map(\.id)).count == archive.packages.count else { throw AppError.invalid(String(localized: "Unsupported skill archive version")) }
-                for package in archive.packages {
-                    let checked = try SkillPackage.make(documents: package.documents)
-                    guard checked.revision == package.revision, checked.name == package.name, checked.summary == package.summary, checked.version == package.version else { throw AppError.invalid(String(localized: "Skill content verification failed")) }
-                }
-                packages = archive.packages
-            }
-        } catch { writable = false; warning = String(localized: "Skills could not be read. The original archive was kept and cannot be edited for now.") }
+            let legacy = legacyDirectory ?? (directory == nil
+                ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PhoneAgent/Skills") : root)
+            try migrateArchive(at: legacy.appendingPathComponent("skills-v1.json"), to: root)
+            try migrateDisabledMarkers(in: root)
+            refresh()
+        } catch {
+            writable = false
+            warning = String(localized: "Skills could not be read. Existing files were kept. Check the skills folder and try again.")
+        }
     }
-    // Shipped references are immutable and never written into user archives.
+    // Shipped references are immutable and never written into user directories.
     static let builtinID = UUID(uuidString: "8098422E-79C6-49BF-9205-E58F166F42D5")!
+    static let creatorID = UUID(uuidString: "E6C42B35-1664-47CE-8595-1E368668267B")!
     var builtinPackages: [SkillPackage] {
-        guard let url = Bundle.main.url(forResource: "SKILL", withExtension: "md", subdirectory: "BuiltinSkills/ios-operation"),
-              let text = try? String(contentsOf: url, encoding: .utf8),
-              let checked = try? SkillPackage.make(documents: ["SKILL.md": text]) else { return [] }
-        return [SkillPackage(id: Self.builtinID, name: checked.name, summary: checked.summary, version: checked.version, revision: checked.revision, documents: checked.documents, enabled: true)]
+        [(Self.builtinID, "ios-operation"), (Self.creatorID, "skill-creator")].compactMap { id, folder in
+            guard let url = Bundle.main.url(forResource: "SKILL", withExtension: "md", subdirectory: "BuiltinSkills/\(folder)"),
+                  let text = try? String(contentsOf: url, encoding: .utf8),
+                  let checked = try? SkillPackage.make(documents: ["SKILL.md": text]) else { return nil }
+            return Self.identify(checked, id: id, enabled: true)
+        }
     }
-    var enabledSnapshot: [SkillPackage] { builtinPackages + packages.filter(\.enabled) }
+    var enabledSnapshot: [SkillPackage] {
+        refresh()
+        return builtinPackages + packages.filter(\.enabled)
+    }
+    /// Scan before each run and while viewing the library. Running catalogs remain immutable.
+    func refresh() {
+        guard let directory, writable else { return }
+        reloadDisabledIDs()
+        do {
+            let folders = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]).sorted { $0.lastPathComponent < $1.lastPathComponent }
+            var next: [SkillPackage] = [], paths: [UUID: URL] = [:], invalid = false
+            for folder in folders {
+                guard (try folder.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else { continue }
+                guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("SKILL.md").path) else { continue }
+                do {
+                    let checked = try SkillPackage.make(documents: Self.readDocuments(folder))
+                    let id = Self.directoryID(folder.lastPathComponent)
+                    guard paths[id] == nil, ![Self.builtinID, Self.creatorID].contains(id) else { throw AppError.invalid(String(localized: "Skill content verification failed")) }
+                    next.append(Self.identify(checked, id: id, enabled: !disabledIDs.contains(id)))
+                    paths[id] = folder
+                } catch { invalid = true }
+            }
+            if packages != next { packages = next }
+            locations = paths
+            warning = invalid ? String(localized: "Some skills could not be loaded. Check their SKILL.md and reference files.") : nil
+        } catch {
+            packages = []; locations = [:]
+            warning = String(localized: "Skills could not be read. Existing files were kept. Check the skills folder and try again.")
+        }
+    }
+    private static func identify(_ package: SkillPackage, id: UUID, enabled: Bool) -> SkillPackage {
+        SkillPackage(id: id, name: package.name, summary: package.summary, version: package.version,
+                     revision: package.revision, documents: package.documents, enabled: enabled)
+    }
+    private static func directoryID(_ name: String) -> UUID {
+        if let id = UUID(uuidString: name) { return id }
+        let hex = SHA256.hash(data: Data(name.utf8)).prefix(16).map { String(format: "%02x", $0) }
+        return UUID(uuidString: hex[0..<4].joined() + "-" + hex[4..<6].joined() + "-" + hex[6..<8].joined() + "-" + hex[8..<10].joined() + "-" + hex[10..<16].joined())!
+    }
     @discardableResult func add(documents: [String: String]) throws -> SkillPackage {
-        try Task.checkCancellation()
+        try requireWritable()
         let candidate = try SkillPackage.make(documents: documents)
+        refresh()
         if let existing = packages.first(where: { $0.revision == candidate.revision }) { return existing }
-        try save(packages + [candidate]); return candidate
+        if let directory {
+            try Self.write(candidate, to: directory.appendingPathComponent(candidate.id.uuidString))
+            refresh()
+        } else { packages.append(candidate) }
+        return candidate
     }
     @discardableResult func importPackage(_ url: URL) throws -> SkillPackage {
-        try Task.checkCancellation()
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return try add(documents: Self.readDocuments(url))
+    }
+    private static func readDocuments(_ url: URL) throws -> [String: String] {
         let rootInfo = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard rootInfo.isSymbolicLink != true else { throw AppError.invalid(String(localized: "Symbolic links are not supported for skills")) }
         var documents: [String: String] = [:]
@@ -127,23 +183,81 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
             guard url.lastPathComponent == "SKILL.md" else { throw AppError.invalid(String(localized: "Select SKILL.md or a text skill folder containing it")) }
             try read(url, resource: "SKILL.md")
         }
-        return try add(documents: documents)
+        return documents
     }
     func setEnabled(_ enabled: Bool, id: UUID) throws {
-        var next = packages
-        guard let index = next.firstIndex(where: { $0.id == id }) else { throw AppError.invalid(String(localized: "Skill not found")) }
-        next[index].enabled = enabled; try save(next)
+        try requireWritable(); refresh()
+        guard let index = packages.firstIndex(where: { $0.id == id }) else { throw AppError.invalid(String(localized: "Skill not found")) }
+        setDisabled(!enabled, id: id)
+        packages[index].enabled = enabled
     }
     func remove(_ id: UUID) throws {
-        guard id != Self.builtinID else { throw AppError.invalid(String(localized: "Built-in skills cannot be deleted")) }
-        try save(packages.filter { $0.id != id })
+        try requireWritable(); refresh()
+        guard ![Self.builtinID, Self.creatorID].contains(id) else { throw AppError.invalid(String(localized: "Built-in skills cannot be deleted")) }
+        if let folder = locations[id] { try FileManager.default.removeItem(at: folder) }
+        setDisabled(false, id: id)
+        packages.removeAll { $0.id == id }; locations[id] = nil
     }
-    private func save(_ next: [SkillPackage]) throws {
-        guard writable else { throw AppError.unavailable(warning ?? String(localized: "Skills are read-only")) }
+    private func reloadDisabledIDs() {
+        if let defaults {
+            disabledIDs = Set((defaults.stringArray(forKey: Self.disabledIDsKey) ?? []).compactMap(UUID.init(uuidString:)))
+        }
+    }
+    private func setDisabled(_ disabled: Bool, id: UUID) {
+        if disabled { disabledIDs.insert(id) } else { disabledIDs.remove(id) }
+        guard let defaults else { return }
+        if disabledIDs.isEmpty { defaults.removeObject(forKey: Self.disabledIDsKey) }
+        else { defaults.set(disabledIDs.map(\.uuidString).sorted(), forKey: Self.disabledIDsKey) }
+    }
+    private func migrateDisabledMarkers(in root: URL) throws {
+        let folders = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+        for folder in folders {
+            guard (try folder.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else { continue }
+            let marker = folder.appendingPathComponent(".disabled")
+            guard FileManager.default.fileExists(atPath: marker.path) else { continue }
+            setDisabled(true, id: Self.directoryID(folder.lastPathComponent))
+            try FileManager.default.removeItem(at: marker)
+        }
+    }
+    private func requireWritable() throws {
         try Task.checkCancellation()
-        let data = try JSONEncoder().encode(Archive(packages: next))
-        guard data.count <= 16 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Skill storage is full. Delete unwanted versions first.")) }
-        if let file { try data.write(to: file, options: [.atomic, .completeFileProtection]) }
-        packages = next
+        guard writable else { throw AppError.unavailable(warning ?? String(localized: "Skills are read-only")) }
+    }
+    private static func write(_ package: SkillPackage, to destination: URL) throws {
+        let staging = destination.deletingLastPathComponent().appendingPathComponent(".import-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+        for (path, text) in package.documents {
+            try Task.checkCancellation()
+            let file = staging.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: file, options: .completeFileProtection)
+        }
+        try FileManager.default.moveItem(at: staging, to: destination)
+    }
+    private func migrateArchive(at archiveURL: URL, to root: URL) throws {
+        guard FileManager.default.fileExists(atPath: archiveURL.path) else { return }
+        let info = try archiveURL.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
+        guard info.isSymbolicLink != true, (info.fileSize ?? Int.max) <= 16 * 1_024 * 1_024 else { throw AppError.invalid(String(localized: "Invalid skill archive")) }
+        let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: archiveURL))
+        guard archive.version == 1, Set(archive.packages.map(\.id)).count == archive.packages.count else { throw AppError.invalid(String(localized: "Unsupported skill archive version")) }
+        // Validate every package before changing storage. A failed migration keeps the archive.
+        for package in archive.packages {
+            let checked = try SkillPackage.make(documents: package.documents)
+            guard checked.revision == package.revision, checked.name == package.name, checked.summary == package.summary, checked.version == package.version else { throw AppError.invalid(String(localized: "Skill content verification failed")) }
+        }
+        for package in archive.packages {
+            let destination = root.appendingPathComponent(package.id.uuidString)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                let existing = try SkillPackage.make(documents: Self.readDocuments(destination))
+                guard existing.revision == package.revision else { throw AppError.invalid(String(localized: "Skill content verification failed")) }
+            } else { try Self.write(package, to: destination) }
+        }
+        for package in archive.packages {
+            setDisabled(!package.enabled, id: package.id)
+            let marker = root.appendingPathComponent(package.id.uuidString).appendingPathComponent(".disabled")
+            if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+        }
+        try FileManager.default.removeItem(at: archiveURL)
     }
 }

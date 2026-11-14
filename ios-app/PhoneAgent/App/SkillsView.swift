@@ -18,34 +18,20 @@ struct SkillsView: View {
             if !store.builtinPackages.isEmpty {
                 Section(String(localized: "Built-in skills")) {
                     ForEach(store.builtinPackages) { skill in
-                        NavigationLink { SkillDetailView(skill: skill) } label: {
-                            VStack(alignment: .leading) { Text(skill.name); Text(skill.summary).font(.caption).foregroundStyle(.secondary) }
-                        }
+                        skillLink(skill)
                     }
                 }
             }
             if store.packages.isEmpty {
-                ContentUnavailableView(String(localized: "No local skills yet"), systemImage: "books.vertical")
+                ContentUnavailableView(String(localized: "No user skills yet"), systemImage: "books.vertical")
             } else {
-                Section(String(localized: "Local skills")) {
+                Section(String(localized: "User skills")) {
                     ForEach(store.packages) { skill in
-                        Group {
-                            NavigationLink { SkillDetailView(skill: skill) } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Label(skill.name, systemImage: "book.closed").font(.headline)
-                                    Text(skill.summary).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                                    Text(String(localized: "Version \(skill.displayVersion) · \(skill.revision.prefix(8))")).font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            HStack {
-                                Text(String(localized: "Enable"))
-                                Spacer()
-                                Toggle(String(localized: "Enable"), isOn: Binding(get: { skill.enabled }, set: { value in perform { try store.setEnabled(value, id: skill.id) } }))
-                                    .labelsHidden().fixedSize().accessibilityLabel(String(localized: "Enable \(skill.name)"))
-                                    .accessibilityIdentifier("enableSkill-" + skill.id.uuidString)
-                                Button(String(localized: "Delete"), role: .destructive) { deleting = skill }.buttonStyle(.borderless)
-                                    .accessibilityIdentifier("deleteSkill-" + skill.id.uuidString)
-                            }.disabled(model.hasBusySessions)
+                        skillLink(skill)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(String(localized: "Delete"), role: .destructive) { deleting = skill }
+                                .accessibilityIdentifier("deleteSkill-" + skill.id.uuidString)
+                                .disabled(model.hasBusySessions)
                         }
                     }
                 }
@@ -58,6 +44,12 @@ struct SkillsView: View {
                     .disabled(model.hasBusySessions).accessibilityIdentifier("importSkill")
             }
         }
+        .task {
+            while !Task.isCancelled {
+                store.refresh()
+                do { try await Task.sleep(for: .seconds(1)) } catch { break }
+            }
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder, .plainText, UTType(filenameExtension: "md") ?? .plainText]) { result in
             switch result {
             case .success(let url): perform {
@@ -68,10 +60,26 @@ struct SkillsView: View {
             case .failure: status = String(localized: "Import did not finish. The original skill was kept. Select the file again.")
             }
         }
-        .alert(String(localized: "Delete this skill version?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+        .alert(String(localized: "Delete this skill?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button(String(localized: "Cancel"), role: .cancel) { deleting = nil }
             Button(String(localized: "Delete"), role: .destructive) { if let deleting { perform { try store.remove(deleting.id) } }; deleting = nil }
-        } message: { Text(String(localized: "Only this version's copy in the app will be deleted. Original import files and other versions are kept. You can import it again later.")) }
+        } message: { Text(String(localized: "This cannot be undone.")) }
+    }
+    private func skillLink(_ skill: SkillPackage) -> some View {
+        NavigationLink { SkillDetailView(skill: skill, model: model, store: store) } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(skill.name).font(.headline).lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if let version = skill.displayVersion { Text(version) }
+                        if !skill.enabled { Text(String(localized: "(Not enabled)")) }
+                    }
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(skill.summary).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            }
+        }
+        .accessibilityIdentifier("skill-" + skill.id.uuidString)
     }
     private func perform(_ operation: () throws -> Void) {
         guard !model.hasBusySessions else { status = String(localized: "Stop the current task before changing skills"); return }
@@ -82,9 +90,20 @@ struct SkillsView: View {
 
 private struct SkillDetailView: View {
     let skill: SkillPackage
+    @ObservedObject var model: AgentViewModel
+    @ObservedObject var store: SkillStore
+    @State private var status: String?
     @State private var resource = "SKILL.md"
     var body: some View {
         VStack(spacing: 0) {
+            if let current = store.packages.first(where: { $0.id == skill.id }) {
+                Toggle(String(localized: "Enable"), isOn: Binding(get: { current.enabled }, set: setEnabled))
+                    .accessibilityLabel(String(localized: "Enable \(skill.name)"))
+                    .accessibilityIdentifier("enableSkill-" + skill.id.uuidString)
+                    .disabled(model.hasBusySessions)
+                    .padding()
+            }
+            if let status { Text(status).font(.caption).foregroundStyle(.orange).padding(.horizontal) }
             Picker(String(localized: "Document"), selection: $resource) {
                 ForEach(skill.resources, id: \.self) { Text($0).tag($0) }
             }.pickerStyle(.menu).padding(.horizontal)
@@ -94,4 +113,10 @@ private struct SkillDetailView: View {
             }.accessibilityIdentifier("skillDocument")
         }.navigationTitle(skill.name).navigationBarTitleDisplayMode(.inline)
     }
+    private func setEnabled(_ enabled: Bool) {
+        guard !model.hasBusySessions else { status = String(localized: "Stop the current task before changing skills"); return }
+        do { try store.setEnabled(enabled, id: skill.id); status = nil }
+        catch { status = error.localizedDescription }
+    }
+
 }

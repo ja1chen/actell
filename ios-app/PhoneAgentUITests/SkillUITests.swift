@@ -10,20 +10,45 @@ import XCTest
         importSkill(app)
         let title = app.staticTexts["Synthetic Guide"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 8), app.debugDescription)
+        let version = app.staticTexts["v1"].firstMatch
+        XCTAssertTrue(version.exists)
+        XCTAssertLessThan(abs(title.frame.midY - version.frame.midY), title.frame.height)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "deleteSkill-")).firstMatch.exists)
+        capture("skill-list-name-and-version")
+        XCTAssertEqual(app.switches.count, 0)
+        let row = app.cells.containing(.staticText, identifier: "Synthetic Guide").firstMatch
+        XCTAssertFalse(row.staticTexts["（未启用）"].exists)
         title.tap()
         XCTAssertTrue(app.scrollViews["skillDocument"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "SYNTHETIC_SKILL_BODY")).firstMatch.exists)
-        app.navigationBars["Synthetic Guide"].buttons.firstMatch.tap()
         let toggle = app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "enableSkill-")).firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5)); toggle.tap(); XCTAssertEqual(toggle.value as? String, "0")
-        toggle.tap(); XCTAssertEqual(toggle.value as? String, "1")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        let control = toggle.switches.firstMatch
+        XCTAssertTrue(control.exists)
+        control.tap(); XCTAssertEqual(toggle.value as? String, "0")
+        capture("skill-detail-disabled")
+        app.navigationBars["Synthetic Guide"].buttons.firstMatch.tap()
+        XCTAssertTrue(row.staticTexts["（未启用）"].waitForExistence(timeout: 3))
+        XCTAssertLessThan(abs(row.staticTexts["（未启用）"].frame.midY - version.frame.midY), title.frame.height)
+        XCTAssertGreaterThan(row.staticTexts["（未启用）"].frame.minX, version.frame.maxX)
+        capture("skill-list-disabled")
+        XCTAssertEqual(app.switches.count, 0)
+        title.tap()
+        control.tap(); XCTAssertEqual(toggle.value as? String, "1")
+        app.navigationBars["Synthetic Guide"].buttons.firstMatch.tap()
+        XCTAssertFalse(row.staticTexts["（未启用）"].exists)
         importSkill(app)
-        XCTAssertEqual(app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "enableSkill-")).count, 1)
+        XCTAssertEqual(app.staticTexts.matching(identifier: "Synthetic Guide").count, 1)
+        XCTAssertEqual(app.switches.count, 0)
         capture("skill-management-imported")
         let remove = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "deleteSkill-")).firstMatch
+        row.swipeLeft()
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
         remove.tap(); app.alerts.buttons["取消"].tap(); XCTAssertTrue(title.exists)
+        row.swipeLeft()
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
         remove.tap(); app.alerts.buttons["删除"].tap()
-        XCTAssertTrue(app.staticTexts["暂无本地技能"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["暂无用户技能"].waitForExistence(timeout: 5))
         importSkill(app); XCTAssertTrue(title.waitForExistence(timeout: 8))
         app.navigationBars["技能"].buttons.firstMatch.tap(); app.buttons["关闭"].tap()
         app.staticTexts["新建会话"].tap()
@@ -50,8 +75,11 @@ import XCTest
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
         XCTAssertTrue(file.waitForExistence(timeout: 5), app.debugDescription); file.tap()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: app.buttons["importSkill"])
+        if XCTWaiter.wait(for: [dismissed], timeout: 3) == .completed { return }
         let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
-        if open.waitForExistence(timeout: 1) { open.tap() }
+        XCTAssertTrue(open.waitForExistence(timeout: 3), app.debugDescription)
+        open.tap()
     }
     private func capture(_ name: String) {
         let item = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

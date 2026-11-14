@@ -110,26 +110,36 @@ final class FileWorkspaceTests: XCTestCase {
         await assertFailure({ try await w.edit(filePath: "a", oldString: "hello", newString: "hello") }, code: "unchanged_edit")
         XCTAssertEqual(try String(contentsOf: w.root.appendingPathComponent("a"), encoding: .utf8), "hello")
     }
-    func testTraversalAndRootDenied() async throws {
-        let w = try workspace()
-        for path in ["../outside", "a/../../outside", "~/private", "a\\b", "nul\0name"] {
+    func testParentAndAbsolutePathsAreAllowed() async throws {
+        let base = try workspace(), w = try FileWorkspace(root: base.root.appendingPathComponent("conversation"))
+        _ = try await w.write(filePath: "../skills/test/SKILL.md", content: "parent")
+        let target = base.root.appendingPathComponent("skills/test/SKILL.md")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "parent")
+        _ = try await w.edit(filePath: target.path, oldString: "parent", newString: "absolute")
+        let result = try object(await w.read(filePath: "../skills/test/SKILL.md"))
+        XCTAssertEqual(result["content"] as? String, "1: absolute")
+        XCTAssertEqual(result["file_path"] as? String, target.path)
+        for path in ["", "nul\0name"] {
             await assertFailure({ try await w.write(filePath: path, content: "x") }, code: "invalid_path")
         }
-        for path in ["/outside", ".", w.root.path, w.root.path + "-sibling/a"] {
-            await assertFailure({ try await w.write(filePath: path, content: "x") }, code: "outside_workspace")
-        }
+        await assertFailure({ try await w.write(filePath: w.root.path, content: "x") }, code: "not_regular_file")
     }
     func testAbsolutePathInsideWorkspaceAllowed() async throws {
         let w = try workspace()
         _ = try await w.write(filePath: w.root.appendingPathComponent("a").path, content: "allowed")
         XCTAssertEqual(try String(contentsOf: w.root.appendingPathComponent("a"), encoding: .utf8), "allowed")
     }
-    func testSymlinkAndDanglingSymlinkDenied() async throws {
+    func testSymlinkDirectoryAndFileAccessAreAllowed() async throws {
         let w = try workspace()
-        try FileManager.default.createSymbolicLink(atPath: w.root.appendingPathComponent("link").path, withDestinationPath: "/tmp")
-        await assertFailure({ try await w.write(filePath: "link/escape", content: "x") }, code: "symlink_denied")
-        try FileManager.default.createSymbolicLink(atPath: w.root.appendingPathComponent("dangling").path, withDestinationPath: "/does-not-exist")
-        await assertFailure({ try await w.write(filePath: "dangling", content: "x") }, code: "symlink_denied")
+        let target = w.root.appendingPathComponent("target")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: w.root.appendingPathComponent("link"), withDestinationURL: target)
+        _ = try await w.write(filePath: "link/file", content: "first")
+        try FileManager.default.createSymbolicLink(at: w.root.appendingPathComponent("alias"), withDestinationURL: target.appendingPathComponent("file"))
+        _ = try await w.edit(filePath: "alias", oldString: "first", newString: "second")
+        let result = try object(await w.read(filePath: "alias"))
+        XCTAssertEqual(result["content"] as? String, "1: second")
+        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("file"), encoding: .utf8), "second")
     }
     func testDirectoryCannotBeReadOrReplaced() async throws {
         let w = try workspace()
@@ -137,12 +147,13 @@ final class FileWorkspaceTests: XCTestCase {
         await assertFailure({ try await w.read(filePath: "d") }, code: "not_regular_file")
         await assertFailure({ try await w.write(filePath: "d", content: "x") }, code: "not_regular_file")
     }
-    func testHardlinkDenied() async throws {
+    func testHardlinkCanBeRead() async throws {
         let w = try workspace()
         let source = w.root.appendingPathComponent("a"), link = w.root.appendingPathComponent("b")
         try Data("text".utf8).write(to: source)
         try FileManager.default.linkItem(at: source, to: link)
-        await assertFailure({ try await w.read(filePath: "b") }, code: "hardlink_denied")
+        let result = try object(await w.read(filePath: "b"))
+        XCTAssertEqual(result["content"] as? String, "1: text")
     }
     func testBinaryAndOversizeDenied() async throws {
         let w = try workspace()
@@ -183,17 +194,20 @@ final class FileWorkspaceTests: XCTestCase {
         } catch is CancellationError { }
         XCTAssertEqual(try String(contentsOf: w.root.appendingPathComponent("a"), encoding: .utf8), "before")
     }
-    func testConversationIsolation() async throws {
+    func testConversationWorkingDirectoriesResolveRelativePathsIndependently() async throws {
         let a = try workspace(), b = try workspace()
         _ = try await a.write(filePath: "a", content: "private")
-        await assertFailure({ try await b.read(filePath: a.root.appendingPathComponent("a").path) }, code: "outside_workspace")
+        _ = try await b.write(filePath: "a", content: "other")
+        let own = try object(await b.read(filePath: "a"))
+        let absolute = try object(await b.read(filePath: a.root.appendingPathComponent("a").path))
+        XCTAssertEqual(own["content"] as? String, "1: other")
+        XCTAssertEqual(absolute["content"] as? String, "1: private")
     }
-    func testWorkspaceQuota() async throws {
+    func testWritesDoNotEnforceAnAggregateWorkspaceQuota() async throws {
         let w = try workspace()
         let data = String(repeating: "x", count: FileWorkspace.maximumFileBytes)
         for n in 0..<10 { _ = try await w.write(filePath: "file-\(n)", content: data) }
-        await assertFailure({ try await w.write(filePath: "overflow", content: "x") }, code: "workspace_full")
-        // Replacing an existing file deducts its previous bytes.
+        _ = try await w.write(filePath: "overflow", content: "x")
         _ = try await w.write(filePath: "file-0", content: "small")
     }
     func testInvalidLineRange() async throws {
@@ -206,10 +220,14 @@ final class FileWorkspaceTests: XCTestCase {
         _ = try await w.write(filePath: "nested/a", content: "x")
         let root = try await w.directory()
         let nested = try await w.directory(filePath: "nested")
-        XCTAssertEqual(root, w.root)
+        XCTAssertEqual(root.path, w.root.path)
         XCTAssertEqual(nested.path, w.root.appendingPathComponent("nested").path)
-        do { _ = try await w.directory(filePath: "../outside"); XCTFail("Expected denial") }
-        catch let error as FileWorkspace.Failure { XCTAssertEqual(error.code, "invalid_path") }
+        let parent = try await w.directory(filePath: "..")
+        XCTAssertEqual(parent.path, w.root.deletingLastPathComponent().path)
+        let absolute = try await w.directory(filePath: nested.path)
+        XCTAssertEqual(absolute, nested)
+        let home = try await w.directory(filePath: "~")
+        XCTAssertEqual(home.path, URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().path)
     }
     func testLiteralUnicodeEditDoesNotMatchCanonicalEquivalent() async throws {
         let w = try workspace()

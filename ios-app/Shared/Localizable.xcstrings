@@ -21069,6 +21069,7 @@
       }
     },
     "Run a command from this conversation's workspace": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -21085,6 +21086,7 @@
       }
     },
     "Modify this conversation's workspace file": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -21096,6 +21098,150 @@
           "stringUnit": {
             "state": "translated",
             "value": "修改此会话的工作区文件"
+          }
+        }
+      }
+    },
+    "(Not enabled)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Not enabled)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（未启用）"
+          }
+        }
+      }
+    },
+    "Modify a file": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modify a file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改文件"
+          }
+        }
+      }
+    },
+    "No user skills yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No user skills yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无用户技能"
+          }
+        }
+      }
+    },
+    "Run a command": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行命令"
+          }
+        }
+      }
+    },
+    "Skills could not be read. Existing files were kept. Check the skills folder and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skills could not be read. Existing files were kept. Check the skills folder and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取技能。现有文件已保留，请检查技能文件夹后重试。"
+          }
+        }
+      }
+    },
+    "Some skills could not be loaded. Check their SKILL.md and reference files.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some skills could not be loaded. Check their SKILL.md and reference files."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分技能无法加载，请检查其 SKILL.md 和参考文件。"
+          }
+        }
+      }
+    },
+    "User skills": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User skills"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户技能"
+          }
+        }
+      }
+    },
+    "Delete this skill?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this skill?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除这个技能？"
+          }
+        }
+      }
+    },
+    "This cannot be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除后无法恢复。"
           }
         }
       }

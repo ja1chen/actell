@@ -15,7 +15,7 @@ struct ExecutionTool: AgentTool {
     var onResult: (@Sendable (ToolInvocation, ToolOutcome) async -> Void)? = nil
 
     var descriptor: ToolDescriptor {
-        let path = DeviceTool.property("string", "Path inside this conversation's workspace; relative paths recommended. No other app data, symlinks, or external directories.")
+        let path = DeviceTool.property("string", "File or directory path. Relative paths start in this conversation's working directory; absolute paths, ~, parent paths and links use the App's filesystem permissions.")
         let publicDescription = DeviceTool.property("string", "Short public description of this file operation")
         let text = DeviceTool.property("string", "Literal UTF-8 text; never instructions to execute")
         let properties: [String: ProviderCore.JSONValue]
@@ -25,15 +25,15 @@ struct ExecutionTool: AgentTool {
         case .read:
             properties = ["description": publicDescription, "file_path": path, "offset": DeviceTool.property("integer", "First line, 1-based; default 1"), "limit": DeviceTool.property("integer", "Maximum lines, 1..2000; default 2000")]
             required = ["file_path"]
-            description = "Read a UTF-8 text file from this conversation's app-owned workspace with line numbers. Bounded output reports truncation. Not a device filesystem reader."
+            description = "Read a UTF-8 text file with line numbers using the App's filesystem permissions. Bounded output reports truncation."
         case .edit:
             properties = ["description": publicDescription, "file_path": path, "old_string": text, "new_string": text, "replace_all": DeviceTool.property("boolean", "Replace every non-overlapping literal match; defaults to false, which requires exactly one match")]
             required = ["file_path", "old_string", "new_string"]
-            description = "Atomically replace literal text in an existing workspace file after one-use user approval. old_string must be nonempty. Zero matches or ambiguous matches fail without changing the file. Empty new_string deletes the matched text."
+            description = "Atomically replace literal text in an existing text file after one-use user approval. old_string must be nonempty. Zero matches or ambiguous matches fail without changing the file. Empty new_string deletes the matched text."
         case .write:
             properties = ["description": publicDescription, "file_path": path, "content": text]
             required = ["file_path", "content"]
-            description = "Create or replace a UTF-8 text file in this conversation's workspace after one-use user approval. Parent directories can be created. Atomic file replacement, not arbitrary filesystem access."
+            description = "Create or replace a UTF-8 text file after one-use user approval. Parent directories can be created. Atomic file replacement using the App's filesystem permissions."
         case .bash:
             properties = ["description": DeviceTool.property("string", "Short public description of the command"), "command": DeviceTool.property("string", "Command text to execute. Availability, options and shell syntax are determined at runtime. Use stdout, stderr and the exit code to choose the next step; missing programs return exit 127."), "timeoutMs": DeviceTool.property("integer", "Timeout in milliseconds, 100..30000; default 10000. Requests cancellation rather than enforcing a hard deadline. Partial effects may remain; do not automatically repeat a timed-out command."), "workdir": path]
             required = ["description", "command"]
@@ -70,13 +70,13 @@ struct ExecutionTool: AgentTool {
                 let directory = try await workspace.directory(filePath: workdir)
                 let timeout = try integer("timeoutMs", default: 10000, range: 100...30000)
                 try ShellInput.validate(command)
-                guard await approveMutation(invocation, description + "\n" + command) else {
+                guard await approveMutation(invocation, description + "\n" + directory.path + "\n" + command) else {
                     let denied = ToolOutcome(kind: .denied, content: "Command execution was not approved; no command was dispatched.")
                     await onResult?(invocation, denied)
                     return denied
                 }
                 let result = try await ShellRuntime.shared.run(command: command, workspace: directory,
-                    workspaceRoot: workspace.root, timeout: Double(timeout) / 1000, beforeDispatch: {
+                    timeout: Double(timeout) / 1000, beforeDispatch: {
                     try await context.checkCancellation()
                     guard await canExecute() else { throw CancellationError() }
                 })

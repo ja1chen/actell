@@ -47,6 +47,28 @@ final class ExecutionToolTests: XCTestCase {
         XCTAssertEqual(FileManager.default.currentDirectoryPath, originalDirectory)
     }
 
+    func testCommandCanUseParentAbsoluteWorkdirAndChangeDirectories() async throws {
+        let base = try workspace(), context = context()
+        let conversation = try FileWorkspace(root: base.root.appendingPathComponent("conversation"))
+        let tool = ExecutionTool(kind: .bash, workspace: conversation, canExecute: { true }, approveMutation: { _, _ in true })
+        func run(_ command: String, workdir: String = ".") async throws -> [String: Any] {
+            let args = ["description": "Use sibling directory", "workdir": workdir, "command": command]
+            let result = try await tool.execute(call("bash", String(decoding: try JSONEncoder().encode(args), as: UTF8.self), context: context), context: context)
+            XCTAssertEqual(result.kind, .returned, result.content)
+            let output = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any])
+            XCTAssertEqual(output["exitCode"] as? Int, 0, result.content)
+            XCTAssertEqual(output["stderr"] as? String, "", result.content)
+            return output
+        }
+        _ = try await run("mkdir -p skills/created", workdir: base.root.path)
+        _ = try await run("echo native > reference.txt", workdir: "../skills/created")
+        XCTAssertEqual(try String(contentsOf: base.root.appendingPathComponent("skills/created/reference.txt"), encoding: .utf8), "native\n")
+        _ = try await run("cd ../skills/created")
+        let reset = try await run("pwd")
+        let reported = try XCTUnwrap(reset["stdout"] as? String).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual((reported as NSString).expandingTildeInPath, conversation.root.path)
+    }
+
     func testNativeTimeoutWaitsForCommandBeforeReusingRuntime() async throws {
         let workspace = try workspace()
         let start = Date()

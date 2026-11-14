@@ -37,7 +37,7 @@ public actor ShellRuntime {
     }
 
 
-    public func run(command: String, workspace: URL, workspaceRoot: URL? = nil, timeout: TimeInterval = 10,
+    public func run(command: String, workspace: URL, timeout: TimeInterval = 10,
                     beforeDispatch: @escaping @Sendable () async throws -> Void = {}) async throws -> ShellResult {
         guard timeout.isFinite, timeout > 0, timeout <= 60 else {
             throw ShellError.invalidCommand("timeout must be greater than zero and at most 60 seconds")
@@ -49,8 +49,7 @@ public actor ShellRuntime {
             try await beforeDispatch()
             try Task.checkCancellation()
             try ShellInput.validate(command)
-            guard workspace.isFileURL, workspace.path.hasPrefix("/"),
-                  (workspaceRoot ?? workspace).isFileURL else {
+            guard workspace.isFileURL, workspace.path.hasPrefix("/") else {
                 throw ShellError.invalidCommand("An absolute file URL is required for the working directory.")
             }
             let handle = CommandHandle()
@@ -58,7 +57,7 @@ public actor ShellRuntime {
                 await withCheckedContinuation { continuation in
                     DispatchQueue.global(qos: .utility).async {
                         let raw = handle.execution.run(command: command, directory: workspace,
-                                                       root: workspaceRoot ?? workspace, timeout: timeout)
+                                                       timeout: timeout)
                         continuation.resume(returning: ShellResult(
                             stdout: Self.decodeOutput(raw["stdout"]),
                             stderr: Self.decodeOutput(raw["stderr"]),
