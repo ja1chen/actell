@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 ## Capabilities
 
-- Runs can use file tools (`read`, `edit`, `write`) and bundled `ios_system` commands through a tool named `bash`, not GNU Bash. Tool effects are automatically authorized by the host; commands and file mutations do not prompt for confirmation. Each conversation has its own starting workspace; file tools and commands can also access other paths allowed by the App's sandbox. See [scope and integration](docs/agent/COMMAND-TOOLS.md).
+- Runs can use file tools (`read`, `edit`, `write`) and bundled `ios_system` commands through a tool named `bash`, not GNU Bash. `python3` and `python` use embedded CPython with preinstalled Pillow and NumPy. Tool effects are automatically authorized by the host; commands and file mutations do not prompt for confirmation. Each conversation has its own starting workspace; file tools and commands can also access other paths allowed by the App's sandbox. See [scope and integration](docs/agent/COMMAND-TOOLS.md).
 - Conversations with configurable providers and models, streaming replies, readable reasoning supplied by providers, attachments and [local text skills](docs/agent/SKILLS.md). Skills can be imported or created through conversation with the built-in Skill Creator; the App discovers them from `Documents/skills/`. AgentKit preserves complete session history and manages a separate model context with budgeted compaction.
 - Screenshot, tap, drag and wait tools. Tool calls run in order; uncertain inputs are never automatically replayed. Ordinary chat does not require a device connection.
 - Local model tasks can read screenshots, accessibility content, or both. Automatic mode lets the model choose on each observation; the default is screenshots. Selected content is sent to the model provider, and accessibility content may include off-screen text. Every mode supports taps and drags; accessibility-only input uses logical points within the reported display bounds. The experimental accessibility reader is limited to a verified system build and does not use XCTest Runner; [scope and limitations](coredevice/docs/ACCESSIBILITY.md).
@@ -34,6 +34,7 @@ VPN apps with built-in loopback can share the same connection with regular proxy
 Install Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets. The backend uses a locked dependency graph; set `COREDEVICE_CARGO_OFFLINE=1` when the cache is complete. Xcode builds the corresponding Rust library automatically. See [App build instructions](ios-app/README.md) for signing overrides and dependency setup.
 
 ```sh
+python3 ios-app/scripts/prepare_python_runtime.py
 python3 ios-app/scripts/generate_xcode_project.py
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -project ios-app/PhoneAgent.xcodeproj -scheme PhoneAgent \
@@ -76,6 +77,7 @@ Firmware outputs are in `.build/esp32-<mode>/`. App tests use synthetic provider
 | [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | Remote Swift Package dependency used by ProviderKit for model protocol encoding and decoding |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package dependency for Markdown message rendering |
 | [ios_system](https://github.com/holzschu/ios_system/tree/v3.0.6) | Pinned binary Swift Package dependencies for the embedded command runtime: core, files, text and shell XCFrameworks, integrated through the App-owned `CommandKit` package; see [licenses and provenance](THIRD_PARTY.md#ios_system-command-runtime) |
+| [Python-Apple-support](https://github.com/beeware/Python-Apple-support), [Pillow](https://github.com/python-pillow/Pillow), [NumPy](https://github.com/numpy/numpy) | Embedded CPython and preinstalled image/array packages for `python3` commands; prepare locked device/simulator artifacts before resolving the Xcode project. See [runtime and limits](docs/agent/PYTHON-RUNTIME.md) and [sources](THIRD_PARTY.md#embedded-python) |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | Reuses the patched idevice source and PNG validator pinned by Device Hub, with local adaptations; does not integrate the entire Device Hub app |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5), [esp_tinyusb](https://github.com/espressif/esp-usb), [TinyUSB](https://github.com/hathach/tinyusb) | ESP32 firmware toolchain and USB components; pinned to ESP-IDF 5.5.5, esp_tinyusb 2.2.0, and TinyUSB 0.21.0~2 |
 | [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) | Protocol schema reference and selective translation; not a Python service running on the phone or ESP32 |

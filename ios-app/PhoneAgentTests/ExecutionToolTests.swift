@@ -10,7 +10,120 @@ final class ExecutionToolTests: XCTestCase {
         for command in ["pwd", "cp", "mv", "rm", "mkdir", "sed", "sort", "uniq", "base64", "sh", "sleep"] {
             XCTAssertTrue(names.contains(command), command)
         }
-        XCTAssertFalse(names.contains("python"))
+        XCTAssertTrue(names.contains("python"))
+        XCTAssertTrue(names.contains("python3"))
+    }
+
+    func testEmbeddedPythonScriptArgumentsFilesAndTenSecondCountdown() async throws {
+        let workspace = try workspace()
+        let script = """
+        import sys, time
+        assert sys.modules['__main__'].__dict__ is globals()
+        assert sys.argv[1:] == ['hello world', '中文']
+        for value in range(10, 0, -1):
+            print(value, flush=True)
+            time.sleep(1)
+        with open('countdown-result.txt', 'w') as output:
+            output.write('done')
+        print('done')
+        """
+        try script.write(to: workspace.root.appendingPathComponent("countdown.py"), atomically: true, encoding: .utf8)
+        let result = try await ShellRuntime.shared.run(command: "python3 countdown.py 'hello world' 中文", workspace: workspace.root, timeout: 20)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "10\n9\n8\n7\n6\n5\n4\n3\n2\n1\ndone\n")
+        XCTAssertEqual(try String(contentsOf: workspace.root.appendingPathComponent("countdown-result.txt"), encoding: .utf8), "done")
+    }
+
+    func testEmbeddedPythonNativePackagesAndExceptionRecovery() async throws {
+        let workspace = try workspace()
+        let script = """
+        import io, sys, PIL, numpy as np
+        from PIL import Image, ImageDraw, ImageFilter
+        assert PIL.__version__ == '13.0.0' and np.__version__ == '2.5.2.post1'
+        image = Image.new('RGB', (64, 48), (20, 40, 60))
+        ImageDraw.Draw(image).line([(8,8), (56,40)], fill='red', width=3)
+        for fmt in ['PNG', 'JPEG']:
+            stream = io.BytesIO()
+            image.save(stream, format=fmt)
+            stream.seek(0)
+            assert Image.open(stream).size == (64, 48)
+        image = image.convert('RGBA').filter(ImageFilter.GaussianBlur(1)).resize((32,24), Image.Resampling.LANCZOS)
+        assert np.asarray(image, dtype=np.float32).shape == (24,32,4)
+        ramp = np.arange(16, dtype=np.float32).reshape(4,4)
+        gy, gx = np.gradient(ramp)
+        assert np.allclose(gy, 4) and np.allclose(gx, 1)
+        assert np.allclose(ramp @ np.eye(4, dtype=np.float32), ramp)
+        assert np.argmax(ramp) == 15
+        image.save('preview.png')
+        print('native packages passed')
+        """
+        try script.write(to: workspace.root.appendingPathComponent("image.py"), atomically: true, encoding: .utf8)
+        let native = try await ShellRuntime.shared.run(command: "python3 image.py", workspace: workspace.root)
+        XCTAssertEqual(native.exitCode, 0, native.stderr)
+        XCTAssertEqual(native.stdout, "native packages passed\n")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: workspace.root.appendingPathComponent("preview.png").path))
+        let failed = try await ShellRuntime.shared.run(command: #"python3 -c "raise ValueError('synthetic')""#, workspace: workspace.root)
+        XCTAssertEqual(failed.exitCode, 1)
+        XCTAssertTrue(failed.stderr.contains("ValueError: synthetic"), failed.stderr)
+        let next = try await ShellRuntime.shared.run(command: #"python -c "print('ready')""#, workspace: workspace.root)
+        XCTAssertEqual(next.stdout, "ready\n")
+        XCTAssertEqual(next.exitCode, 0, next.stderr)
+    }
+
+    func testEmbeddedPythonStreamsModulesAndEnvironmentRestoration() async throws {
+        let workspace = try workspace()
+        let piped = try await ShellRuntime.shared.run(command: #"echo hello | python3 -c "import sys; print(sys.stdin.read().upper(), end='')""#, workspace: workspace.root)
+        XCTAssertEqual(piped.exitCode, 0, piped.stderr)
+        XCTAssertEqual(piped.stdout, "HELLO\n")
+        let redirected = try await ShellRuntime.shared.run(command: #"python3 -c "print('redirected')" > output.txt"#, workspace: workspace.root)
+        XCTAssertEqual(redirected.exitCode, 0, redirected.stderr)
+        XCTAssertEqual(try String(contentsOf: workspace.root.appendingPathComponent("output.txt"), encoding: .utf8), "redirected\n")
+        let module = try await ShellRuntime.shared.run(command: #"python3 -m json.tool output.txt"#, workspace: workspace.root)
+        XCTAssertNotEqual(module.exitCode, 0) // Invalid JSON, but the module actually ran.
+        XCTAssertFalse(module.stderr.contains("command not found"))
+        let changed = try await ShellRuntime.shared.run(command: #"python3 -c "import os, sys; os.environ['ACTELL_PYTHON_TEST']='value'; sys.path.append('leak'); sys.exit(7)""#, workspace: workspace.root)
+        XCTAssertEqual(changed.exitCode, 7, changed.stderr)
+        let restored = try await ShellRuntime.shared.run(command: #"python3 -c "import os, sys; assert 'ACTELL_PYTHON_TEST' not in os.environ; assert 'leak' not in sys.path; print('restored')""#, workspace: workspace.root)
+        XCTAssertEqual(restored.stdout, "restored\n")
+        XCTAssertEqual(restored.exitCode, 0, restored.stderr)
+    }
+
+    func testEmbeddedPythonTimeoutAndOutputBudget() async throws {
+        let workspace = try workspace()
+        try "while True:\n    pass\n".write(to: workspace.root.appendingPathComponent("loop.py"), atomically: true, encoding: .utf8)
+        let timeout = try await ShellRuntime.shared.run(command: "python3 loop.py", workspace: workspace.root, timeout: 0.2)
+        XCTAssertTrue(timeout.timedOut)
+        XCTAssertEqual(timeout.exitCode, 124)
+        let next = try await ShellRuntime.shared.run(command: #"python3 -c "print('ready')""#, workspace: workspace.root)
+        XCTAssertEqual(next.stdout, "ready\n")
+        let large = try await ShellRuntime.shared.run(command: #"python3 -c "import sys; sys.stdout.buffer.write(b'x' * 200000)""#, workspace: workspace.root)
+        XCTAssertEqual(large.exitCode, 0, large.stderr)
+        XCTAssertTrue(large.truncated)
+        XCTAssertEqual(large.stdout.utf8.count, 65536)
+    }
+
+    func testEmbeddedPythonRepeatedCommandsReleasePipelineDescriptors() async throws {
+        let workspace = try workspace()
+        _ = try await ShellRuntime.shared.run(command: "python3 -V", workspace: workspace.root)
+        let before = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        for _ in 0..<100 {
+            let result = try await ShellRuntime.shared.run(command: #"echo data | python3 -c "import sys; print(sys.stdin.read().strip())""#, workspace: workspace.root)
+            XCTAssertEqual(result.exitCode, 0, result.stderr)
+            XCTAssertEqual(result.stdout, "data\n")
+        }
+        let after = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        XCTAssertLessThanOrEqual(after - before, 8, "Python pipeline input descriptors must be released")
+    }
+
+    func testEmbeddedPythonNativeTimeoutRetainsExecutionLaneUntilReturn() async throws {
+        let workspace = try workspace()
+        let start = Date()
+        let result = try await ShellRuntime.shared.run(command: #"python3 -c "import time; time.sleep(0.6)""#, workspace: workspace.root, timeout: 0.1)
+        XCTAssertTrue(result.timedOut)
+        XCTAssertEqual(result.exitCode, 124)
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(start), 0.5)
+        let next = try await ShellRuntime.shared.run(command: #"python3 -c "print('after native')""#, workspace: workspace.root)
+        XCTAssertEqual(next.stdout, "after native\n")
     }
 
     func testMissingCommandReturnsNativeExit127() async throws {

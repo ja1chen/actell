@@ -776,6 +776,7 @@
 				6BD257A8C37F8066C1D2497E /* Sources */,
 				2C7D5B2F99EC01905016A62F /* Frameworks */,
 				7ECA44F4398600971FDA4FB0 /* Resources */,
+				24377AF6D807F39711643333 /* Package Python runtime */,
 				EF99470B232DF15AED82786B /* Embed App Extensions */,
 			);
 			buildRules = (
@@ -876,6 +877,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		24377AF6D807F39711643333 /* Package Python runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Package Python runtime";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -eu\n/usr/bin/python3 \"$SRCROOT/scripts/package_python_runtime.py\" --app \"$CODESIGNING_FOLDER_PATH\" --platform \"$PLATFORM_NAME\" --identity \"${EXPANDED_CODE_SIGN_IDENTITY:-}\"\n";
+		};
 		85E010130616AACEA9912F10 /* Build CoreDevice backend */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -1159,6 +1175,8 @@
 					Security,
 					"-framework",
 					SystemConfiguration,
+					"-Wl,-u,_actell_python_main",
+					"-Wl,-export_dynamic",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1295,6 +1313,8 @@
 					Security,
 					"-framework",
 					SystemConfiguration,
+					"-Wl,-u,_actell_python_main",
+					"-Wl,-export_dynamic",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(ACTELL_BUNDLE_ID_PREFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";

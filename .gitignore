@@ -59,3 +59,4 @@ __pycache__/
 /devices/esp32/firmware/build/
 
 /ios-app/Config/Local.xcconfig
+/ios-app/CommandKit/Artifacts/

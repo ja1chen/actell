@@ -244,13 +244,17 @@ def generate():
                             INFOPLIST_KEY_UILaunchScreen_Generation="YES")
             settings.update(ARCHS="arm64", ENABLE_USER_SCRIPT_SANDBOXING="NO",
                             HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include"],
-                            OTHER_LDFLAGS=["$(inherited)", "-lcoredevice_backend", "-framework", "Security", "-framework", "SystemConfiguration"],
+                            OTHER_LDFLAGS=["$(inherited)", "-lcoredevice_backend", "-framework", "Security", "-framework", "SystemConfiguration", "-Wl,-u,_actell_python_main", "-Wl,-export_dynamic"],
                             **{"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios/release"],
                                "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": ["$(inherited)", "$(SRCROOT)/../.build/coredevice-rust/aarch64-apple-ios-sim/release"]})
             phases.insert(0, add("CoreDeviceBackendBuild", "PBXShellScriptBuildPhase", buildActionMask=2147483647,
                                  files=[], inputPaths=[], outputPaths=[], runOnlyForDeploymentPostprocessing=0,
                                  alwaysOutOfDate=1, name="Build CoreDevice backend", shellPath="/bin/bash",
                                  shellScript='case "$PLATFORM_NAME" in\n iphoneos) mode=device ;;\n iphonesimulator) mode=simulator ;;\n *) exit 1 ;;\nesac\nbash "$SRCROOT/../tools/build_coredevice_rust.sh" "$mode"\n'))
+            phases.append(add("PackagePythonRuntime", "PBXShellScriptBuildPhase", buildActionMask=2147483647,
+                              files=[], inputPaths=[], outputPaths=[], runOnlyForDeploymentPostprocessing=0,
+                              alwaysOutOfDate=1, name="Package Python runtime", shellPath="/bin/bash",
+                              shellScript='set -eu\n/usr/bin/python3 "$SRCROOT/scripts/package_python_runtime.py" --app "$CODESIGNING_FOLDER_PATH" --platform "$PLATFORM_NAME" --identity "${EXPANDED_CODE_SIGN_IDENTITY:-}"\n'))
             widget = "PhoneAgentLiveActivity"
             embedded = add("EmbedLiveActivityBuild", "PBXBuildFile", fileRef=uid(widget + "Product"), settings=dict(ATTRIBUTES=["RemoveHeadersOnCopy"]))
             phases.append(add("EmbedLiveActivity", "PBXCopyFilesBuildPhase", buildActionMask=2147483647, dstPath="", dstSubfolderSpec=13,
