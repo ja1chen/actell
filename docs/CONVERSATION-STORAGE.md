@@ -9,18 +9,22 @@ App 沙盒的 `Documents/` 保存紧凑会话列表和各会话资源：
 ```text
 Documents/
 ├── state.json
-└── sessions/
-    ├── format.json
+├── sessions/
+│   ├── format.json
+│   └── YYYY-MM-DD_<会话 UUID>/
+│       ├── history.jsonl
+│       ├── attachments/
+│       │   ├── <sha256>
+│       │   └── <附件 UUID>/
+│       ├── run-checkpoint-v1.json
+│       └── run-recovery-v1.json
+└── workspaces/
     └── YYYY-MM-DD_<会话 UUID>/
-        ├── history.jsonl
-        ├── attachments/
-        │   ├── <sha256>
-        │   └── <附件 UUID>/
-        ├── run-checkpoint-v1.json
-        └── run-recovery-v1.json
 ```
 
 目录名前缀使用会话创建时间的 UTC 日期；继续聊天、排序和设备时区变化不会改变目录名。只有附件或检查点而没有聊天记录的资源仍保持独立目录，使用资源时间作为日期，不因此创建虚假的聊天记录。`format.json` 仅标识 App 总会话目录的初始化格式；每个会话由自己的 `history.jsonl` 识别，不增加 `agent/` 子层。
+
+命令与文件工具使用独立的 `workspaces/` 树，沿用对应会话的完整目录名。`read`、`edit`、`write` 的路径校验不允许访问会话历史、附件或检查点；原生命令则从工作区启动，使用 App 的沙盒权限，起始目录不构成独立文件系统隔离。工作区按需创建，跨轮次及重启保留，删除会话暂不自动清理工作区。旧路径兼容与工具边界见[命令与文件工具](agent/COMMAND-TOOLS.md)。
 
 `history.jsonl` 是权威来源：首行保存 schema、sessionID 和必要的迁移来源标识，后续记录内联完整事务。文本、消息 metadata、完整草稿、附件引用、可读思考、工具事实、原生续接状态与压缩基底均保存在日志中，不另写会话级 `manifest.json`、`metadata.json`、`history.index` 或每事务 blob。删除旧独立 metadata 文件不删除日志中的 metadata 字段。只有二进制图片按内容摘要保存在 `attachments/<sha256>`；它们与 App 已有的 UUID 附件目录并存。任意外部图片路径不会作为长期模型输入引用持久化。App UUID 展示附件缺失可显示占位；AgentKit 摘要图片是已提交事务的必要引用，扫描会校验它们，缺失时可能形成历史缺口，即使图片已不在当前窗口，也不能保证续接不受影响。
 

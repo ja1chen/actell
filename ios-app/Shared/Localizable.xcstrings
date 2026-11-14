@@ -20932,6 +20932,54 @@
           }
         }
       }
+    },
+    "The conversation workspace could not be opened.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation workspace could not be opened."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开此会话的工作区。"
+          }
+        }
+      }
+    },
+    "Run a command from this conversation's workspace": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a command from this conversation's workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此会话工作目录运行命令"
+          }
+        }
+      }
+    },
+    "Modify this conversation's workspace file": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modify this conversation's workspace file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改此会话的工作区文件"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

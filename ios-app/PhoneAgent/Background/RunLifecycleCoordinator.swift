@@ -284,7 +284,7 @@ extension RunCheckpointStorage {
         guard checkpoint?.phase == .running || wasWaiting else { return }
         let delivery = checkpoint?.tools[i].delivery
         if delivery == .dispatching {
-            checkpoint?.tools[i].delivery = ["tap", "drag", "home", "launch_app", "type_text"].contains(checkpoint?.tools[i].name ?? "")
+            checkpoint?.tools[i].delivery = ["tap", "drag", "home", "launch_app", "type_text", "bash", "edit", "write"].contains(checkpoint?.tools[i].name ?? "")
                 ? .outcomeUnknown : .failed
         } else if delivery == .prepared {
             checkpoint?.tools[i].delivery = .failed

@@ -67,3 +67,11 @@ see `ios-app/Licenses/SwiftCertificates-Apache-2.0.txt`
 for the complete upstream notice. No SDK source is vendored or patched. The
 optional Muse companion integration uses the package's public certificate
 and Security framework interoperability APIs for an app-owned local TLS identity.
+
+## ios_system command runtime
+
+- Source: https://github.com/holzschu/ios_system
+- Binary release: v3.0.6, core/files/text/shell XCFrameworks only; exact URLs and SHA-256 checksums in `ios-app/CommandKit/Package.swift`.
+- Usage: App-embedded command runtime for workspace tools. No upstream system prompt or terminal UI copied.
+- The upstream BSD-style license is retained in `ios-app/Licenses/ios_system-LICENSE.txt` and the local package's `THIRD_PARTY` directory. Command implementations include upstream component notices; retain those when rebuilding or redistributing binaries. Review the selected release's full source/license distribution before shipping.
+- The pinned upstream command dictionaries are retained in `ios-app/CommandKit/THIRD_PARTY/`. The App registry is generated from those mappings and the command symbols actually exported by the bundled device/simulator frameworks; unbundled modules are not advertised. The host does not filter command names or flags at execution time.

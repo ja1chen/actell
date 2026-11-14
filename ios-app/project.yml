@@ -17,6 +17,8 @@ settings:
     Release:
       ONLY_ACTIVE_ARCH: NO
 packages:
+  CommandKit:
+    path: CommandKit
   AgentKit:
     path: AgentKit
   ProviderKit:
@@ -68,6 +70,8 @@ targets:
     dependencies:
       - target: PhoneAgentLiveActivity
         embed: true
+      - package: CommandKit
+        product: CommandKit
       - package: AgentKit
         product: AgentKit
       - package: ProviderKit
@@ -96,6 +100,8 @@ targets:
         HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../coredevice/swift/Sources/CCoreDeviceBackend/include']
     dependencies:
       - target: PhoneAgent
+      - package: CommandKit
+        product: CommandKit
       - package: AgentKit
         product: AgentKit
       - package: ProviderKit
