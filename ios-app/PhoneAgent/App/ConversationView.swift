@@ -20,6 +20,8 @@ struct ConversationView: View {
     @State private var deferredViewportShift: CGFloat = 0
     @State private var viewportDiagnostic = ""
     @State private var importingAttachments = false
+    @State private var pickingPhotos = false
+    @State private var pickingFiles = false
     @State private var sendingAttachments = false
     @State private var attachmentFailure: String?
     @State private var sendingTask: Task<Void, Never>?
@@ -404,7 +406,7 @@ struct ConversationView: View {
             }
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 4) {
-                    if !focused { attachmentButton }
+                    if !focused { Color.clear.frame(width: 44, height: 44).accessibilityHidden(true) }
                     messageField
                     if !focused { sendButton }
                 }
@@ -412,7 +414,7 @@ struct ConversationView: View {
                 .padding(.trailing, focused ? 10 : 9)
                 if focused {
                     HStack(spacing: 8) {
-                        attachmentButton
+                        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
                         Spacer(minLength: 0)
                         if session?.mode != .demo { modelPicker.font(.caption).foregroundStyle(.secondary) }
                         sendButton
@@ -420,10 +422,16 @@ struct ConversationView: View {
                 }
             }.padding(.vertical, 6)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+                .overlay(alignment: .bottomLeading) {
+                    attachmentButton.padding(.leading, 4).padding(.bottom, 6)
+                }
         }.padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 8)
+            .modifier(AttachmentImportModifier(presentation: presentation, busy: $importingAttachments,
+                failure: $attachmentFailure, cancellation: $importCancellation,
+                photos: $pickingPhotos, files: $pickingFiles))
     }
     private var attachmentButton: some View {
-        AttachmentPicker(presentation: presentation, busy: $importingAttachments, failure: $attachmentFailure, cancellation: $importCancellation)
+        AttachmentPicker(presentation: presentation, busy: $importingAttachments, photos: $pickingPhotos, files: $pickingFiles)
             .disabled(sendingAttachments)
     }
     private var messageField: some View {

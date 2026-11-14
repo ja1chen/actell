@@ -21,11 +21,24 @@ import XCTest
         }
     }
     func testNativePhotoSelectionAndRepeatedSelectionStayInDraft() {
+        verifyNativePhotoSelection(focused: false)
+    }
+    func testFocusedComposerPhotoSelectionStaysInDraft() {
+        verifyNativePhotoSelection(focused: true)
+    }
+    private func verifyNativePhotoSelection(focused: Bool) {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-demo-history", "--ui-test-light"]
         app.launch(); app.staticTexts["新建会话"].tap()
         for _ in 0..<2 {
+            if focused {
+                let input = app.textViews["messageInput"]
+                XCTAssertTrue(input.waitForExistence(timeout: 5))
+                input.tap(); input.tap()
+                input.typeText("Synthetic attachment task")
+                XCTAssertGreaterThan(app.buttons["addAttachment"].frame.midY, input.frame.midY + 4)
+            }
             app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let photo = app.descendants(matching: .any)["添加照片"].firstMatch
             XCTAssertTrue(photo.waitForExistence(timeout: 5)); photo.tap()
@@ -46,20 +59,33 @@ import XCTest
         app.buttons["stopRun"].tap()
     }
     func testNativeFileSelectionImportsAndSendsText() {
+        verifyNativeFileSelection(focused: false)
+    }
+    func testFocusedComposerFileSelectionImportsAndSendsText() {
+        verifyNativeFileSelection(focused: true)
+    }
+    private func verifyNativeFileSelection(focused: Bool) {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-demo-history", "--ui-test-dark"]
         app.launch(); app.staticTexts["新建会话"].tap()
+        if focused {
+            let input = app.textViews["messageInput"]
+            XCTAssertTrue(input.waitForExistence(timeout: 5))
+            input.tap(); input.tap()
+            input.typeText("Synthetic attachment task")
+            XCTAssertGreaterThan(app.buttons["addAttachment"].frame.midY, input.frame.midY + 4)
+        }
         app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let file = app.descendants(matching: .any)["添加文件"].firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
-        let note = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
-        if !note.waitForExistence(timeout: 1) {
+        let note = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "synthetic-note")).firstMatch
+        if !note.waitForExistence(timeout: 8) {
             let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
             if browse.waitForExistence(timeout: 3) { browse.tap() }
             let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             if local.waitForExistence(timeout: 3) { local.tap() }
-            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
         XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription); note.tap()

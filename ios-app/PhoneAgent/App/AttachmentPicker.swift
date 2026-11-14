@@ -5,12 +5,8 @@ import UniformTypeIdentifiers
 struct AttachmentPicker: View {
     @ObservedObject var presentation: AgentPresentationAdapter
     @Binding var busy: Bool
-    @Binding var failure: String?
-    @Binding var cancellation: Int
-    @State private var photos = false
-    @State private var files = false
-    @State private var selection: [PhotosPickerItem] = []
-    @State private var importing: Task<Void, Never>?
+    @Binding var photos: Bool
+    @Binding var files: Bool
     var body: some View {
         HStack(spacing: 0) {
             Menu {
@@ -24,6 +20,23 @@ struct AttachmentPicker: View {
             .contentShape(Rectangle())
             .disabled(busy || presentation.running || presentation.stopping)
         }
+    }
+}
+
+/// Keep native presentation and import ownership on the composer, whose
+/// identity survives the attachment button moving when keyboard focus changes.
+struct AttachmentImportModifier: ViewModifier {
+    @ObservedObject var presentation: AgentPresentationAdapter
+    @Binding var busy: Bool
+    @Binding var failure: String?
+    @Binding var cancellation: Int
+    @Binding var photos: Bool
+    @Binding var files: Bool
+    @State private var selection: [PhotosPickerItem] = []
+    @State private var importing: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
         .photosPicker(isPresented: $photos, selection: $selection, matching: .images)
         .fileImporter(isPresented: $files, allowedContentTypes: [.image, .plainText, .json, .commaSeparatedText, UTType(filenameExtension: "md") ?? .plainText], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result, !urls.isEmpty else {
