@@ -315,7 +315,7 @@ import AppIntents
     func testConfirmedSiriDraftUsesExistingApprovalAndScopedStop() async throws {
         let store = ConversationStore(inMemory: true)
         let model = AgentViewModel(sessions: store, loadPersistentState: false,
-                                  runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()))
+                                  runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()), toolAuthorizationPolicy: .userConfirmation)
         let service = SessionCommandService(sessions: store, runner: model)
         let id = try store.prepare(SessionCommand(.prepare("演示")), task: "演示")
         model.selectConversation(id)

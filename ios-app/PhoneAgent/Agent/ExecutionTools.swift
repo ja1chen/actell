@@ -11,7 +11,7 @@ struct ExecutionTool: AgentTool {
     var name: String { kind.rawValue }
     let workspace: FileWorkspace
     let canExecute: @Sendable () async -> Bool
-    let approveMutation: @Sendable (ToolInvocation, String) async -> Bool
+    let authorizeMutation: @Sendable (ToolInvocation, String) async -> Bool
     var onResult: (@Sendable (ToolInvocation, ToolOutcome) async -> Void)? = nil
 
     var descriptor: ToolDescriptor {
@@ -29,15 +29,15 @@ struct ExecutionTool: AgentTool {
         case .edit:
             properties = ["description": publicDescription, "file_path": path, "old_string": text, "new_string": text, "replace_all": DeviceTool.property("boolean", "Replace every non-overlapping literal match; defaults to false, which requires exactly one match")]
             required = ["file_path", "old_string", "new_string"]
-            description = "Atomically replace literal text in an existing text file after one-use user approval. old_string must be nonempty. Zero matches or ambiguous matches fail without changing the file. Empty new_string deletes the matched text."
+            description = "Atomically replace literal text in an existing text file after host authorization. old_string must be nonempty. Zero matches or ambiguous matches fail without changing the file. Empty new_string deletes the matched text."
         case .write:
             properties = ["description": publicDescription, "file_path": path, "content": text]
             required = ["file_path", "content"]
-            description = "Create or replace a UTF-8 text file after one-use user approval. Parent directories can be created. Atomic file replacement using the App's filesystem permissions."
+            description = "Create or replace a UTF-8 text file after host authorization. Parent directories can be created. Atomic file replacement using the App's filesystem permissions."
         case .bash:
             properties = ["description": DeviceTool.property("string", "Short public description of the command"), "command": DeviceTool.property("string", "Command text to execute. Availability, options and shell syntax are determined at runtime. Use stdout, stderr and the exit code to choose the next step; missing programs return exit 127."), "timeoutMs": DeviceTool.property("integer", "Timeout in milliseconds, 100..30000; default 10000. Requests cancellation rather than enforcing a hard deadline. Partial effects may remain; do not automatically repeat a timed-out command."), "workdir": path]
             required = ["description", "command"]
-            description = "Run a command from the selected conversation working directory after one-use approval. Commands may read or modify files with the App's sandbox permissions; the working directory is not filesystem isolation. Shell features depend on the runtime; this is not a full interactive Bash environment. No interactive input or background-job management is provided. Inspect stdout, stderr and the exit code before choosing the next action. Never include secrets in command arguments."
+            description = "Run a command from the selected conversation working directory after host authorization. Commands may read or modify files with the App's sandbox permissions; the working directory is not filesystem isolation. Shell features depend on the runtime; this is not a full interactive Bash environment. No interactive input or background-job management is provided. Inspect stdout, stderr and the exit code before choosing the next action. Never include secrets in command arguments."
         }
         return .init(name: name, description: description, parameters: .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(ProviderCore.JSONValue.string)), "additionalProperties": .bool(true)]), effect: kind == .read ? .readOnly : .localMutation)
     }
@@ -70,7 +70,7 @@ struct ExecutionTool: AgentTool {
                 let directory = try await workspace.directory(filePath: workdir)
                 let timeout = try integer("timeoutMs", default: 10000, range: 100...30000)
                 try ShellInput.validate(command)
-                guard await approveMutation(invocation, description + "\n" + directory.path + "\n" + command) else {
+                guard await authorizeMutation(invocation, description + "\n" + directory.path + "\n" + command) else {
                     let denied = ToolOutcome(kind: .denied, content: "Command execution was not approved; no command was dispatched.")
                     await onResult?(invocation, denied)
                     return denied
@@ -105,7 +105,7 @@ struct ExecutionTool: AgentTool {
                         if let value = values["replace_all"] { guard let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { throw ArgumentError.invalid } }
                         detail = "\(path)\n- " + String(old.prefix(500)) + "\n+ " + String(new.prefix(500))
                     }
-                    guard await approveMutation(invocation, detail) else {
+                    guard await authorizeMutation(invocation, detail) else {
                         let denied = ToolOutcome(kind: .denied, content: "Workspace mutation was not approved; no file change was dispatched.")
                         await onResult?(invocation, denied)
                         return denied

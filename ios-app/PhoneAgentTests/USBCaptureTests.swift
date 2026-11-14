@@ -105,7 +105,7 @@ final class USBCaptureTests: XCTestCase {
     @MainActor func testTwoCompletedTasksReuseConnectionAndUserStopDoesNotDisconnect() async throws {
         let transport = USBSessionFixture()
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                  makeUSBClient: { _, _ in transport })
+                                  makeUSBClient: { _, _ in transport }, toolAuthorizationPolicy: .userConfirmation)
         model.connectUSB(); try await waitUntil { !model.isListening }
         for _ in 0..<2 {
             model.start(); try await waitUntil { model.approval != nil }

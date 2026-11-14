@@ -127,7 +127,7 @@ import Foundation
                 if sessions.conversations.isEmpty { sessions.create(mode: .demo) }
                 return AgentViewModel(sessions: sessions, loadPersistentState: false,
                     runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()),
-                    attachments: AttachmentStore(directory: directory))
+                    attachments: AttachmentStore(directory: directory), toolAuthorizationPolicy: .userConfirmation)
             }
             if arguments.contains("--ui-test-siri-seed") || arguments.contains("--ui-test-siri-restore") {
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PhoneAgentSiriUITest", isDirectory: true)
@@ -221,7 +221,7 @@ import Foundation
             }
             if arguments.contains("--ui-test-attachments") {
                 let id = sessions.create(mode: .demo)
-                let model = AgentViewModel(sessions: sessions, loadPersistentState: false)
+                let model = AgentViewModel(sessions: sessions, loadPersistentState: false, toolAuthorizationPolicy: .userConfirmation)
                 model.selectConversation(id)
                 Task { @MainActor in
                     let frame = try? await DemoBridge().screenshot()
@@ -283,10 +283,10 @@ import Foundation
             }
             if arguments.contains("--ui-test-siri-warm") || arguments.contains("--ui-test-siri-busy") {
                 return AgentViewModel(sessions: sessions, loadPersistentState: false,
-                    runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()))
+                    runServices: AgentRunServices(provider: DemoProvider(), bridge: DemoBridge()), toolAuthorizationPolicy: .userConfirmation)
             }
             return AgentViewModel(sessions: sessions, loadPersistentState: false,
-                liveActivitiesEnabled: arguments.contains("--ui-test-live-activity"))
+                liveActivitiesEnabled: arguments.contains("--ui-test-live-activity"), toolAuthorizationPolicy: .userConfirmation)
         }
         #endif
         return AgentViewModel()

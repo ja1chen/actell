@@ -21245,6 +21245,22 @@
           }
         }
       }
+    },
+    "Automatically authorized": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically authorized"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自动授权"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

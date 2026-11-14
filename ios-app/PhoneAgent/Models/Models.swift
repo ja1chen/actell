@@ -53,6 +53,19 @@ struct Approval: Identifiable, Sendable {
     var expiresAt = Date().addingTimeInterval(45)
 }
 enum InputAuthorizationMode: String, Codable, Sendable { case perAction, task }
+/// One replaceable decision point for tool effects. Readiness and one-use dispatch
+/// records are enforced by the host independently of this decision.
+struct ToolAuthorizationPolicy: Sendable {
+    enum Decision: Sendable, Equatable { case allow, deny, requireConfirmation }
+    let inputGrantMode: InputAuthorizationMode
+    let evaluate: @Sendable (Approval) async -> Decision
+    init(inputGrantMode: InputAuthorizationMode = .task, evaluate: @escaping @Sendable (Approval) async -> Decision) {
+        self.inputGrantMode = inputGrantMode; self.evaluate = evaluate
+    }
+    static let fullAccess = Self(evaluate: { _ in .allow })
+    static let userConfirmation = Self(inputGrantMode: .perAction, evaluate: { _ in .requireConfirmation })
+}
+
 struct AgentLimits: Sendable {
     let maxTurns: Int? = nil
     let maxOutputTokens: Int? = nil

@@ -204,11 +204,11 @@ final class ScreenUSBPermitTests: XCTestCase {
         }
         throw AppError.timeout
     }
-    private func model(_ source: SyntheticCapture, transport: GuardedUSBFixture) throws -> AgentViewModel {
+    private func model(_ source: SyntheticCapture, transport: GuardedUSBFixture, policy: ToolAuthorizationPolicy = .fullAccess) throws -> AgentViewModel {
         let context = try ScreenUSBExecutionContext(frames: source.frames, health: source.health, backgroundEnabled: true)
         let bridge = USBDeviceBridge(frames: source.frames, transport: transport, context: context)
         return AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                              runServices: .init(provider: DemoProvider(), bridge: bridge))
+                              runServices: .init(provider: DemoProvider(), bridge: bridge), toolAuthorizationPolicy: policy)
     }
     func testHIDConnectedForegroundScreenshotDoesNotWaitForBackgroundOrGrantInput() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture()
@@ -317,7 +317,7 @@ final class ScreenUSBPermitTests: XCTestCase {
         XCTAssertEqual(model.approvalRecords.records.count, 1)
         XCTAssertEqual(model.approvalRecords.records.first?.authorizationMode, .task)
         XCTAssertEqual(model.approvalRecords.records.first?.state, .finished)
-        XCTAssertTrue(model.usbDiagnosticReport().contains("input.authorized source=task tool=tap"))
+        XCTAssertTrue(model.usbDiagnosticReport().contains("tool.authorized source=policy tool=tap"))
     }
     func testTaskAuthorizationStillRevokesAtStopLockCaptureLossAndUSBFailure() async throws {
         for loss in ["stop", "lock", "capture", "usb"] {
@@ -359,7 +359,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testPerActionRouteRequiresForegroundApprovalAndExecutesOnlyOnce() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture(stopDelay: 350_000_000)
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
         model.start(); model.setScene(.inactive); model.setScene(.background)
@@ -424,7 +424,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testSiriScopedStopRevokesApprovalAndDebugExitPreservesRun() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture()
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let service = SessionCommandService(sessions: model.sessions, runner: model)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
@@ -451,7 +451,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testCaptureLossBeforeEnqueueStopsInputEvenWhenFramesChange() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture(delay: 500_000_000)
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let target = TargetState()
         let ticker = Task { while !Task.isCancelled { source.push(alternate: target.changed); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
@@ -469,7 +469,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testLockDuringApprovalStopsAndUnlockNeverResumes() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture()
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
         model.start(); model.setScene(.background)
@@ -482,7 +482,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testUnknownUSBExecutionPersistsUnknownAndNeverReplays() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture(fail: true)
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
         model.start(); model.setScene(.background)
@@ -497,7 +497,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testCaptureLossWhileAwaitingApprovalReleasesWithoutSending() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture()
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
         model.start(); model.setScene(.background)
@@ -509,7 +509,7 @@ final class ScreenUSBPermitTests: XCTestCase {
     }
     func testUSBDisconnectWhileAwaitingApprovalStopsAndCannotBeRevived() async throws {
         let source = try SyntheticCapture(), transport = GuardedUSBFixture()
-        let model = try model(source, transport: transport)
+        let model = try model(source, transport: transport, policy: .userConfirmation)
         let ticker = Task { while !Task.isCancelled { source.push(); try? await Task.sleep(nanoseconds: 90_000_000) } }
         defer { ticker.cancel(); model.stop() }
         model.start(); model.setScene(.background)

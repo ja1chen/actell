@@ -291,7 +291,7 @@ import ProviderCore
     }
     func testDemoUsesRealAgentLoopAndStructuredToolEvents() async throws {
         let store = ConversationStore(inMemory: true)
-        let model = AgentViewModel(sessions: store, loadPersistentState: false)
+        let model = AgentViewModel(sessions: store, loadPersistentState: false, toolAuthorizationPolicy: .userConfirmation)
         defer { model.stop() }
         let id = model.createConversation(mode: .demo)
         XCTAssertTrue(model.send("演示", in: id))
@@ -344,7 +344,7 @@ import ProviderCore
     }
     func testConcurrentSessionsKeepApprovalsAndCancelIndependently() async throws {
         let store = ConversationStore(inMemory: true)
-        let model = AgentViewModel(sessions: store, loadPersistentState: false)
+        let model = AgentViewModel(sessions: store, loadPersistentState: false, toolAuthorizationPolicy: .userConfirmation)
         let a = model.createConversation(mode: .demo)
         let first = AgentPresentationAdapter(model: model, sessionID: a)
         XCTAssertTrue(first.dispatch(.send(sessionID: a, text: "A", cloudConsent: false)))

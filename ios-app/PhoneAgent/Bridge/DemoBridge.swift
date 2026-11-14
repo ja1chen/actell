@@ -9,6 +9,9 @@ actor DemoBridge: DeviceBridge {
         guard !stopped, currentID == imageID else { throw AppError.stopped }
         return "synthetic-demo"
     }
+    func authorizeTaskInput(imageID: String) throws {
+        _ = try approvalContext(imageID: imageID)
+    }
     func screenshot() async throws -> FrameImage {
         try Task.checkCancellation(); guard !stopped else { throw AppError.stopped }
         let value = count

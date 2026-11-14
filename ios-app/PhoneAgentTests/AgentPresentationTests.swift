@@ -206,7 +206,7 @@ import ProviderCore
         throw AppError.timeout
     }
     private func pendingDemo() async throws -> (AgentViewModel, AgentPresentationAdapter, ToolPresentation) {
-        let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false)
+        let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false, toolAuthorizationPolicy: .userConfirmation)
         let id = model.createConversation(mode: .demo)
         let ui = AgentPresentationAdapter(model: model, sessionID: id)
         XCTAssertTrue(ui.dispatch(.send(sessionID: id, text: "演示", cloudConsent: false)))

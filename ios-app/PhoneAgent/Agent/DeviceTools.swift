@@ -284,9 +284,11 @@ actor ActionCoordinator {
             try checkActive()
             if usesImage { _ = try currentImage(reference) }
             if let logical { try checkAccessibilityReference(logical) }
+            if await lifecycle?.checkpoint?.phase == .waitingApproval {
+                try await lifecycle?.resumeApproved(callID: callID, digest: descriptor.argumentDigest, generation: generation)
+            }
             if authorizationMode == .perAction {
                 authorizationStage = "manualGrant"
-                try await lifecycle?.resumeApproved(callID: callID, digest: descriptor.argumentDigest, generation: generation)
                 if let display { try await bridge.authorizeIndependentInput(display, authorizationID: reference) }
                 else if coordinateAction { try await bridge.acceptApproval(imageID: reference) }
                 else { try await bridge.authorizeSystemAction(authorizationID: reference, taskScoped: false) }

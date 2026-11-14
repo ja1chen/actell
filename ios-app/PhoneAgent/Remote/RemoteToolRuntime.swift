@@ -9,6 +9,7 @@ import AgentKit
     private let bridge: any DeviceBridge
     private let approvalRecords: ApprovalRecordStore
     private let diagnostics: USBDiagnosticsLog
+    private let authorizationPolicy: ToolAuthorizationPolicy
     // Compatibility identity for shared one-use grants/checkpoints only. It is
     // never registered as a conversation or stored under the Sessions directory.
     private let identity = RunIdentity(conversationID: UUID(), runID: UUID())
@@ -26,7 +27,8 @@ import AgentKit
          backgroundProcessing: Bool? = nil, initiallyForeground: Bool = true,
          approvalRecords: ApprovalRecordStore, diagnostics: USBDiagnosticsLog,
          onImage: @escaping @MainActor (FrameImage) -> Void,
-         onStop: @escaping @MainActor () -> Void) throws {
+         onStop: @escaping @MainActor () -> Void, authorizationPolicy: ToolAuthorizationPolicy = .fullAccess) throws {
+        self.authorizationPolicy = authorizationPolicy
         self.bridge = bridge; self.approvalRecords = approvalRecords; self.diagnostics = diagnostics
         scheduler = RunExecutionScheduler(coordinator: backgroundCoordinator)
         let root = directory ?? URL.applicationSupportDirectory.appending(path: "PhoneAgent/Remote/Execution")
@@ -57,10 +59,12 @@ import AgentKit
             Task { @MainActor in self?.stop(message: String(localized: "Phone control disconnected. Input has stopped."), interrupted: true) }
         }
     }
-    private func authorize(_ request: Approval) -> Bool {
+    private func authorize(_ request: Approval) async -> Bool {
         // The shared action lifecycle checks execution readiness and dispatch;
         // this remote approval path adds no separate foreground/lease gate.
         guard running, !stopping, protectedDataAvailable else { return false }
+        let decision = await authorizationPolicy.evaluate(request)
+        guard !Task.isCancelled, decision == .allow, running, !stopping, protectedDataAvailable else { return false }
         do {
             try bridge.executionContext?.requireHealthy()
             try approvalRecords.register(request, run: identity, authorizationMode: .task)

@@ -50,7 +50,7 @@ final class ExecutionToolTests: XCTestCase {
     func testCommandCanUseParentAbsoluteWorkdirAndChangeDirectories() async throws {
         let base = try workspace(), context = context()
         let conversation = try FileWorkspace(root: base.root.appendingPathComponent("conversation"))
-        let tool = ExecutionTool(kind: .bash, workspace: conversation, canExecute: { true }, approveMutation: { _, _ in true })
+        let tool = ExecutionTool(kind: .bash, workspace: conversation, canExecute: { true }, authorizeMutation: { _, _ in true })
         func run(_ command: String, workdir: String = ".") async throws -> [String: Any] {
             let args = ["description": "Use sibling directory", "workdir": workdir, "command": command]
             let result = try await tool.execute(call("bash", String(decoding: try JSONEncoder().encode(args), as: UTF8.self), context: context), context: context)
@@ -82,7 +82,7 @@ final class ExecutionToolTests: XCTestCase {
 
     func testDeniedCommandDoesNotDispatchMutation() async throws {
         let workspace = try workspace(), context = context()
-        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in false })
+        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in false })
         let result = try await tool.execute(call("bash", #"{"description":"Create test file","command":"touch denied.txt"}"#, context: context), context: context)
         XCTAssertEqual(result.kind, .denied)
         XCTAssertEqual(tool.descriptor.effect, .localMutation)
@@ -91,7 +91,7 @@ final class ExecutionToolTests: XCTestCase {
 
     func testApprovedCommandAndMissingProgramAreReturnedAsToolResults() async throws {
         let workspace = try workspace(), context = context()
-        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
+        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in true })
         let result = try await tool.execute(call("bash", #"{"description":"Create test file","command":"touch created.txt"}"#, context: context), context: context)
         XCTAssertEqual(result.kind, .returned)
         XCTAssertTrue(FileManager.default.fileExists(atPath: workspace.root.appendingPathComponent("created.txt").path))
@@ -103,7 +103,7 @@ final class ExecutionToolTests: XCTestCase {
 
     func testCommandFenceIsRecheckedAfterApproval() async throws {
         let workspace = try workspace(), context = context()
-        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in
+        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in
             await context.fence.invalidate()
             return true
         })
@@ -116,7 +116,7 @@ final class ExecutionToolTests: XCTestCase {
 
     func testTimedOutCommandReportsUnknownEffects() async throws {
         let workspace = try workspace(), context = context()
-        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
+        let tool = ExecutionTool(kind: .bash, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in true })
         let result = try await tool.execute(call("bash", #"{"description":"Wait briefly","command":"sleep 5","timeoutMs":200}"#, context: context), context: context)
         XCTAssertEqual(result.kind, .outcomeUnknown)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any])
@@ -165,24 +165,24 @@ final class ExecutionToolTests: XCTestCase {
     }
     func testDeniedWriteDoesNotCreateFile() async throws {
         let workspace = try workspace(), context = context()
-        let tool = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in false })
+        let tool = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in false })
         let result = try await tool.execute(call("write", #"{"file_path":"a.txt","content":"hello"}"#, context: context), context: context)
         XCTAssertEqual(result.kind, .denied)
         XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.root.appendingPathComponent("a.txt").path))
     }
     func testApprovedWriteAndReadShareWorkspace() async throws {
         let workspace = try workspace(), context = context()
-        let write = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
+        let write = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in true })
         let result = try await write.execute(call("write", #"{"file_path":"a.txt","content":"hello"}"#, context: context), context: context)
         XCTAssertEqual(result.kind, .returned)
-        let read = ExecutionTool(kind: .read, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in false })
+        let read = ExecutionTool(kind: .read, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in false })
         let output = try await read.execute(call("read", #"{"file_path":"a.txt"}"#, context: context), context: context)
         XCTAssertTrue(output.content.contains("hello"))
     }
     func testUnknownFieldsIgnoredAndBooleanNumbersRejected() async throws {
         let workspace = try workspace(), context = context()
         _ = try await workspace.write(filePath: "a", content: "hello")
-        let tool = ExecutionTool(kind: .read, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
+        let tool = ExecutionTool(kind: .read, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in true })
         let output = try await tool.execute(call("read", #"{"file_path":"a","description":"Read the file","sandbox_permissions":"danger-full-access","unknown":{"value":true}}"#, context: context), context: context)
         XCTAssertEqual(output.kind, .returned)
         XCTAssertTrue(output.content.contains("hello"))
@@ -192,11 +192,134 @@ final class ExecutionToolTests: XCTestCase {
     func testInvalidatedFencePreventsDispatch() async throws {
         let workspace = try workspace(), context = context()
         await context.fence.invalidate()
-        let tool = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
+        let tool = ExecutionTool(kind: .write, workspace: workspace, canExecute: { true }, authorizeMutation: { _, _ in true })
         do {
             _ = try await tool.execute(call("write", #"{"file_path":"a","content":"x"}"#, context: context), context: context)
             XCTFail("Invalidated execution should cancel")
         } catch is CancellationError {}
         XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.root.appendingPathComponent("a").path))
+    }
+}
+
+@MainActor private func waitForAuthorizationRun(_ model: AgentViewModel) async throws {
+    for _ in 0..<250 {
+        if !model.running && !model.stopping { return }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    throw AppError.timeout
+}
+
+extension ExecutionToolTests {
+    @MainActor func testFullAccessDefaultRunsFileEffectsWithoutPromptsInEveryRunMode() async throws {
+        for mode in RunMode.allCases {
+            let calls: [ModelToolCall] = [
+                .init(id: "write-auto", name: "write", arguments: #"{"file_path":"automatic.txt","content":"first"}"#),
+                .init(id: "edit-auto", name: "edit", arguments: #"{"file_path":"automatic.txt","old_string":"first","new_string":"second"}"#),
+                .init(id: "bash-auto", name: "bash", arguments: #"{"description":"Read the test file","command":"cat automatic.txt"}"#),
+                .init(id: "read-auto", name: "read", arguments: #"{"file_path":"automatic.txt"}"#)
+            ]
+            let store = ConversationStore(inMemory: true)
+            let model = AgentViewModel(sessions: store, loadPersistentState: false,
+                runServices: .init(provider: AuthorizationFixtureProvider(calls: calls), bridge: UnavailableBridge()))
+            let id = model.createConversation(mode: mode), workspace = try store.workspaceDirectory(id)
+            addTeardownBlock { try? FileManager.default.removeItem(at: workspace) }
+            XCTAssertTrue(model.send("Run the synthetic file workflow", in: id, cloudConsent: true))
+            try await waitForAuthorizationRun(model)
+            XCTAssertNil(model.approval)
+            XCTAssertEqual(store.conversation(id)?.phase, .completed)
+            XCTAssertEqual(try String(contentsOf: workspace.appendingPathComponent("automatic.txt"), encoding: .utf8), "second")
+            let tools = store.conversation(id)?.messages.compactMap(\.tool) ?? []
+            XCTAssertEqual(tools.map(\.name), calls.map(\.name))
+            XCTAssertTrue(tools.allSatisfy { $0.state == .succeeded })
+            XCTAssertEqual(model.approvalRecords.records.map(\.callID), ["write-auto", "edit-auto", "bash-auto"])
+            XCTAssertTrue(model.approvalRecords.records.allSatisfy { $0.state == .finished && $0.authorizationMode == .task })
+        }
+    }
+    @MainActor func testFullAccessDefaultRunsDeviceEffectsWithoutBackendOrRunModeBranches() async throws {
+        for mode in RunMode.allCases {
+            let calls: [ModelToolCall] = [
+                .init(id: "screen-auto", name: "screenshot", arguments: "{}"),
+                .init(id: "tap-auto", name: "tap", arguments: #"{"x":100,"y":200,"description":"Tap the synthetic counter"}"#)
+            ]
+            let store = ConversationStore(inMemory: true)
+            let model = AgentViewModel(sessions: store, loadPersistentState: false,
+                runServices: .init(provider: AuthorizationFixtureProvider(calls: calls), bridge: DemoBridge()))
+            let id = model.createConversation(mode: mode)
+            XCTAssertTrue(model.send("Tap the synthetic counter", in: id, cloudConsent: true))
+            try await waitForAuthorizationRun(model)
+            XCTAssertNil(model.approval)
+            XCTAssertEqual(store.conversation(id)?.phase, .completed)
+            XCTAssertTrue(store.conversation(id)?.messages.compactMap(\.tool).allSatisfy { $0.state == .succeeded } == true)
+            XCTAssertEqual(model.approvalRecords.records.map(\.callID), ["tap-auto"])
+            XCTAssertEqual(model.approvalRecords.records.first?.state, .finished)
+        }
+    }
+    @MainActor func testInjectedPolicyDenialPreventsFileDispatch() async throws {
+        let store = ConversationStore(inMemory: true)
+        let call = ModelToolCall(id: "denied-auto", name: "write", arguments: #"{"file_path":"denied.txt","content":"must not appear"}"#)
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: AuthorizationFixtureProvider(calls: [call]), bridge: UnavailableBridge()),
+            toolAuthorizationPolicy: .init(evaluate: { _ in .deny }))
+        let id = model.createConversation(mode: .live), workspace = try store.workspaceDirectory(id)
+        addTeardownBlock { try? FileManager.default.removeItem(at: workspace) }
+        XCTAssertTrue(model.send("Try the denied synthetic write", in: id, cloudConsent: true))
+        try await waitForAuthorizationRun(model)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("denied.txt").path))
+        XCTAssertNil(model.approval)
+        XCTAssertEqual(model.approvalRecords.records.first?.state, .denied)
+        XCTAssertEqual(store.conversation(id)?.phase, .blocked)
+    }
+    @MainActor func testStopWhileAsyncPolicyWaitsFencesItsLateAllowDecision() async throws {
+        let gate = AuthorizationDecisionGate(), store = ConversationStore(inMemory: true)
+        let call = ModelToolCall(id: "late-auto", name: "write", arguments: #"{"file_path":"late.txt","content":"must not appear"}"#)
+        let model = AgentViewModel(sessions: store, loadPersistentState: false,
+            runServices: .init(provider: AuthorizationFixtureProvider(calls: [call]), bridge: UnavailableBridge()),
+            toolAuthorizationPolicy: .init(evaluate: { _ in await gate.decide() }))
+        let id = model.createConversation(mode: .live), workspace = try store.workspaceDirectory(id)
+        addTeardownBlock { try? FileManager.default.removeItem(at: workspace) }
+        XCTAssertTrue(model.send("Wait for a synthetic policy decision", in: id, cloudConsent: true))
+        for _ in 0..<250 {
+            if await gate.waiting { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let waiting = await gate.waiting
+        XCTAssertTrue(waiting)
+        model.stop()
+        await gate.allow()
+        try await waitForAuthorizationRun(model)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("late.txt").path))
+        XCTAssertTrue(model.approvalRecords.records.isEmpty)
+        XCTAssertNil(model.approval)
+    }
+}
+
+private actor AuthorizationDecisionGate {
+    private var continuation: CheckedContinuation<ToolAuthorizationPolicy.Decision, Never>?
+    var waiting: Bool { continuation != nil }
+    func decide() async -> ToolAuthorizationPolicy.Decision {
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func allow() { continuation?.resume(returning: .allow); continuation = nil }
+}
+
+private struct AuthorizationFixtureProvider: ModelProvider {
+    static let name = "authorization-fixture"
+    let calls: [ModelToolCall]
+    let configuration = ProviderConfiguration(name: name, baseURL: URL(string: "https://fixture.invalid")!, defaultModel: "fixture")
+    func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let response = respond(request)
+            for call in response.toolCalls { continuation.yield(.toolCall(call)) }
+            if !response.text.isEmpty { continuation.yield(.text(response.text)) }
+            continuation.yield(.terminal(response)); continuation.finish()
+        }
+    }
+    func complete(_ request: ModelRequest) async throws -> ModelResponse { respond(request) }
+    private func respond(_ request: ModelRequest) -> ModelResponse {
+        let stage = fixtureMessages(request).filter { $0.role == .tool }.count
+        if stage < calls.count {
+            return ModelResponse(text: "", finishReason: .toolCalls, toolCalls: [calls[stage]], request: request, providerName: Self.name)
+        }
+        return ModelResponse(text: "done", finishReason: .stop, request: request, providerName: Self.name)
     }
 }

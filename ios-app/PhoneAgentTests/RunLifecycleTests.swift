@@ -834,7 +834,7 @@ private struct DisconnectedModel: ModelProvider {
         let scheduler = FakeScheduler(), bridge = BackgroundSpyBridge()
         let c = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c)
+                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c, toolAuthorizationPolicy: .userConfirmation)
         model.start(); let lease = scheduler.grant()
         try await waitUntil { model.approval != nil }
         XCTAssertEqual(c.checkpoint?.phase, .waitingApproval); XCTAssertEqual(lease.completions, [true])
@@ -850,7 +850,7 @@ private struct DisconnectedModel: ModelProvider {
         let scheduler = FakeScheduler(), bridge = BackgroundSpyBridge(uncertain: true)
         let c = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c)
+                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c, toolAuthorizationPolicy: .userConfirmation)
         model.start(); _ = scheduler.grant()
         try await waitUntil { model.approval != nil }; model.approve(true)
         try await waitUntil { !model.running && !model.stopping }
@@ -881,7 +881,7 @@ private struct DisconnectedModel: ModelProvider {
         let scheduler = FakeScheduler(), bridge = BackgroundSpyBridge()
         let c = RunLifecycleCoordinator(scheduler: scheduler, storage: MemoryRunCheckpointStore())
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c)
+                                  runServices: .init(provider: DemoProvider(), bridge: bridge), lifecycle: c, toolAuthorizationPolicy: .userConfirmation)
         model.start(); _ = scheduler.grant()
         try await waitUntil { model.approval != nil }
         await bridge.changeDevice(); model.approve(true)

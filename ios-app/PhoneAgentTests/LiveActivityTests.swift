@@ -477,7 +477,7 @@ import ActivityKit
         handle.holdCompletion = true
         let activities = AgentLiveActivityController(createActivity: { _ in handle })
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                   sharedActivities: activities)
+                                   sharedActivities: activities, toolAuthorizationPolicy: .userConfirmation)
         defer { handle.releaseCompletion(); model.stop() }
         let id = model.createConversation(mode: .demo)
         XCTAssertTrue(model.send("completion ordering", in: id))
@@ -511,9 +511,9 @@ import ActivityKit
         try await waitUntil { oldHandle.completionPending }
         let store = ConversationStore(inMemory: true)
         let model = AgentViewModel(sessions: store, loadPersistentState: false,
-                                   runServices: .init(provider: DemoProvider(), bridge: DemoBridge()), sharedActivities: activities)
+                                   runServices: .init(provider: DemoProvider(), bridge: DemoBridge()), sharedActivities: activities, toolAuthorizationPolicy: .userConfirmation)
         defer { oldHandle.releaseCompletion(); model.stop() }
-        // Synthetic demo remains offline and stops at its existing approval gate.
+        // This fixture explicitly requests confirmation to hold the run at the approval gate.
         let service = SessionCommandService(sessions: store, runner: model)
         let command = SessionCommand(.execute("Siri activity ordering"))
         var returned = false
@@ -539,7 +539,7 @@ import ActivityKit
         })
         let store = ConversationStore(inMemory: true)
         let model = AgentViewModel(sessions: store, loadPersistentState: false,
-                                   runServices: .init(provider: DemoProvider(), bridge: DemoBridge()), sharedActivities: activities)
+                                   runServices: .init(provider: DemoProvider(), bridge: DemoBridge()), sharedActivities: activities, toolAuthorizationPolicy: .userConfirmation)
         defer { model.stop() }
         let service = SessionCommandService(sessions: store, runner: model)
         let command = SessionCommand(.execute("Siri denied activity"))
@@ -556,7 +556,7 @@ import ActivityKit
         handle.holdCompletion = true
         let activities = AgentLiveActivityController(createActivity: { _ in handle })
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                   sharedActivities: activities)
+                                   sharedActivities: activities, toolAuthorizationPolicy: .userConfirmation)
         defer { handle.releaseCompletion(); model.stop() }
         let id = model.createConversation(mode: .demo)
         XCTAssertTrue(model.send("stop during completion", in: id))
@@ -579,7 +579,7 @@ import ActivityKit
         XCTFail("Offline runtime timed out"); throw AppError.timeout
     }
     private func pendingDemo() async throws -> AgentViewModel {
-        let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false)
+        let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false, toolAuthorizationPolicy: .userConfirmation)
         let id = model.createConversation(mode: .demo)
         XCTAssertTrue(model.send("Secret goal 123", in: id))
         try await waitUntil { model.approval != nil }
@@ -690,7 +690,7 @@ import ActivityKit
     func testOldScreenshotDoesNotExpireApprovalAndCanCompleteAfterConfirmation() async throws {
         let bridge = OldScreenshotBridge()
         let model = AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false,
-                                  runServices: AgentRunServices(provider: DemoProvider(), bridge: bridge))
+                                  runServices: AgentRunServices(provider: DemoProvider(), bridge: bridge), toolAuthorizationPolicy: .userConfirmation)
         defer { model.stop() }
         let id = model.createConversation(mode: .demo)
         XCTAssertTrue(model.send("old screenshot", in: id))
