@@ -42,7 +42,7 @@ struct ToolStep: Codable, Sendable, Equatable {
     var detail: String
     var result: String = ""
     // Optional keeps version-1 archives without parameter previews readable.
-    // Only bounded public fields from our five registered tools are stored.
+    // Argument previews are bounded independently from the authoritative history.
     var arguments: String?
     var skillName: String?
     var displayArguments: String? { Self.nonemptyArguments(arguments) }
@@ -83,13 +83,31 @@ struct ToolStep: Codable, Sendable, Equatable {
         }
         return value
     }
+    var fileName: String? {
+        guard ["read", "write", "edit"].contains(name),
+              let arguments,
+              let object = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any],
+              let path = object["file_path"] as? String,
+              !path.isEmpty else { return nil }
+        let name = (path as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
     var symbol: String {
+        switch name {
+        case "bash": return "apple.terminal"
+        case "read": return "text.page"
+        case "write", "edit": return "long.text.page.and.pencil"
+        default: break
+        }
         let operation = AgentActivityAttributes.Operation.tool(name)
         return operation == .processing ? "wrench.and.screwdriver" : operation.symbol
     }
     var title: String {
         if let description = Self.callDescription(arguments) { return description }
         switch name {
+        case "read": return String(localized: "Read file")
+        case "write": return String(localized: "Write file")
+        case "edit": return String(localized: "Edit file")
         case "screenshot": return String(localized: "View screen")
         case "tap": return String(localized: "Tap")
         case "drag": return String(localized: "Drag")

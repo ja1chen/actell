@@ -1,6 +1,125 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Read file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取文件"
+          }
+        }
+      }
+    },
+    "Write file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写入文件"
+          }
+        }
+      }
+    },
+    "Edit file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑文件"
+          }
+        }
+      }
+    },
+    "Command timed out; effects may be incomplete.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command timed out; effects may be incomplete."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令已超时，操作可能未全部完成。"
+          }
+        }
+      }
+    },
+    "Error output": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error output"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误输出"
+          }
+        }
+      }
+    },
+    "Error output (exit code: %lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error output (exit code: %lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误输出（退出码：%lld）"
+          }
+        }
+      }
+    },
+    "Output was truncated.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output was truncated."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输出已截断。"
+          }
+        }
+      }
+    },
     "%@": {
       "comment": "Already-localized activity status; preserve the interpolation in every language.",
       "extractionState": "manual",
@@ -20929,6 +21048,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "本次观察使用设置中选择的屏幕信息模式。"
+          }
+        }
+      }
+    },
+    "The conversation workspace could not be opened.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation workspace could not be opened."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开此会话的工作区。"
+          }
+        }
+      }
+    },
+    "Run a command from this conversation's workspace": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a command from this conversation's workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此会话工作目录运行命令"
+          }
+        }
+      }
+    },
+    "Modify this conversation's workspace file": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modify this conversation's workspace file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改此会话的工作区文件"
           }
         }
       }

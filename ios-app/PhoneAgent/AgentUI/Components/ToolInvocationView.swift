@@ -54,6 +54,7 @@ struct ToolInvocationView<Preview: View>: View {
         HStack(spacing: 8) {
             MessageHeaderIcon(systemName: configuration.tool.symbol)
             Text(configuration.tool.title).font(.body).lineLimit(1)
+            if let name = configuration.tool.fileName { ToolFileNameChip(name: name) }
         }
         .foregroundStyle(.secondary)
     }
@@ -78,7 +79,9 @@ struct ToolInvocationView<Preview: View>: View {
     }
 
     @ViewBuilder private var resultArea: some View {
-        if hasTextContent {
+        if ToolDetailStyle.registered(for: configuration.tool.name) == .terminal {
+            TerminalToolDetail(tool: configuration.tool).padding(.top, 8)
+        } else if hasTextContent {
             ResultScrollRegion(maxHeight: 320, identifier: "toolResultScroll") {
                 VStack(alignment: .leading, spacing: 10) {
                     if let arguments = configuration.tool.displayArguments {
@@ -153,6 +156,7 @@ struct ToolArgumentsSection: View {
 struct ResultScrollRegion<Content: View>: View {
     let maxHeight: CGFloat
     let identifier: String
+    var backgroundColor = Color(uiColor: .secondarySystemBackground)
     @ViewBuilder let content: () -> Content
     @State private var atEnd = true
 
@@ -171,7 +175,7 @@ struct ResultScrollRegion<Content: View>: View {
             .accessibilityIdentifier(identifier)
             .accessibilityValue(atEnd ? String(localized: "End reached") : String(localized: "More content available"))
         }
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -193,5 +197,22 @@ private struct BoundedResultScroll: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let scroller = subviews.first else { return }
         scroller.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+/// Shared file label for history and approval headers; never displays parent directories.
+struct ToolFileNameChip: View {
+    let name: String
+
+    var body: some View {
+        Text(verbatim: name)
+            .font(.caption)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.12), in: Capsule())
+            .accessibilityIdentifier("toolFileName")
     }
 }

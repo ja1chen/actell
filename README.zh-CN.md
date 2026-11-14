@@ -8,6 +8,7 @@ https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
 ## 核心能力
 
+- 在线任务可使用会话文件工具 `read`、`edit`、`write`，并通过名为 `bash` 的工具调用内置 `ios_system` 命令（非 GNU Bash）。命令执行及文件修改需单次确认。各会话有独立的起始工作目录，原生命令使用 App 的沙盒权限；参见[范围与集成说明](docs/agent/COMMAND-TOOLS.md)。
 - 可配置服务商与模型的会话、流式回复、服务商提供的可读思考、附件与用户导入的文本技能。AgentKit 保留完整会话历史，独立管理模型上下文与有预算的压缩。
 - 截图、点击、拖动和等待工具，按顺序执行；结果未知的输入不自动重放。普通聊天不要求设备连接。
 - 本地模型任务可选择截图、无障碍内容或两者；自动模式由模型每次选择观察方式，默认使用截图。所选内容会发送给模型服务商，无障碍内容可能包含屏幕外文本。所有模式都支持点击和拖动；纯无障碍模式使用所返回显示边界内的逻辑点坐标。试验性无障碍读取器仅支持已验证的系统构建，不启动 XCTest Runner；见[范围与限制](coredevice/docs/ACCESSIBILITY.md)。
@@ -62,6 +63,7 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | `ios-app/` | App、测试、资源和工程生成 |
 | `ios-app/AgentKit/` | 自有运行时、持久化会话事务与上下文管理 |
 | `ios-app/ProviderKit/` | 模型协议契约、流适配与显式服务商能力 |
+| `ios-app/CommandKit/` | App 内置命令运行时桥接与有界输出捕获 |
 | `coredevice/` | App 内 Swift/Rust 后端 |
 | `devices/esp32/` | 固件、配置、平台共享模块及测试 |
 | `tools/` | 后端与跨模块构建、测试工具 |
@@ -73,6 +75,7 @@ SIMULATOR_ADHOC_SIGN=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 | --- | --- |
 | [MacPaw/OpenAI](https://github.com/MacPaw/OpenAI) | 远程 Swift Package 依赖，由 ProviderKit 用于模型协议编解码 |
 | [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui) | Swift Package 依赖，用于 Markdown 消息渲染 |
+| [ios_system](https://github.com/holzschu/ios_system/tree/v3.0.6) | 内置命令运行时的固定版本二进制 Swift Package 依赖，包含 core、files、text、shell 四个 XCFramework，通过 App 自有的 `CommandKit` 集成；见[许可证与来源](THIRD_PARTY.md#ios_system-command-runtime) |
 | [idevice](https://github.com/jkcoxson/idevice) / [Device Hub](https://github.com/JaviSoto/device-hub-ios) | 复用 Device Hub 固定的补丁版 idevice 源码与 PNG validator，并进行本地适配；未整合完整 Device Hub App |
 | [ESP-IDF](https://github.com/espressif/esp-idf/tree/v5.5.5)、[esp_tinyusb](https://github.com/espressif/esp-usb)、[TinyUSB](https://github.com/hathach/tinyusb) | ESP32 固件工具链与 USB 组件，分别固定为 ESP-IDF 5.5.5、esp_tinyusb 2.2.0 和 TinyUSB 0.21.0~2 |
 | [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) | 参考协议结构并选择性转译相关行为；手机与 ESP32 均不运行其 Python 服务 |

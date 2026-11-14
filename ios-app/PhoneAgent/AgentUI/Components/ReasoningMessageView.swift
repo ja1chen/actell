@@ -12,10 +12,8 @@ struct ReasoningMessageView: View {
                 .accessibilityIdentifier("reasoningContent-\(messageID)")
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
         } label: {
-            HStack(spacing: 8) {
-                MessageHeaderIcon(systemName: "brain")
-                Text(String(localized: "Reasoning")).font(.body)
-            }.foregroundStyle(.secondary)
+            Text(String(localized: "Reasoning")).font(.body)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("reasoningDisclosure-\(messageID)")
         }.tint(.secondary)
         .padding(.vertical, -2)

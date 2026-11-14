@@ -38,6 +38,21 @@ import ProviderCore
         }
         return try layout.directory(for: id)
     }
+    func workspaceDirectory(_ id: UUID) throws -> URL {
+        let session: URL
+        if directory != nil {
+            session = try sessionDirectory(id)
+        } else {
+            guard canWrite, let record = records.first(where: { $0.id == id }) else {
+                throw SessionCommandError.unavailableStorage
+            }
+            session = ephemeralEngineRoot.appendingPathComponent("sessions", isDirectory: true)
+                .appendingPathComponent(SessionStorageLayout.folderName(id: id, createdAt: record.createdAt), isDirectory: true)
+        }
+        let legacyRoot = directory == SessionStorageLayout.defaultRoot
+            ? URL.applicationSupportDirectory.appendingPathComponent("AgentWorkspaces", isDirectory: true) : nil
+        return try FileWorkspace.conversationRoot(sessionDirectory: session, legacyRoot: legacyRoot)
+    }
     private var journal: ConversationJournal?
     private var ephemeralEngineStores: [UUID: JSONLSessionStore] = [:]
     private let ephemeralEngineRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ActellAgent-" + UUID().uuidString)

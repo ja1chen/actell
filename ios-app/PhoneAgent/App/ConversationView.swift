@@ -293,10 +293,7 @@ struct ConversationView: View {
                             }
                         }.padding(.top, 8)
                     } label: {
-                        HStack(spacing: 8) {
-                            MessageHeaderIcon(systemName: "text.bubble")
-                            Text(turn.summaryLabel)
-                        }
+                        Text(turn.summaryLabel)
                     }
                 }
                 if !foldedIDs.contains(message.id) || (message.id == folded.last?.id && message.role == .assistant) {

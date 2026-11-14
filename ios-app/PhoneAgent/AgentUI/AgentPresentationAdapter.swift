@@ -168,7 +168,15 @@ struct ToolPresentation {
         guard let parameters = call.arguments.foundation as? [String: Any], !parameters.isEmpty else { return nil }
         var values: [String: Any] = [:]
         for (key, value) in parameters {
-            if let string = value as? String { values[key] = String(string.prefix(key == "summary" ? 1_000 : 160)) }
+            if let string = value as? String {
+                let limit: Int
+                if call.name == "bash" && key == "command" { limit = 8_192 }
+                else if ["read", "write", "edit"].contains(call.name) && key == "file_path" { limit = 4_096 }
+                else if key == "summary" { limit = 1_000 }
+                else if key == "description" { limit = 1_024 }
+                else { limit = 160 }
+                values[key] = String(string.prefix(limit))
+            }
             else if let number = value as? NSNumber, number.doubleValue.isFinite { values[key] = number }
             else { values[key] = String(localized: "Unsupported argument type") }
         }

@@ -18,6 +18,7 @@ struct ToolApprovalCard<Preview: View>: View {
             HStack(spacing: 8) {
                 MessageHeaderIcon(systemName: configuration.tool.symbol)
                 Text(configuration.tool.title).font(.body).lineLimit(1)
+                if let name = configuration.tool.fileName { ToolFileNameChip(name: name) }
                 Spacer(minLength: 8)
                 Text(String(localized: "Approval required"))
                     .font(.footnote)

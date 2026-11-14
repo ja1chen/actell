@@ -151,6 +151,7 @@ def generate():
         add("SwiftCertificates", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/apple/swift-certificates.git",
             requirement=dict(kind="exactVersion", version="1.10.0")),
     ]
+    packages.append(add("CommandKit", "XCLocalSwiftPackageReference", relativePath="CommandKit"))
     targets, groups, products = [], [], []
     for name, extension, product_type, bundle_suffix in [
         ("PhoneAgent", "app", "application", ""),
@@ -188,6 +189,9 @@ def generate():
             children.append(ref)
             resources.append(add((name if relative.startswith("Shared/") else "") + relative + "Build", "PBXBuildFile", fileRef=ref))
         if name == "PhoneAgent":
+            ref = add("CommandDictionary", "PBXFileReference", lastKnownFileType="text.plist.xml", path="PhoneAgent/Resources/commandDictionary.plist", sourceTree="SOURCE_ROOT")
+            children.append(ref)
+            resources.append(add("CommandDictionaryBuild", "PBXBuildFile", fileRef=ref))
             ref = add("PrivacyManifest", "PBXFileReference", lastKnownFileType="text.xml", path="PhoneAgent/PrivacyInfo.xcprivacy", sourceTree="SOURCE_ROOT")
             children.append(ref)
             resources.append(add("PrivacyBuild", "PBXBuildFile", fileRef=ref))
@@ -210,6 +214,8 @@ def generate():
         # framework on Xcode 27, which fails before the app can compile.
         if name == "PhoneAgent":
             linked_products.append(("X509", packages[3]))
+        if name in ("PhoneAgent", "PhoneAgentTests"):
+            linked_products.append(("CommandKit", packages[4]))
         for product_name, package in linked_products:
             dependency = add(name + product_name, "XCSwiftPackageProductDependency", package=package, productName=product_name)
             package_products.append(dependency)
