@@ -16,21 +16,22 @@ struct ExecutionTool: AgentTool {
 
     var descriptor: ToolDescriptor {
         let path = DeviceTool.property("string", "Path inside this conversation's workspace; relative paths recommended. No other app data, symlinks, or external directories.")
+        let publicDescription = DeviceTool.property("string", "Short public description of this file operation")
         let text = DeviceTool.property("string", "Literal UTF-8 text; never instructions to execute")
         let properties: [String: ProviderCore.JSONValue]
         let required: [String]
         let description: String
         switch kind {
         case .read:
-            properties = ["file_path": path, "offset": DeviceTool.property("integer", "First line, 1-based; default 1"), "limit": DeviceTool.property("integer", "Maximum lines, 1..2000; default 2000")]
+            properties = ["description": publicDescription, "file_path": path, "offset": DeviceTool.property("integer", "First line, 1-based; default 1"), "limit": DeviceTool.property("integer", "Maximum lines, 1..2000; default 2000")]
             required = ["file_path"]
             description = "Read a UTF-8 text file from this conversation's app-owned workspace with line numbers. Bounded output reports truncation. Not a device filesystem reader."
         case .edit:
-            properties = ["file_path": path, "old_string": text, "new_string": text, "replace_all": DeviceTool.property("boolean", "Replace every non-overlapping literal match; defaults to false, which requires exactly one match")]
+            properties = ["description": publicDescription, "file_path": path, "old_string": text, "new_string": text, "replace_all": DeviceTool.property("boolean", "Replace every non-overlapping literal match; defaults to false, which requires exactly one match")]
             required = ["file_path", "old_string", "new_string"]
             description = "Atomically replace literal text in an existing workspace file after one-use user approval. old_string must be nonempty. Zero matches or ambiguous matches fail without changing the file. Empty new_string deletes the matched text."
         case .write:
-            properties = ["file_path": path, "content": text]
+            properties = ["description": publicDescription, "file_path": path, "content": text]
             required = ["file_path", "content"]
             description = "Create or replace a UTF-8 text file in this conversation's workspace after one-use user approval. Parent directories can be created. Atomic file replacement, not arbitrary filesystem access."
         case .bash:
@@ -38,7 +39,7 @@ struct ExecutionTool: AgentTool {
             required = ["description", "command"]
             description = "Run a command from the selected conversation working directory after one-use approval. Commands may read or modify files with the App's sandbox permissions; the working directory is not filesystem isolation. Shell features depend on the runtime; this is not a full interactive Bash environment. No interactive input or background-job management is provided. Inspect stdout, stderr and the exit code before choosing the next action. Never include secrets in command arguments."
         }
-        return .init(name: name, description: description, parameters: DeviceTool.schema(properties, required: required), effect: kind == .read ? .readOnly : .localMutation)
+        return .init(name: name, description: description, parameters: .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(ProviderCore.JSONValue.string)), "additionalProperties": .bool(true)]), effect: kind == .read ? .readOnly : .localMutation)
     }
 
     private static let lane = ExecutionToolLane()
@@ -51,14 +52,6 @@ struct ExecutionTool: AgentTool {
         let outcome: ToolOutcome
         do {
             guard let values = invocation.arguments.foundation as? [String: Any] else { throw ArgumentError.invalid }
-            let allowed: Set<String>
-            switch kind {
-            case .read: allowed = ["file_path", "offset", "limit"]
-            case .edit: allowed = ["file_path", "old_string", "new_string", "replace_all"]
-            case .write: allowed = ["file_path", "content"]
-            case .bash: allowed = ["description", "command", "workdir", "timeoutMs"]
-            }
-            guard Set(values.keys).isSubset(of: allowed) else { throw ArgumentError.invalid }
             func string(_ key: String) throws -> String {
                 guard let value = values[key] as? String, !value.contains("\0") else { throw ArgumentError.invalid }
                 return value
@@ -94,6 +87,10 @@ struct ExecutionTool: AgentTool {
                     return unknown
                 }
             } else {
+                if values["description"] != nil {
+                    let description = try string("description")
+                    guard !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, description.utf8.count <= 1024 else { throw ArgumentError.invalid }
+                }
                 let path = try string("file_path")
                 if kind == .read {
                     content = try await workspace.read(filePath: path, offset: integer("offset", default: 1, range: 1...Int.max), limit: integer("limit", default: 2000, range: 1...2000))
@@ -130,7 +127,7 @@ struct ExecutionTool: AgentTool {
     }
     private enum ArgumentError: LocalizedError {
         case invalid
-        var errorDescription: String? { "Invalid execution tool arguments or unsupported fields. No escalation/background parameters are supported." }
+        var errorDescription: String? { "Invalid execution tool arguments. Check the required fields, value types, and ranges." }
     }
 }
 

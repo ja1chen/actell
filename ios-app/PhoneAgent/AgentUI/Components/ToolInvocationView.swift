@@ -54,6 +54,7 @@ struct ToolInvocationView<Preview: View>: View {
         HStack(spacing: 8) {
             MessageHeaderIcon(systemName: configuration.tool.symbol)
             Text(configuration.tool.title).font(.body).lineLimit(1)
+            if let name = configuration.tool.fileName { ToolFileNameChip(name: name) }
         }
         .foregroundStyle(.secondary)
     }
@@ -196,5 +197,22 @@ private struct BoundedResultScroll: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let scroller = subviews.first else { return }
         scroller.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+/// Shared file label for history and approval headers; never displays parent directories.
+struct ToolFileNameChip: View {
+    let name: String
+
+    var body: some View {
+        Text(verbatim: name)
+            .font(.caption)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.12), in: Capsule())
+            .accessibilityIdentifier("toolFileName")
     }
 }

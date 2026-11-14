@@ -157,13 +157,15 @@ final class ExecutionToolTests: XCTestCase {
         let output = try await read.execute(call("read", #"{"file_path":"a.txt"}"#, context: context), context: context)
         XCTAssertTrue(output.content.contains("hello"))
     }
-    func testUnsupportedEscalationAndBooleanNumbersRejected() async throws {
+    func testUnknownFieldsIgnoredAndBooleanNumbersRejected() async throws {
         let workspace = try workspace(), context = context()
+        _ = try await workspace.write(filePath: "a", content: "hello")
         let tool = ExecutionTool(kind: .read, workspace: workspace, canExecute: { true }, approveMutation: { _, _ in true })
-        for args in [#"{"file_path":"a","sandbox_permissions":"danger-full-access"}"#, #"{"file_path":"a","offset":true}"#] {
-            let result = try await tool.execute(call("read", args, context: context), context: context)
-            XCTAssertEqual(result.kind, .validationFailed)
-        }
+        let output = try await tool.execute(call("read", #"{"file_path":"a","description":"Read the file","sandbox_permissions":"danger-full-access","unknown":{"value":true}}"#, context: context), context: context)
+        XCTAssertEqual(output.kind, .returned)
+        XCTAssertTrue(output.content.contains("hello"))
+        let invalid = try await tool.execute(call("read", #"{"file_path":"a","offset":true}"#, context: context), context: context)
+        XCTAssertEqual(invalid.kind, .validationFailed)
     }
     func testInvalidatedFencePreventsDispatch() async throws {
         let workspace = try workspace(), context = context()

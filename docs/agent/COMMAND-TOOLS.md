@@ -19,11 +19,11 @@ Reference: [DeepSeek Harness 0.2.2-rc.1 tool trace](https://phistory.cc/?view=tr
 | Tool | Required | Optional |
 | --- | --- | --- |
 | bash | description, command | workdir, timeoutMs |
-| read | file_path | offset, limit |
-| edit | file_path, old_string, new_string | replace_all |
-| write | file_path, content | none |
+| read | file_path | description, offset, limit |
+| edit | file_path, old_string, new_string | description, replace_all |
+| write | file_path, content | description |
 
-`read` uses one-based line offsets and numbered UTF-8 text, with bounded output. `edit` performs exact literal matching: a nonempty old string and exactly one match are required unless `replace_all` is true. Missing or ambiguous matches leave the file unchanged. `write` creates or atomically replaces a text file; limits prevent unbounded file/workspace growth. Results are JSON text, including relevant truncation/output metadata. Read pages never split a logical line; an individual line exceeding the output budget fails explicitly rather than silently skipping its tail. Unknown fields and invalid numeric/boolean types fail validation.
+`read` uses one-based line offsets and numbered UTF-8 text, with bounded output. `edit` performs exact literal matching: a nonempty old string and exactly one match are required unless `replace_all` is true. Missing or ambiguous matches leave the file unchanged. `write` creates or atomically replaces a text file; limits prevent unbounded file/workspace growth. Results are JSON text, including relevant truncation/output metadata. Read pages never split a logical line; an individual line exceeding the output budget fails explicitly rather than silently skipping its tail. Unknown fields are ignored. Recognized fields retain their type, range, and path validation. File operations accept an optional public `description` for the tool card title.
 
 Original DSH `sandbox_permissions`, `danger-full-access`, and `justification` escalation are not implemented. Original timeout-to-background-job behavior is also not implemented. There is no background job identifier, job_output/job_kill surface, or promise of continued execution after iOS suspends the app.
 
