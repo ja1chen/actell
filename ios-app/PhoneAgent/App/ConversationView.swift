@@ -311,7 +311,7 @@ struct ConversationView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack { Spacer(minLength: 36); Text(message.text).textSelection(.enabled).padding(12).background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).foregroundStyle(.primary)
                     .contextMenu { messageActions(message.text) } }
-                MessageAttachmentsView(message: message, presentation: presentation, contentAlignment: .trailing, showsName: false)
+                MessageAttachmentsView(message: message, presentation: presentation, contentAlignment: .trailing)
             }
         case .assistant:
             // Keep reasoning at the same row level as tools. A reasoning-only
@@ -387,24 +387,19 @@ struct ConversationView: View {
                     Button(String(localized: "Cancel")) { importCancellation += 1; sendingTask?.cancel() }
                 }.font(.caption)
             }
-            if let assets = session?.draftAttachments, !assets.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(assets) { asset in
-                            VStack(alignment: .leading, spacing: 5) {
-                                AttachmentThumbnail(attachment: asset, store: presentation.attachments, conversationID: presentation.sessionID)
-                                    .frame(width: 100, height: 90).clipped()
-                                Button(String(localized: "Remove"), systemImage: "xmark.circle") { presentation.removeAttachment(asset.id) }
-                                    .font(.caption).disabled(running || sendingAttachments)
-                                    .accessibilityIdentifier("removeAttachment-" + asset.id.uuidString)
+            VStack(spacing: 0) {
+                if let assets = session?.draftAttachments, !assets.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 8) {
+                            ForEach(assets) { asset in
+                                AttachmentCard(attachment: asset, store: presentation.attachments,
+                                    conversationID: presentation.sessionID, showsRemove: true,
+                                    removeDisabled: running || sendingAttachments) { presentation.removeAttachment(asset.id) }
                             }
                         }
-                    }
-                }.accessibilityIdentifier("draftAttachments")
-                Text(String(localized: "Images and text will be sent to the current model after you send the message. Supports single-frame images up to 20 MiB and UTF-8 TXT/MD/JSON/CSV up to 256 KiB; PDF and Office files are not supported. Images are sent at a maximum dimension of 2,048 pixels. Originals stay on this device."))
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            VStack(spacing: 0) {
+                        .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+                    }.accessibilityIdentifier("draftAttachments")
+                }
                 HStack(alignment: .center, spacing: 4) {
                     if !focused { Color.clear.frame(width: 44, height: 44).accessibilityHidden(true) }
                     messageField

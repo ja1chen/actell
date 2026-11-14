@@ -5,9 +5,9 @@ import UIKit
 /// Developer-only Xcode previews for tuning the conversation UI. Page
 /// previews render the real `ConversationView` against an in-memory
 /// `ConversationStore` seeded with synthetic content, so layout, typography
-/// and interaction tuning happen on the shipping views. Card previews drive
-/// `ToolInvocationView` and `ToolApprovalCard` directly with representative
-/// `ToolStep` values. Nothing here is reachable from the shipped app.
+/// and interaction tuning happen on the shipping views. The card gallery
+/// drives `ToolInvocationView` directly with representative `ToolStep`
+/// values. Nothing here is reachable from the shipped app.
 @MainActor private enum ConversationPreviewSeed {
     static func makeModel() -> AgentViewModel {
         AgentViewModel(sessions: ConversationStore(inMemory: true), loadPersistentState: false)
@@ -68,26 +68,10 @@ import UIKit
         return conversation
     }
 
-    @discardableResult
-    static func seedActive(in model: AgentViewModel) -> UUID {
-        let conversation = model.sessions.create(mode: .live)
-        guard let run = model.sessions.begin(in: conversation, query: "看看屏幕上有哪些应用，统计一下数量") else { return conversation }
-        model.sessions.beginAssistantTurn(run)
-        model.sessions.appendReasoning("正在请求屏幕内容，等待设备返回当前画面。", identity: run)
-        model.sessions.appendText("已收到截图，正在识别图标并统计数量…", identity: run)
-        model.sessions.updateTool(callID: "shot-2", name: "screenshot", state: .succeeded, detail: "截取当前屏幕",
-            result: #"{"screen_information_mode":"screenshot"}"#, identity: run)
-        model.sessions.updateTool(callID: "tap-3", name: "tap", state: .awaitingApproval, detail: "轻点“文件”图标",
-            arguments: "{\n  \"x\" : 312,\n  \"y\" : 700,\n  \"description\" : \"打开文件 App\"\n}", identity: run)
-        model.sessions.updateTool(callID: "apps-2", name: "list_apps", state: .requested, detail: "查询已安装应用", identity: run)
-        model.sessions.setDraft("统计完帮我打开文件", in: conversation)
-        return conversation
-    }
-
     /// Attachment bytes live in the store, so images are attached after the
     /// synchronous conversation seed. Attaching by message ID also works for
     /// finished runs, whose identity is no longer accepted.
-    static func seedAttachments(_ model: AgentViewModel, conversationID: UUID, intoDraft: Bool) async {
+    static func seedAttachments(_ model: AgentViewModel, conversationID: UUID) async {
         guard let png = syntheticImage().pngData(),
               let attachment = try? await model.attachments.store(png, name: "屏幕快照.png", conversationID: conversationID) else { return }
         let messages = model.sessions.conversation(conversationID)?.messages ?? []
@@ -97,7 +81,25 @@ import UIKit
         if let shot = messages.last(where: { $0.tool?.callID == "shot-1" }) {
             model.sessions.attach(attachment, to: shot.id, in: conversationID)
         }
-        if intoDraft { model.sessions.addDraftAttachment(attachment, in: conversationID) }
+    }
+
+    /// Seeds the composer with draft text plus one image and one text file so
+    /// the draft strip and removal buttons render with representative content.
+    /// The image and the file are also attached to the user messages, showing
+    /// the message card style without removal buttons.
+    static func seedDraft(_ model: AgentViewModel, conversationID: UUID) async {
+        model.sessions.setDraft("统计完应用数量后，把这份运行记录整理成摘要。", in: conversationID)
+        let messages = model.sessions.conversation(conversationID)?.messages ?? []
+        let userMessages = messages.filter { $0.role == .user && $0.attachments == nil }
+        guard let png = syntheticImage().pngData(),
+              let image = try? await model.attachments.store(png, name: "屏幕快照.png", conversationID: conversationID) else { return }
+        model.sessions.addDraftAttachment(image, in: conversationID)
+        if let first = userMessages.first { model.sessions.attach(image, to: first.id, in: conversationID) }
+        let log = "第 1 步 截取屏幕：成功\n第 2 步 打开设置：成功\n第 3 步 切换深色外观：成功"
+        if let file = try? await model.attachments.store(Data(log.utf8), name: "运行记录.txt", conversationID: conversationID) {
+            model.sessions.addDraftAttachment(file, in: conversationID)
+            if userMessages.count > 1 { model.sessions.attach(file, to: userMessages[1].id, in: conversationID) }
+        }
     }
 }
 
@@ -157,9 +159,11 @@ private struct ToolCardGallery: View {
 /// Renders the seeded real conversation page. Model and history are prepared
 /// synchronously; attachment bytes land on the next tick via the store actor.
 private struct ConversationPreviewPage: View {
-    enum Script { case completed, active }
-    let script: Script
-    var colorScheme: ColorScheme = .light
+    var seed: (AgentViewModel) async -> UUID = { model in
+        let conversation = ConversationPreviewSeed.seedCompleted(in: model)
+        await ConversationPreviewSeed.seedAttachments(model, conversationID: conversation)
+        return conversation
+    }
     @State private var model: AgentViewModel?
     @State private var conversationID: UUID?
 
@@ -171,61 +175,31 @@ private struct ConversationPreviewPage: View {
                 Color(uiColor: .systemBackground)
             }
         }
-        .environment(\.colorScheme, colorScheme)
         .task { await prepare() }
     }
 
     private func prepare() async {
         guard model == nil else { return }
         let seededModel = ConversationPreviewSeed.makeModel()
-        let seededConversation: UUID
-        switch script {
-        case .completed: seededConversation = ConversationPreviewSeed.seedCompleted(in: seededModel)
-        case .active: seededConversation = ConversationPreviewSeed.seedActive(in: seededModel)
-        }
-        await ConversationPreviewSeed.seedAttachments(seededModel, conversationID: seededConversation, intoDraft: script == .active)
+        let seededConversation = await seed(seededModel)
         model = seededModel
         conversationID = seededConversation
     }
 }
 
 #Preview("会话 · 已完成历史") {
-    ConversationPreviewPage(script: .completed)
+    ConversationPreviewPage()
 }
 
-#Preview("会话 · 已完成历史（深色）") {
-    ConversationPreviewPage(script: .completed, colorScheme: .dark)
-}
-
-#Preview("会话 · 进行中") {
-    ConversationPreviewPage(script: .active)
+#Preview("输入框 · 草稿与附件") {
+    ConversationPreviewPage(seed: { model in
+        let conversation = ConversationPreviewSeed.seedCompleted(in: model)
+        await ConversationPreviewSeed.seedDraft(model, conversationID: conversation)
+        return conversation
+    })
 }
 
 #Preview("工具卡片 · 全部状态") {
     ToolCardGallery()
-}
-
-#Preview("审批卡片") {
-    ToolApprovalCard(configuration: ToolInvocationConfiguration(
-        tool: .preview("tap-a", "tap", .awaitingApproval,
-            "轻点“深色模式”开关，将系统切换为深色外观。",
-            arguments: #"{"x": 962, "y": 402, "description": "切换深色模式"}"#),
-        onApprove: {}, onDeny: {})) {
-        Image(uiImage: ConversationPreviewSeed.syntheticImage()).resizable().scaledToFit()
-            .frame(maxHeight: 280).clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-    .padding(16)
-    .background(Color(uiColor: .systemBackground))
-}
-
-#Preview("审批卡片 · 按钮禁用") {
-    ToolApprovalCard(configuration: ToolInvocationConfiguration(
-        tool: .preview("tap-n", "tap", .awaitingApproval,
-            "轻点“深色模式”开关，将系统切换为深色外观。当前没有对应的授权回调。",
-            arguments: #"{"x": 962, "y": 402, "description": "切换深色模式"}"#))) {
-        EmptyView()
-    }
-    .padding(16)
-    .background(Color(uiColor: .systemBackground))
 }
 #endif

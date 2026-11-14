@@ -73,6 +73,87 @@ struct AttachmentThumbnail: View {
     }
 }
 
+/// Square rounded-corner attachment card used in the composer draft strip and
+/// in messages. Images fill the card; text files show the document icon at the
+/// top-left and the file name at the bottom-left. Tapping opens the original
+/// in the attachment viewer.
+struct AttachmentCard: View {
+    private static let side: CGFloat = 88
+    let attachment: StoredAttachment
+    let store: AttachmentStore
+    let conversationID: UUID
+    var showsRemove = false
+    var removeDisabled = false
+    var onRemove: (() -> Void)? = nil
+    @State private var preview: Data?
+    @State private var loadFailed = false
+    @State private var showingOriginal = false
+
+    var body: some View {
+        content
+            .task(id: attachment.id) {
+                do { preview = try await store.preview(attachment, conversationID: conversationID); loadFailed = false }
+                catch { loadFailed = true }
+            }
+            .sheet(isPresented: $showingOriginal) { AttachmentPreview(attachment: attachment, store: store, conversationID: conversationID) }
+    }
+
+    @ViewBuilder private var content: some View {
+        if showsRemove, let onRemove {
+            ZStack(alignment: .topTrailing) {
+                tapCard
+                removeButton.padding(4)
+            }
+        } else {
+            tapCard
+        }
+    }
+
+    private var tapCard: some View {
+        Button { showingOriginal = true } label: { card }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Preview attachment: \(attachment.name)"))
+            .accessibilityIdentifier("attachment-" + attachment.id.uuidString)
+    }
+
+    private var card: some View {
+        ZStack {
+            if let preview, attachment.kind == .image, let image = UIImage(data: preview) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if attachment.kind == .image {
+                Image(systemName: loadFailed ? "exclamationmark.triangle" : "photo")
+                    .font(.title2).foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    Image(systemName: "doc.text").font(.title3).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Text(attachment.name).font(.caption2).foregroundStyle(.primary)
+                        .lineLimit(2).truncationMode(.middle).multilineTextAlignment(.leading)
+                }
+                .padding(10).frame(width: Self.side, height: Self.side, alignment: .topLeading)
+            }
+        }
+        .frame(width: Self.side, height: Self.side)
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
+    }
+
+    private var removeButton: some View {
+        Button { onRemove?() } label: {
+            Image(systemName: "xmark.circle.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, Color(uiColor: .systemGray))
+                .font(.system(size: 17))
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(removeDisabled)
+        .accessibilityLabel(String(localized: "Remove"))
+        .accessibilityIdentifier("removeAttachment-" + attachment.id.uuidString)
+    }
+}
+
 private struct AttachmentPreview: View {
     let attachment: StoredAttachment
     let store: AttachmentStore
@@ -219,20 +300,19 @@ struct MessageAttachmentsView: View {
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter
     var contentAlignment: HorizontalAlignment = .leading
-    var showsName = true
     var body: some View {
         let attachments = (message.attachments ?? []).filter { $0.sourceURL == nil }
         let imageURLs = Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? []
         if !attachments.isEmpty || !imageURLs.isEmpty {
-            VStack(alignment: contentAlignment, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
                 ForEach(attachments) { attachment in
-                    AttachmentThumbnail(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID,
-                        showsName: showsName, contentAlignment: contentAlignment)
+                    AttachmentCard(attachment: attachment, store: presentation.attachments, conversationID: presentation.sessionID)
                 }
                 ForEach(imageURLs, id: \.self) { url in
                     RemoteMessageImage(url: url, message: message, presentation: presentation)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: contentAlignment, vertical: .center))
         }
     }
 }
@@ -249,7 +329,7 @@ private struct RemoteMessageImage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let cached, cacheAvailable {
-                AttachmentThumbnail(attachment: cached, store: presentation.attachments, conversationID: presentation.sessionID)
+                AttachmentCard(attachment: cached, store: presentation.attachments, conversationID: presentation.sessionID)
             } else {
                 Label(String(localized: "Message image"), systemImage: "photo")
                 if let failure { Text(failure).font(.caption).foregroundStyle(.orange) }
