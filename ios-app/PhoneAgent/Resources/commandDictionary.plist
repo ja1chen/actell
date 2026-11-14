@@ -303,6 +303,20 @@
 		<string>LP</string>
 		<string>no</string>
 	</array>
+	<key>python</key>
+	<array>
+		<string>MAIN</string>
+		<string>actell_python_main</string>
+		<string></string>
+		<string>file</string>
+	</array>
+	<key>python3</key>
+	<array>
+		<string>MAIN</string>
+		<string>actell_python_main</string>
+		<string></string>
+		<string>file</string>
+	</array>
 	<key>readlink</key>
 	<array>
 		<string>files.framework/files</string>

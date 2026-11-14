@@ -41,6 +41,10 @@ def generate(artifacts):
             if function.endswith("_main") and function not in registered:
                 library = "SELF" if module == "ios_system" else f"{module}.framework/{module}"
                 commands[function.removesuffix("_main")] = [library, function, "", "no"]
+    # App-owned adapter linked into the main executable; both aliases reuse the
+    # same process-lifetime CPython, never python3_ios.framework.
+    for name in ("python", "python3"):
+        commands[name] = ["MAIN", "actell_python_main", "", "file"]
     output = ROOT / "ios-app/PhoneAgent/Resources/commandDictionary.plist"
     output.write_bytes(plistlib.dumps(commands, sort_keys=True))
     print(f"Registered {len(commands)} commands/aliases from {len(MODULES)} bundled modules.")

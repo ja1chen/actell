@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "python": "3.13.18",
+  "support_release": "3.13-b18",
+  "pillow": "13.0.0",
+  "numpy": "2.5.2.post1",
+  "architectures": [
+    "arm64"
+  ],
+  "assets": [
+    {
+      "filename": "Python-3.13-iOS-support.b18.tar.gz",
+      "url": "https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz",
+      "sha256": "d06acf2a9c7964a8689566353a0e707402eff822037de5e29ba0e16040f7047d",
+      "platform": "all"
+    },
+    {
+      "filename": "pillow-13.0.0-cp313-cp313-ios_13_0_arm64_iphoneos.whl",
+      "url": "https://files.pythonhosted.org/packages/82/e2/9132d38df320e8099e2642d9fa538f18a7dfebf68a875a31725dc2a115aa/pillow-13.0.0-cp313-cp313-ios_13_0_arm64_iphoneos.whl",
+      "sha256": "e98b4f91f99b24b1da72e10621ba181f7281922384a7403094debb4199de6c00",
+      "platform": "iphoneos"
+    },
+    {
+      "filename": "pillow-13.0.0-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl",
+      "url": "https://files.pythonhosted.org/packages/cb/be/436dac0996876f65ef1916ffb711c5ef4af2ebc57414b6f16642e07f6b47/pillow-13.0.0-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl",
+      "sha256": "34fb3db1149c879343861831728c243c432d4a5afc8f1878ca7612ef8de2a033",
+      "platform": "iphonesimulator"
+    },
+    {
+      "filename": "numpy-2.5.2.post1-cp313-cp313-ios_13_0_arm64_iphoneos.whl",
+      "url": "https://pypi.anaconda.org/beeware/simple/numpy/2.5.2.post1/numpy-2.5.2.post1-cp313-cp313-ios_13_0_arm64_iphoneos.whl",
+      "sha256": "d451e3281b8e2709bb85c6857c83b3c1797f930971b6bbff7f57469d3958e16e",
+      "platform": "iphoneos"
+    },
+    {
+      "filename": "numpy-2.5.2.post1-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl",
+      "url": "https://pypi.anaconda.org/beeware/simple/numpy/2.5.2.post1/numpy-2.5.2.post1-cp313-cp313-ios_13_0_arm64_iphonesimulator.whl",
+      "sha256": "154285250704dd82f8a5b53633eebe381f6eb56d232780291ac180e12a7ea0b1",
+      "platform": "iphonesimulator"
+    }
+  ]
+}

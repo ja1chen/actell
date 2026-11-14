@@ -19,6 +19,8 @@ ACTELL_BUNDLE_ID_PREFIX=org.example.Actell ACTELL_DEVELOPMENT_TEAM=ABCDE12345 \
 
 使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
 
+首次解析 Xcode 工程或运行 App 测试前，先运行 `python3 ios-app/scripts/prepare_python_runtime.py`，下载并校验内嵌 CPython、Pillow 和 NumPy 的双平台依赖。`python3`／`python` 经现有命令工具执行，支持脚本、`-c` 和 `-m`，不提供独立 Agent 工具或运行时 pip 安装。接入与取消边界见 [Python 运行时](../docs/agent/PYTHON-RUNTIME.md)。
+
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -project ios-app/PhoneAgent.xcodeproj -scheme PhoneAgent \

@@ -4,7 +4,37 @@
 #import <pthread.h>
 #import <time.h>
 #import <errno.h>
+#import <sys/stat.h>
 #import <dispatch/dispatch.h>
+#import "PythonRuntimeBridge.h"
+
+// The outer runtime lock permits only one host command invocation. Pipeline
+// callbacks retain the owner while they wait for the dedicated Python worker.
+static CommandExecution *currentExecution;
+static pthread_mutex_t pythonOwnerLock = PTHREAD_MUTEX_INITIALIZER;
+// Exported by the pinned ios_system v3.0.6 binary. It consumes the name.
+extern void ios_releasePythonLibraryName(char *name);
+@interface CommandExecution (Python)
+- (int)runPython:(int)argc arguments:(char **)argv;
+@end
+__attribute__((visibility("default"))) int actell_python_main(int argc, char **argv) {
+    int previousCancellation;
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &previousCancellation);
+    pthread_mutex_lock(&pythonOwnerLock);
+    CommandExecution *owner = currentExecution;
+    pthread_mutex_unlock(&pythonOwnerLock);
+    int status = owner ? [owner runPython:argc arguments:argv] : 130;
+    // Upstream's Python cleanup assumes its interpreter owns stdin and skips
+    // fclose even for pipeline input. Our interpreter owns duplicated FDs.
+    // Release its single interpreter slot explicitly, then select ordinary
+    // command cleanup so upstream closes the original pipe it allocated.
+    ios_releasePythonLibraryName(strdup("Python"));
+    if (argc > 0 && argv[0][0]) argv[0][0] = 'a';
+    // Pending pthread cancellation can only resume after Python releases all
+    // command streams and objects, never while its worker is still executing.
+    pthread_setcancelstate(previousCancellation, NULL);
+    return status;
+}
 
 static const NSUInteger outputLimit = 65536;
 static const char sessionKey[] = "actell-command-tools";
@@ -13,9 +43,11 @@ static const char sessionKey[] = "actell-command-tools";
 static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
 
 @implementation CommandExecution {
-    NSLock *_stateLock;
+    NSCondition *_stateLock;
     BOOL _cancelled;
     BOOL _active;
+    BOOL _timedOut;
+    NSUInteger _pythonActive;
 }
 + (NSArray<NSString *> *)availableCommands {
     NSString *path = [[NSBundle mainBundle] pathForResource:@"commandDictionary" ofType:@"plist"];
@@ -23,11 +55,30 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
     return commands ? [commands.allKeys sortedArrayUsingSelector:@selector(compare:)] : @[];
 }
 - (instancetype)init {
-    if ((self = [super init])) _stateLock = [NSLock new];
+    if ((self = [super init])) _stateLock = [NSCondition new];
     return self;
 }
 - (void)cancel {
     [_stateLock lock]; _cancelled = YES; [_stateLock unlock];
+}
+- (int)runPython:(int)argc arguments:(char **)argv {
+    [_stateLock lock];
+    if (!_active || _cancelled || _timedOut) { [_stateLock unlock]; return 130; }
+    _pythonActive++;
+    [_stateLock unlock];
+    NSMutableArray<NSString *> *arguments = [NSMutableArray new];
+    for (int i = 0; i < argc; i++) {
+        NSString *value = [NSString stringWithUTF8String:argv[i]];
+        if (!value) { [_stateLock lock]; _pythonActive--; [_stateLock broadcast]; [_stateLock unlock]; return 2; }
+        [arguments addObject:value];
+    }
+    int result = [[ActellPythonRuntime shared] runArguments:arguments input:thread_stdin output:thread_stdout error:thread_stderr
+        directory:NSFileManager.defaultManager.currentDirectoryPath cancelled:^BOOL {
+            [self->_stateLock lock]; BOOL cancelled = self->_cancelled || self->_timedOut;
+            [self->_stateLock unlock]; return cancelled;
+        }];
+    [_stateLock lock]; _pythonActive--; [_stateLock broadcast]; [_stateLock unlock];
+    return result;
 }
 - (NSDictionary<NSString *, id> *)run:(NSString *)command directory:(NSURL *)directory timeout:(double)timeout {
     pthread_mutex_lock(&runtimeLock);
@@ -87,13 +138,23 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
     // Initialize only the generated registry; no optional module dictionaries are needed.
     sideLoading = false;
     (void)commandsAsArray();
+    // ios_system otherwise tries to dispatch a second, unbundled Python
+    // framework for concurrent pipeline interpreters.
+    numPythonInterpreters = 1;
     sideLoading = true; joinMainThread = true;
     ios_setDirectoryURL(directory);
-    BOOL directoryReady = [[NSFileManager.defaultManager currentDirectoryPath]
-        isEqualToString:directory.path.stringByResolvingSymlinksInPath];
+    // getcwd and Foundation can spell the same directory as /private/var
+    // and /var. Compare filesystem identity, not normalized path strings.
+    struct stat currentDirectoryInfo, targetDirectoryInfo;
+    BOOL directoryReady = stat(".", &currentDirectoryInfo) == 0
+        && stat(directory.fileSystemRepresentation, &targetDirectoryInfo) == 0
+        && S_ISDIR(targetDirectoryInfo.st_mode)
+        && currentDirectoryInfo.st_dev == targetDirectoryInfo.st_dev
+        && currentDirectoryInfo.st_ino == targetDirectoryInfo.st_ino;
     ios_setStreams(input, output, error);
     thread_stdin = input; thread_stdout = output; thread_stderr = error;
     _active = YES;
+    pthread_mutex_lock(&pythonOwnerLock); currentExecution = self; pthread_mutex_unlock(&pythonOwnerLock);
     [_stateLock unlock];
     __block BOOL timedOut = NO;
     uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
@@ -104,11 +165,13 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
         [self->_stateLock lock];
         if (self->_active) {
             double elapsed = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e9;
-            if (elapsed >= timeout) timedOut = YES;
+            if (elapsed >= timeout) { timedOut = YES; self->_timedOut = YES; }
             if (self->_cancelled || timedOut) {
                 // ios_system's currentSession is thread-local, including on the watchdog queue.
-                ios_switchSession(sessionKey);
-                ios_kill();
+                if (self->_pythonActive == 0) {
+                    ios_switchSession(sessionKey);
+                    ios_kill();
+                }
             }
         }
         [self->_stateLock unlock];
@@ -125,7 +188,13 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
         fprintf(error, "Cannot enter command working directory\n");
         status = 1;
     }
-    [_stateLock lock]; _active = NO; [_stateLock unlock];
+    [_stateLock lock];
+    // Even if upstream returns early for a detached shell command, no Python
+    // worker may outlive the owner of its streams, cwd and watchdog.
+    while (_pythonActive) [_stateLock wait];
+    _active = NO;
+    [_stateLock unlock];
+    pthread_mutex_lock(&pythonOwnerLock); currentExecution = nil; pthread_mutex_unlock(&pythonOwnerLock);
     dispatch_source_cancel(watchdog);
     dispatch_sync(watchdogQueue, ^{});
     storeEnvironment(environ);
