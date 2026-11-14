@@ -4,6 +4,7 @@
 #import <pthread.h>
 #import <time.h>
 #import <errno.h>
+#import <sys/stat.h>
 #import <dispatch/dispatch.h>
 #import "PythonRuntimeBridge.h"
 
@@ -142,8 +143,14 @@ static pthread_mutex_t runtimeLock = PTHREAD_MUTEX_INITIALIZER;
     numPythonInterpreters = 1;
     sideLoading = true; joinMainThread = true;
     ios_setDirectoryURL(directory);
-    BOOL directoryReady = [[NSFileManager.defaultManager currentDirectoryPath]
-        isEqualToString:directory.path.stringByResolvingSymlinksInPath];
+    // getcwd and Foundation can spell the same directory as /private/var
+    // and /var. Compare filesystem identity, not normalized path strings.
+    struct stat currentDirectoryInfo, targetDirectoryInfo;
+    BOOL directoryReady = stat(".", &currentDirectoryInfo) == 0
+        && stat(directory.fileSystemRepresentation, &targetDirectoryInfo) == 0
+        && S_ISDIR(targetDirectoryInfo.st_mode)
+        && currentDirectoryInfo.st_dev == targetDirectoryInfo.st_dev
+        && currentDirectoryInfo.st_ino == targetDirectoryInfo.st_ino;
     ios_setStreams(input, output, error);
     thread_stdin = input; thread_stdout = output; thread_stderr = error;
     _active = YES;

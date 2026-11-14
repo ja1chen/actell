@@ -160,6 +160,41 @@ final class ExecutionToolTests: XCTestCase {
         XCTAssertEqual(FileManager.default.currentDirectoryPath, originalDirectory)
     }
 
+    func testWorkingDirectoryAliasesAllowRelativeWrites() async throws {
+        // Simulator app containers live under /Users; use /tmp to also exercise
+        // Darwin's /tmp versus /private/tmp spelling. Device temp is sandboxed.
+        #if targetEnvironment(simulator)
+        let parent = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        #else
+        let parent = FileManager.default.temporaryDirectory
+        #endif
+        let root = parent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let originalDirectory = FileManager.default.currentDirectoryPath
+        for directory in [root, URL(fileURLWithPath: "/private" + root.path, isDirectory: true)] {
+            // The explicit /private alias is only applicable to /tmp or /var.
+            guard FileManager.default.fileExists(atPath: directory.path) else { continue }
+            let result = try await ShellRuntime.shared.run(command: "echo workspace > marker.txt", workspace: directory)
+            XCTAssertEqual(result.exitCode, 0, result.stderr)
+            XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("marker.txt"), encoding: .utf8), "workspace\n")
+            XCTAssertEqual(FileManager.default.currentDirectoryPath, originalDirectory)
+        }
+    }
+
+    func testUnavailableWorkingDirectoryDoesNotDispatchCommand() async throws {
+        let workspace = try workspace()
+        let originalDirectory = FileManager.default.currentDirectoryPath
+        for target in [workspace.root.appendingPathComponent("missing"), workspace.root.appendingPathComponent("file")] {
+            if target.lastPathComponent == "file" { try Data().write(to: target) }
+            let result = try await ShellRuntime.shared.run(command: "echo must-not-run", workspace: target)
+            XCTAssertEqual(result.exitCode, 1)
+            XCTAssertEqual(result.stdout, "")
+            XCTAssertEqual(result.stderr, "Cannot enter command working directory\n")
+            XCTAssertEqual(FileManager.default.currentDirectoryPath, originalDirectory)
+        }
+    }
+
     func testCommandCanUseParentAbsoluteWorkdirAndChangeDirectories() async throws {
         let base = try workspace(), context = context()
         let conversation = try FileWorkspace(root: base.root.appendingPathComponent("conversation"))

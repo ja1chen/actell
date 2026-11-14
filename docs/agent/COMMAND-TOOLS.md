@@ -12,6 +12,33 @@ The bundled core, files, text and shell modules supply the command runtime. App-
 
 Each invocation starts in the selected workspace directory. Working-directory changes, aliases and environment changes are not a persistent terminal session; use `workdir` on later invocations. The bridge restores the App's process working directory and resets its library-local environment after execution. The host does not set a mini-root or impose a workspace path boundary. Native commands and `read`/`edit`/`write` use the App's filesystem permissions. Relative paths start in the conversation working directory; absolute paths, `~`, parent traversal and symbolic links are supported. Model instructions require staying within the user's authorized task and avoiding credentials and unrelated files.
 
+## Working-directory identity and path aliases
+
+Darwin can expose the same directory through `/var/...` and `/private/var/...`,
+or `/tmp` and its resolved target. `FileManager.currentDirectoryPath`, URL
+resolution and `NSString.resolvingSymlinksInPath` need not produce identical
+strings, even after a successful directory change. Do not use string equality
+between these representations to decide whether a command may run. After
+`ios_setDirectoryURL`, the bridge checks that `stat(".")` and `stat` of the
+requested directory identify the same device and inode, and that the target is
+a directory. A failed check must prevent dispatch and preserve process-directory
+restoration; it must not silently fall back to `/` or another conversation.
+
+The same class of alias mismatch also affects attachment ownership validation;
+see [conversation storage](../CONVERSATION-STORAGE.md). For containment checks,
+resolve an existing trusted parent before inspecting children, and retain the
+component, ownership and symbolic-link checks. Comparing an unresolved or
+nonexistent child against a differently resolved parent is not a safe substitute.
+Directory identity checks do not establish ownership or containment.
+
+Regression coverage must exercise an actual alias outside the simulator's usual
+`/Users/...` container paths, verify relative writes reach the requested directory,
+reject missing and non-directory targets before execution, and check restoration
+of the App's original directory. Keep coverage of omitted `workdir` using the
+conversation workspace. Simulator success alone does not establish physical-device
+path behavior; device acceptance must check the default conversation workspace
+without overriding `workdir` to `/`.
+
 ## Reference contract and intentional differences
 
 Reference: [DeepSeek Harness 0.2.2-rc.1 tool trace](https://phistory.cc/?view=trace&agent=dsh&version=0.2.2-rc.1), default variant. Only the public tool schema/semantics were used as a design reference; no system prompt was copied.

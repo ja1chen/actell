@@ -33,6 +33,8 @@
 
 默认验证：
 
+- 修改沙盒路径校验、附件归属或命令工作目录逻辑前，先读 `docs/agent/COMMAND-TOOLS.md` 的路径别名约束。不能用 `/var` 与 `/private/var` 等路径字符串是否相等判断目录身份；已有目录按文件系统身份验证，归属与符号链接限制另行保留。回归须覆盖真实路径别名，不能只依赖模拟器容器路径。
+
 - USB 输入协议/停止释放：`CC=clang bash devices/esp32/tools/test_usb.sh`（仅回环网络）。
 - App 改动：`bash ios-app/scripts/test_core.sh <隔离模拟器 UDID>`；加 `RUN_UI_TESTS=1` 跑现行 UI 用例。
 - 最终无签名 iPhoneOS build：参见 `ios-app/README.md`。
