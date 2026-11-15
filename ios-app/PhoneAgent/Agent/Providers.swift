@@ -790,7 +790,14 @@ enum LLMDiagnostics {
             let keys: Set<String> = ["response", "output", "item", "id", "type", "status", "role", "content", "text", "annotations", "logprobs", "summary", "encrypted_content", "call_id", "name", "arguments", "namespace", "phase", "error", "incomplete_details"]
             detail = "error=DecodingError." + kind + " path=" + path.map { $0.intValue.map { "[\($0)]" } ?? (keys.contains($0.stringValue) ? $0.stringValue : "<redacted-key>") }.joined(separator: ".")
         } else if let network = error as? URLError { detail = "error=URLError code=\(network.errorCode)" + networkCauses(network as NSError) }
-        else if let auth = error as? ChatGPTAuthError { detail = "error=ChatGPTAuthError " + auth.localizedDescription }
+        else if let code = error as? ChatGPTServiceCode { detail = "error=ChatGPTServiceCode errorCode=" + code.rawValue }
+        else if let auth = error as? ChatGPTAuthError {
+            switch auth {
+            case .transport(let code): detail = "error=ChatGPTAuthError urlError=\(code.rawValue)"
+            case .serviceUnavailable(let status), .serviceRejected(let status): detail = "error=ChatGPTAuthError httpStatus=\(status)"
+            default: detail = "error=ChatGPTAuthError " + auth.localizedDescription
+            }
+        }
         else {
             let ns = error as NSError
             let domains: Set<String> = [NSCocoaErrorDomain, NSURLErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain]

@@ -18,6 +18,14 @@ final class ModelDiscoveryClient: @unchecked Sendable {
     }
     deinit { session.invalidateAndCancel() }
     static func failure(_ error: Error) -> String {
+        if let failure = error as? ChatGPTAdmissionFailure {
+            LLMDiagnostics.log(failure, stage: "models.list")
+            return failure.localizedDescription
+        }
+        if let auth = error as? ChatGPTAuthError {
+            LLMDiagnostics.log(auth, stage: "models.list")
+            return auth.localizedDescription
+        }
         if error is CancellationError || (error as? URLError)?.code == .cancelled { return String(localized: "Model discovery cancelled. Cached or manual model IDs remain available.") }
         if (error as? URLError)?.code == .timedOut { return String(localized: "Model discovery timed out. Retry or enter a model ID manually.") }
         return (error as? AppError)?.localizedDescription ?? String(localized: "Could not fetch models. Check the network or use cached or manual model IDs.")

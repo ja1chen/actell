@@ -19,9 +19,11 @@ private actor OAuthFixture: ChatGPTHTTPClient {
     let key = P256.Signing.PrivateKey()
     var nonce = "", subject = "subject-A", scope = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
     var errorCode: String?, invalidSignature = false, refreshCount = 0, exchangeCount = 0, revokeCount = 0
+    var transportCode: URLError.Code?
     var delayRefresh = false, delayExchange = false
     func setup(nonce: String, subject: String = "subject-A", scope: String? = nil) { self.nonce = nonce; self.subject = subject; if let scope { self.scope = scope } }
     func fail(_ code: String?) { errorCode = code }
+    func failTransport(_ code: URLError.Code?) { transportCode = code }
     func setInvalid() { invalidSignature = true }
     func delay() { delayRefresh = true }
     func delayAuthorization() { delayExchange = true }
@@ -46,6 +48,7 @@ private actor OAuthFixture: ChatGPTHTTPClient {
         let refresh = form["grant_type"] == "refresh_token"
         if refresh { refreshCount += 1; if delayRefresh { try await Task.sleep(for: .milliseconds(80)) } }
         else { exchangeCount += 1; if delayExchange { try await Task.sleep(for: .milliseconds(100)) }; XCTAssertEqual(form["resource"], ChatGPTSubscriptionPolicy.resource.absoluteString); XCTAssertTrue(form["redirect_uri"]?.hasPrefix("http://127.0.0.1:") == true); XCTAssertFalse(form["code_verifier"]?.isEmpty ?? true) }
+        if let transportCode { throw ChatGPTAuthError.transport(transportCode) }
         if let errorCode { return (try JSONSerialization.data(withJSONObject: ["error": errorCode]), 400) }
         let body: [String: Any] = ["access_token": "access-\(subject)-\(refreshCount)", "refresh_token": "refresh-\(subject)-\(refreshCount)", "token_type": "Bearer", "id_token": try jwt(client: form["client_id"]!), "scope": scope, "expires_in": 3600]
         return (try JSONSerialization.data(withJSONObject: body), 200)
@@ -172,10 +175,21 @@ final class ChatGPTOAuthTests: XCTestCase {
         let http = OAuthFixture(), memory = ChatGPTMemoryStorage(), id = UUID()
         let m = ChatGPTAccountManager(storage: memory, http: http)
         _ = try await login(m, http, profile: id); let old = try await m.access(profileID: id)
+        let renewAt = Date().addingTimeInterval(3550)
+        await http.failTransport(.networkConnectionLost)
+        do { _ = try await m.access(profileID: id, now: renewAt); XCTFail() } catch {
+            XCTAssertEqual(error as? ChatGPTAuthError, .transport(.networkConnectionLost))
+        }
+        let afterNetworkError = try await m.summaries()
+        XCTAssertEqual(afterNetworkError.first?.status, .planAuthorized)
+        await http.failTransport(nil)
         await http.fail("temporarily_unavailable")
-        do { _ = try await m.access(profileID: id, now: Date().addingTimeInterval(3550)); XCTFail() } catch { XCTAssertEqual(error as? ChatGPTAuthError, .refreshFailed) }
+        do { _ = try await m.access(profileID: id, now: renewAt); XCTFail() } catch { XCTAssertEqual(error as? ChatGPTAuthError, .serviceUnavailable(400)) }
         XCTAssertTrue(String(decoding: memory.load()!, as: UTF8.self).contains(old.token))
-        await http.fail(nil); await http.setInvalid()
+        await http.fail(nil)
+        let renewed = try await m.access(profileID: id, now: renewAt)
+        XCTAssertNotEqual(old.token, renewed.token)
+        await http.setInvalid()
         let newProfile = UUID(), p = try await m.begin(profileID: newProfile, redirect: URL(string: "http://127.0.0.1:3456/auth/callback")!)
         await http.setup(nonce: p.attempt.nonce)
         do { try await m.finish(p.id, callback: callback(p)); XCTFail() } catch {}
@@ -194,8 +208,9 @@ final class ChatGPTOAuthTests: XCTestCase {
 private final class SubscriptionWireFixture: URLProtocol, @unchecked Sendable {
     static let lock = NSLock()
     static var contentType: String? = "text/event-stream"
+    static var networkError: URLError.Code?
     static var body = Data(), status = 200, blocked = false, requests: [URLRequest] = [], stopped = 0
-    static func reset(_ value: Data, status: Int = 200, blocked: Bool = false, contentType: String? = "text/event-stream") { lock.withLock { body = value; self.status = status; self.blocked = blocked; self.contentType = contentType; requests = []; stopped = 0 } }
+    static func reset(_ value: Data, status: Int = 200, blocked: Bool = false, contentType: String? = "text/event-stream", networkError: URLError.Code? = nil) { lock.withLock { body = value; self.status = status; self.blocked = blocked; self.contentType = contentType; self.networkError = networkError; requests = []; stopped = 0 } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -206,10 +221,11 @@ private final class SubscriptionWireFixture: URLProtocol, @unchecked Sendable {
             while stream.hasBytesAvailable { let n = stream.read(&buffer, maxLength: buffer.count); if n <= 0 { break }; data.append(contentsOf: buffer.prefix(n)) }
             captured.httpBody = data
         }
-        let v = Self.lock.withLock { Self.requests.append(captured); return (Self.body, Self.status, Self.blocked, Self.contentType) }
+        let v = Self.lock.withLock { Self.requests.append(captured); return (Self.body, Self.status, Self.blocked, Self.contentType, Self.networkError) }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: v.1, httpVersion: "HTTP/1.1", headerFields: v.3.map { ["Content-Type": $0] } ?? [:])!, cacheStoragePolicy: .notAllowed)
         if !v.0.isEmpty { client?.urlProtocol(self, didLoad: v.0) }
-        if !v.2 { client?.urlProtocolDidFinishLoading(self) }
+        if let code = v.4 { client?.urlProtocol(self, didFailWithError: URLError(code)) }
+        else if !v.2 { client?.urlProtocolDidFinishLoading(self) }
     }
     override func stopLoading() { Self.lock.withLock { Self.stopped += 1 } }
 }
@@ -438,7 +454,7 @@ extension ChatGPTOAuthTests {
             XCTAssertTrue(line.contains("httpStatus=200"), line)
             XCTAssertTrue(line.contains("contentType=" + (type ?? "missing")), line)
             XCTAssertTrue(line.contains("bodyShape=" + shape), line)
-            XCTAssertTrue(p.safeFailureMessage?.contains("未返回 SSE 流") == true)
+            XCTAssertEqual(p.safeFailureMessage, String(localized: "ChatGPT returned an unexpected response. Check your connection and try again."))
             XCTAssertFalse(line.contains("SECRET"))
             XCTAssertEqual(SubscriptionWireFixture.lock.withLock { SubscriptionWireFixture.requests.count }, 1)
         }
@@ -783,13 +799,15 @@ extension ChatGPTOAuthTests {
         let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)
         let account = try await login(manager, http, profile: id)
         let p = try subscription(manager: manager, profileID: id, account: account); defer { p.cancel() }
-        for status in [400, 401, 403, 404, 429, 503] {
-            try await manager.report(.planAuthorized, account: account)
+        let request = ModelRequest(model: "fixture", messages: [.user("task")])
+        for status in [400, 401, 403, 404, 429, 502, 504] {
             SubscriptionWireFixture.reset(Data(#"{"error":{"message":"Bearer SECRET user content","code":"unsupported_parameter","param":"tools[0].SECRET"}}"#.utf8), status: status)
-            // Reset only this in-memory mock account between admission cases.
-            do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])) ; XCTFail("Admission accepted") } catch {}
+            do { _ = try await p.complete(request); XCTFail("Admission accepted") } catch {}
             let message = AgentViewModel.runFailure(ModelError.providerError("raw SECRET wrapper"), provider: p)
-            XCTAssertFalse(message.contains("ChatGPT"), message)
+            if status == 429 { XCTAssertEqual(message, String(localized: "ChatGPT is receiving too many requests. Try again later.")) }
+            if status == 504 { XCTAssertEqual(message, String(localized: "The request timed out.")) }
+            let summary = try await manager.summaries()
+            XCTAssertEqual(summary.first?.status, .planAuthorized)
             XCTAssertFalse(message.contains("unsupported_parameter"), message)
             XCTAssertFalse(message.contains("tools"), message)
             XCTAssertTrue(p.lastDiagnostic?.contains("httpStatus=\(status)") == true)
@@ -800,6 +818,34 @@ extension ChatGPTOAuthTests {
         }
         let unknown = ChatGPTAdmissionFailure(response: HTTPURLResponse(url: ChatGPTSubscriptionPolicy.resource, statusCode: 400, httpVersion: nil, headerFields: nil)!, body: Data(#"{"error":{"message":"SECRET","code":"SECRET","param":"SECRET"}}"#.utf8))
         XCTAssertFalse(unknown.localizedDescription.contains("SECRET"))
+
+        SubscriptionWireFixture.reset(Data(), networkError: .networkConnectionLost)
+        do { _ = try await p.complete(request); XCTFail("Dropped connection accepted") } catch {}
+        XCTAssertEqual(AgentViewModel.runFailure(ModelError.interrupted, provider: p),
+                       String(localized: "The network connection was lost. Check your connection and try again."))
+        XCTAssertTrue(p.lastDiagnostic?.contains("code=-1005") == true)
+        let afterDrop = try await manager.summaries()
+        XCTAssertEqual(afterDrop.first?.status, .planAuthorized)
+
+        let code = "subscription_sharing_usage_limit_exceeded"
+        for (body, status) in [
+            (Data(#"{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}"#.utf8), 429),
+            (Data("""
+            data: {"type":"response.created","sequence_number":0,"response":{"id":"resp-fixture","status":"in_progress"}}
+
+            data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp-fixture","status":"failed","output":[],"error":{"code":"\(code)","message":"SECRET"}}}
+
+
+            """.utf8), 200)
+        ] {
+            try await manager.report(.planAuthorized, account: account)
+            SubscriptionWireFixture.reset(body, status: status)
+            do { _ = try await p.complete(request); XCTFail("Usage error accepted") } catch {}
+            XCTAssertEqual(p.safeFailureMessage, ChatGPTConnectionStatus.usageLimited.message)
+            XCTAssertTrue(p.lastDiagnostic?.contains("errorCode=" + code) == true)
+            let summary = try await manager.summaries()
+            XCTAssertEqual(summary.first?.status, .usageLimited)
+        }
     }
     func testSubscriptionBurstFramesSurviveSlowConsumerWithoutLossOrRetry() async throws {
         let http = OAuthFixture(), id = UUID(), manager = ChatGPTAccountManager(storage: ChatGPTMemoryStorage(), http: http)

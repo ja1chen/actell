@@ -156,14 +156,9 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                         }
                         for event in events {
                             if case .terminal(let response) = event {
-                                if let code = response.error?.code, code == "subscription_sharing_usage_limit_exceeded" {
-                                    try await manager.report(.usageLimited, account: account); throw ChatGPTAuthError.usageLimited
-                                }
-                                if response.error?.code == "subscription_sharing_usage_unavailable" {
-                                    recordFailure(String(localized: "Subscription usage could not be checked."))
-                                    throw ModelError.providerError("Subscription usage unavailable")
-                                }
                                 stage = "terminal.validate"
+                                if response.status == .failed, let rawCode = response.error?.code,
+                                   let code = ChatGPTServiceCode(rawValue: rawCode) { throw code }
                                 try ResponsesReducer.requireExecutable(response)
                                 try await manager.requireCurrent(grant, profileID: profileID); try Task.checkCancellation()
                                 LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=terminal.validated outputCount=\(response.output.count) toolCount=\(response.toolCalls.count)")
@@ -176,18 +171,18 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
                     stage = "stream.finish"
                     _ = try reducer.finish(); continuation.finish()
                 } catch {
-                    if Task.isCancelled || error is CancellationError { continuation.finish(throwing: CancellationError()); return }
+                    if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                        continuation.finish(throwing: CancellationError()); return
+                    }
                     recordDiagnostic(LLMDiagnostics.failure(error, attempt: attempt, stage: stage, shape: shape))
                     if safeFailureMessage == nil { recordFailure(Self.failureSummary(error)) }
                     if let admission = error as? ChatGPTAdmissionFailure {
                         if admission.status == 400, admission.code == "context_length_exceeded" { continuation.finish(throwing: ModelError.rejectedBeforeAcceptance(reason: .contextCapacity)); return }
-                        if admission.status == 401 { try? await manager.report(.expired, account: account) }
-                        if admission.status == 429 { try? await manager.report(.usageLimited, account: account) }
+                        if admission.serviceCode == .usageLimited { try? await manager.report(.usageLimited, account: account) }
                         continuation.finish(throwing: ModelError.providerError(admission.localizedDescription))
-                    } else if case ModelError.httpError(let status, _) = error {
-                        if status == 401 { try? await manager.report(.expired, account: account) }
-                        if status == 429 { try? await manager.report(.usageLimited, account: account) }
-                        continuation.finish(throwing: ModelError.providerError(status == 429 ? ChatGPTConnectionStatus.usageLimited.message : String(localized: "The request was denied (HTTP \(status)).")))
+                    } else if let code = error as? ChatGPTServiceCode {
+                        if code == .usageLimited { try? await manager.report(.usageLimited, account: account) }
+                        continuation.finish(throwing: ModelError.providerError(code.localizedDescription))
                     } else if let safe = error as? ChatGPTAuthError { continuation.finish(throwing: ModelError.providerError(safe.localizedDescription)) }
                     else if let safe = error as? ModelError { continuation.finish(throwing: safe) }
                     else { continuation.finish(throwing: ModelError.interrupted) }
@@ -197,21 +192,16 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         }
     }
     private static func failureSummary(_ error: Error) -> String {
-        if let response = error as? LLMUnexpectedResponse { return response.localizedDescription }
+        if error is LLMUnexpectedResponse { return String(localized: "ChatGPT returned an unexpected response. Check your connection and try again.") }
         if let admission = error as? ChatGPTAdmissionFailure { return admission.localizedDescription }
+        if let service = error as? ChatGPTServiceCode { return service.localizedDescription }
         if let auth = error as? ChatGPTAuthError { return auth.localizedDescription }
         if let network = error as? URLError {
-            switch network.code {
-            case .notConnectedToInternet: return String(localized: "You are offline.")
-            case .timedOut: return String(localized: "The request timed out.")
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Could not connect to the model service.")
-            case .secureConnectionFailed, .serverCertificateUntrusted: return String(localized: "Could not establish a secure connection to the model service.")
-            default: break
-            }
+            return ChatGPTNetworkMessage.summary(network.code) ?? String(localized: "The reply was interrupted.")
         }
         if let model = error as? ModelError {
             switch model {
-            case .httpError(let status, _): return String(localized: "The request was denied (HTTP \(status)).")
+            case .httpError(let status, _): return ChatGPTAdmissionFailure.httpMessage(status)
             case .invalidRequest: return String(localized: "The model or context settings are incompatible.")
             case .protocolViolation, .invalidResponse, .streamingError, .unsupportedCapability, .interrupted: return String(localized: "The reply could not be verified.")
             case .cancelledLocally: return String(localized: "Stopped locally; the service may still be processing.")
@@ -257,7 +247,11 @@ final class ChatGPTPayloadCursor: @unchecked Sendable {
                     LLMDiagnostics.verbose("[LLM] attempt=\(attempt.uuidString) stage=stream.headers httpStatus=\(h.statusCode)")
                     if !(200..<300).contains(h.statusCode) {
                         var body = Data()
-                        for try await byte in bytes { try Task.checkCancellation(); guard body.count < 64 * 1024 else { throw ChatGPTAuthError.network }; body.append(byte) }
+                        for try await byte in bytes {
+                            try Task.checkCancellation()
+                            if body.count >= 64 * 1024 { break }
+                            body.append(byte)
+                        }
                         throw ChatGPTAdmissionFailure(response: h, body: body)
                     }
                     let mediaType = LLMUnexpectedResponse.mediaType(h)
@@ -315,38 +309,69 @@ private final class ChatGPTStreamCancellation: @unchecked Sendable {
     func cancel() { lock.withLock { cancelled = true; task?.cancel(); task = nil } }
 }
 
+/// The documented SIWC codes are shared by HTTP admission and failed Responses events.
+enum ChatGPTServiceCode: String, Error, LocalizedError {
+    case usageLimited = "subscription_sharing_usage_limit_exceeded"
+    case usageUnavailable = "subscription_sharing_usage_unavailable"
+    case ineligible = "subscription_sharing_user_not_eligible"
+    case unsupported = "subscription_sharing_unsupported_capability"
+    case unsupportedRoute = "subscription_sharing_route_not_supported"
+    case invalidUser = "subscription_sharing_invalid_user"
+    case unauthorizedScope = "chatpass_v2_scope_not_authorized"
+    case invalidAuthorizationContext = "chatpass_v2_invalid_authorization_context"
+    case userUnavailable = "subscription_sharing_user_unavailable"
+
+    var errorDescription: String? {
+        switch self {
+        case .usageLimited: return ChatGPTConnectionStatus.usageLimited.message
+        case .usageUnavailable: return String(localized: "Subscription usage could not be checked. Try again later.")
+        case .ineligible: return String(localized: "This ChatGPT account or workspace cannot use its plan with this app.")
+        case .unsupported: return String(localized: "ChatGPT does not support this request. Check the selected model and settings.")
+        case .unsupportedRoute: return String(localized: "ChatGPT does not support this operation in the app.")
+        case .invalidUser: return ChatGPTAdmissionFailure.httpMessage(401)
+        case .unauthorizedScope, .invalidAuthorizationContext:
+            return String(localized: "This app is not authorized to use the selected ChatGPT account for this request.")
+        case .userUnavailable:
+            return String(localized: "ChatGPT could not check your account or workspace. Try again later.")
+        }
+    }
+}
+
 /// Keep structured diagnostic fields in memory without retaining raw error bodies.
 /// UI messages never echo a server-supplied detail/message or unknown code.
 struct ChatGPTAdmissionFailure: Error, LocalizedError {
     let status: Int, code: String?, param: String?, requestID: String?, bodyShape: String
     init(response: HTTPURLResponse, body: Data) {
-        status = response.statusCode; requestID = response.value(forHTTPHeaderField: "x-request-id")
+        self.init(status: response.statusCode, body: body, requestID: response.value(forHTTPHeaderField: "x-request-id"))
+    }
+    init(status: Int, body: Data, requestID: String? = nil) {
+        self.status = status; self.requestID = requestID
         let o = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
         let e = o?["error"] as? [String: Any]
         code = e?["code"] as? String; param = e?["param"] as? String
         bodyShape = e != nil ? "error" : o?["detail"] != nil ? "detail" : o != nil ? "object" : "non-json"
     }
+    var serviceCode: ChatGPTServiceCode? { code.flatMap(ChatGPTServiceCode.init(rawValue:)) }
     var diagnosticSummary: String {
-        let codes: Set<String> = ["invalid_request_error", "unsupported_parameter", "unknown_parameter", "invalid_value", "model_not_found", "permission_denied", "insufficient_permissions", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable"]
+        let codes: Set<String> = ["invalid_request_error", "unsupported_parameter", "unknown_parameter", "invalid_value", "model_not_found", "permission_denied", "insufficient_permissions", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "context_length_exceeded"]
         let fields = ["model", "input", "tools", "instructions", "include", "reasoning", "store", "stream"]
         let safeParam = fields.first { param == $0 || param?.hasPrefix($0 + ".") == true || param?.hasPrefix($0 + "[") == true }
-        return "httpStatus=\(status) bodyShape=\(bodyShape)" + (code.flatMap { codes.contains($0) ? $0 : nil }.map { " errorCode=" + $0 } ?? "") + (safeParam.map { " field=" + $0 } ?? "")
+        let safeCode = serviceCode?.rawValue ?? code.flatMap { codes.contains($0) ? $0 : nil }
+        return "httpStatus=\(status) bodyShape=\(bodyShape)" + (safeCode.map { " errorCode=" + $0 } ?? "") + (safeParam.map { " field=" + $0 } ?? "")
     }
     var errorDescription: String? {
-        let summary: String
-        if code == "subscription_sharing_usage_limit_exceeded" { summary = ChatGPTConnectionStatus.usageLimited.message }
-        else if code == "subscription_sharing_usage_unavailable" { summary = String(localized: "Subscription usage could not be checked.") }
-        else {
-            switch status {
-            case 400, 422: summary = String(localized: "The request settings were rejected.")
-            case 401: summary = String(localized: "Authorization failed. Sign in again.")
-            case 403: summary = String(localized: "This account cannot use the selected service.")
-            case 404: summary = String(localized: "The model is unavailable. Refresh the model list.")
-            case 429: summary = String(localized: "Usage or request rate limit reached.")
-            case 503: summary = String(localized: "The subscription service is temporarily unavailable.")
-            default: summary = String(localized: "The model request failed.")
-            }
+        serviceCode?.localizedDescription ?? Self.httpMessage(status)
+    }
+    static func httpMessage(_ status: Int) -> String {
+        switch status {
+        case 400, 422: return String(localized: "The request settings were rejected.")
+        case 401: return String(localized: "ChatGPT did not accept this request’s authorization. Check the selected account in Settings.")
+        case 403: return String(localized: "This account cannot use the selected service.")
+        case 404: return String(localized: "The model is unavailable. Refresh the model list.")
+        case 408, 504: return String(localized: "The request timed out.")
+        case 429: return String(localized: "ChatGPT is receiving too many requests. Try again later.")
+        case 500...599: return String(localized: "ChatGPT is temporarily unavailable. Try again later.")
+        default: return String(localized: "The model request failed.")
         }
-        return summary
     }
 }

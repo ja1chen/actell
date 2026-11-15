@@ -2825,6 +2825,23 @@
         }
       }
     },
+    "ChatGPT could not check your account or workspace. Try again later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT could not check your account or workspace. Try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 暂时无法检查你的账号或工作区，请稍后再试。"
+          }
+        }
+      }
+    },
     "ChatGPT credentials could not be saved securely. Unlock your device and reconnect." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2838,6 +2855,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ChatGPT 凭据无法安全保存；请解锁后重新连接"
+          }
+        }
+      }
+    },
+    "ChatGPT did not accept this request’s authorization. Check the selected account in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT did not accept this request’s authorization. Check the selected account in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 未接受此请求的授权，请在设置中检查所选账号。"
+          }
+        }
+      }
+    },
+    "ChatGPT does not support this operation in the app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT does not support this operation in the app."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 不支持此应用执行这项操作。"
+          }
+        }
+      }
+    },
+    "ChatGPT does not support this request. Check the selected model and settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT does not support this request. Check the selected model and settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 不支持此请求，请检查所选模型和设置。"
           }
         }
       }
@@ -2859,6 +2927,40 @@
         }
       }
     },
+    "ChatGPT is receiving too many requests. Try again later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT is receiving too many requests. Try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 收到的请求过多，请稍后再试。"
+          }
+        }
+      }
+    },
+    "ChatGPT is temporarily unavailable. Try again later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT is temporarily unavailable. Try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 暂时不可用，请稍后再试。"
+          }
+        }
+      }
+    },
     "ChatGPT not connected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2872,6 +2974,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未连接 ChatGPT"
+          }
+        }
+      }
+    },
+    "ChatGPT rejected this app’s sign-in configuration." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT rejected this app’s sign-in configuration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 拒绝了此应用的登录配置。"
+          }
+        }
+      }
+    },
+    "ChatGPT returned an unexpected response. Check your connection and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT returned an unexpected response. Check your connection and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 返回了无法识别的响应，请检查网络后重试。"
           }
         }
       }
@@ -4627,6 +4763,23 @@
         }
       }
     },
+    "Could not connect to ChatGPT. Check your connection and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not connect to ChatGPT. Check your connection and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接到 ChatGPT，请检查网络后重试。"
+          }
+        }
+      }
+    },
     "Could not connect to the model service." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4742,6 +4895,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "屏幕控制结束失败，请重新连接"
+          }
+        }
+      }
+    },
+    "Could not establish a secure connection to ChatGPT. Check your network settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not establish a secure connection to ChatGPT. Check your network settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法与 ChatGPT 建立安全连接，请检查网络设置。"
           }
         }
       }
@@ -15233,19 +15403,19 @@
         }
       }
     },
-    "Subscription usage could not be checked." : {
+    "Subscription usage could not be checked. Try again later." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Subscription usage could not be checked."
+            "value" : "Subscription usage could not be checked. Try again later."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法查询订阅用量。"
+            "value" : "暂时无法查询订阅用量，请稍后再试。"
           }
         }
       }
@@ -16389,6 +16559,40 @@
         }
       }
     },
+    "The ChatGPT account service is temporarily unavailable. Try again later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The ChatGPT account service is temporarily unavailable. Try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 账号服务暂时不可用，请稍后再试。"
+          }
+        }
+      }
+    },
+    "The ChatGPT account service rejected the request. Try again later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The ChatGPT account service rejected the request. Try again later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ChatGPT 账号服务拒绝了此请求，请稍后再试。"
+          }
+        }
+      }
+    },
     "The connection certificate does not match its key. Reset the connection and pair again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17218,6 +17422,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法保存 Muse 任务，任务未开始。请重新打开执言后重试。"
+          }
+        }
+      }
+    },
+    "The network connection was lost. Check your connection and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The network connection was lost. Check your connection and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络连接已中断，请检查网络后重试。"
           }
         }
       }
@@ -18223,6 +18444,23 @@
         }
       }
     },
+    "This app is not authorized to use the selected ChatGPT account for this request." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app is not authorized to use the selected ChatGPT account for this request."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此应用未获授权使用所选 ChatGPT 账号发送此请求。"
+          }
+        }
+      }
+    },
     "This approval expired or was already handled. The old link cannot locate the current action." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18337,6 +18575,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此卡片只展示状态，不执行操作"
+          }
+        }
+      }
+    },
+    "This ChatGPT account or workspace cannot use its plan with this app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This ChatGPT account or workspace cannot use its plan with this app."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 ChatGPT 账号或工作区无法在此应用中使用订阅。"
           }
         }
       }

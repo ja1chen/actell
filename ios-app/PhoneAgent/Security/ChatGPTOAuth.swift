@@ -3,8 +3,9 @@ import CryptoKit
 import Security
 
 /// No URLs, payloads or credentials are interpolated into errors/logs.
-enum ChatGPTAuthError: Error, LocalizedError {
+enum ChatGPTAuthError: Error, LocalizedError, Equatable {
     case invalidIdentity, missingPermission, disconnected, cancelled, expiredAttempt, refreshFailed, revoked, usageLimited, noModels, network, persistence
+    case transport(URLError.Code), serviceUnavailable(Int), serviceRejected(Int), invalidClient
     var errorDescription: String? {
         switch self {
         case .invalidIdentity: return String(localized: "ChatGPT identity signature, account, or authorization callback verification failed")
@@ -17,10 +18,30 @@ enum ChatGPTAuthError: Error, LocalizedError {
         case .usageLimited: return ChatGPTConnectionStatus.usageLimited.message
         case .noModels: return ChatGPTConnectionStatus.noModels.message
         case .network: return String(localized: "Could not reach the account service.")
+        case .transport(let code): return ChatGPTNetworkMessage.summary(code) ?? ChatGPTAuthError.network.localizedDescription
+        case .serviceUnavailable: return String(localized: "The ChatGPT account service is temporarily unavailable. Try again later.")
+        case .serviceRejected(429): return ChatGPTAdmissionFailure.httpMessage(429)
+        case .serviceRejected: return String(localized: "The ChatGPT account service rejected the request. Try again later.")
+        case .invalidClient: return String(localized: "ChatGPT rejected this app’s sign-in configuration.")
         case .persistence: return String(localized: "ChatGPT credentials could not be saved securely. Unlock your device and reconnect.")
         }
     }
 }
+
+enum ChatGPTNetworkMessage {
+    static func summary(_ code: URLError.Code) -> String? {
+        switch code {
+        case .notConnectedToInternet: return String(localized: "You are offline.")
+        case .timedOut: return String(localized: "The request timed out.")
+        case .networkConnectionLost: return String(localized: "The network connection was lost. Check your connection and try again.")
+        case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed: return String(localized: "Could not connect to ChatGPT. Check your connection and try again.")
+        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
+            return String(localized: "Could not establish a secure connection to ChatGPT. Check your network settings.")
+        default: return nil
+        }
+    }
+}
+
 protocol ChatGPTHTTPClient: Sendable { func data(_ request: URLRequest) async throws -> (Data, Int) }
 final class ChatGPTOfficialHTTP: ChatGPTHTTPClient, @unchecked Sendable {
     private let session: URLSession
@@ -42,6 +63,10 @@ final class ChatGPTOfficialHTTP: ChatGPTHTTPClient, @unchecked Sendable {
             for try await byte in bytes { try Task.checkCancellation(); guard data.count < 8 * 1024 * 1024 else { throw ChatGPTAuthError.network }; data.append(byte) }
             return (data, h.statusCode)
         } catch is CancellationError { throw CancellationError() }
+        catch let error as URLError {
+            if Task.isCancelled || error.code == .cancelled { throw CancellationError() }
+            throw ChatGPTAuthError.transport(error.code)
+        }
         catch { throw ChatGPTAuthError.network }
     }
 }
@@ -203,7 +228,11 @@ actor ChatGPTAccountManager {
         do { try storage.replace(JSONEncoder().encode(value)); vault = value } catch { throw ChatGPTAuthError.persistence }
     }
     func summaries() throws -> [ChatGPTAccountSummary] {
-        try load().accounts.map { key, c in .init(id: key, label: (c.identity.email ?? String(localized: "ChatGPT account")), status: statuses[key] ?? (c.accessToken.isEmpty ? .disconnected : .granted(tokenResponseScopes: c.scopes, expired: c.expires <= Date()))) }.sorted { $0.id < $1.id }
+        try load().accounts.map { key, c in
+            let needsSignIn = c.expires <= Date() && c.refreshToken == nil
+            let status = statuses[key] ?? (c.accessToken.isEmpty ? .disconnected : .granted(tokenResponseScopes: c.scopes, expired: needsSignIn))
+            return .init(id: key, label: c.identity.email ?? String(localized: "ChatGPT account"), status: status)
+        }.sorted { $0.id < $1.id }
     }
     func selectedAccount(profileID: UUID) throws -> String? { try load().selected[profileID.uuidString] }
     func select(_ account: String, profileID: UUID) throws {
@@ -245,11 +274,15 @@ actor ChatGPTAccountManager {
         func encode(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"))! }
         request.httpBody = Data(values.sorted { $0.key < $1.key }.map { encode($0.key) + "=" + encode($0.value) }.joined(separator: "&").utf8)
         let (data, status) = try await http.data(request)
-        guard data.count <= 1024 * 1024, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ChatGPTAuthError.network }
+        let object = data.count <= 1024 * 1024 ? try? JSONSerialization.jsonObject(with: data) as? [String: Any] : nil
         if status != 200 {
-            if let code = o["error"] as? String, ["invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused"].contains(code) { throw ChatGPTAuthError.revoked }
-            throw ChatGPTAuthError.network
+            let code = object?["error"] as? String
+            if previous != nil, let code, ["invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused"].contains(code) { throw ChatGPTAuthError.revoked }
+            if code == "invalid_client" { throw ChatGPTAuthError.invalidClient }
+            if code == "temporarily_unavailable" || (500...599).contains(status) { throw ChatGPTAuthError.serviceUnavailable(status) }
+            throw ChatGPTAuthError.serviceRejected(status)
         }
+        guard let o = object else { throw ChatGPTAuthError.invalidIdentity }
         guard let access = o["access_token"] as? String, !access.isEmpty,
               (o["token_type"] as? String)?.lowercased() == "bearer", let life = o["expires_in"] as? Double, life > 0, life <= 3600,
               let scopesString = o["scope"] as? String else { throw ChatGPTAuthError.invalidIdentity }
@@ -259,7 +292,8 @@ actor ChatGPTAccountManager {
         let identity: ChatGPTVerifiedIdentity
         if let idToken {
             let (jwks, status) = try await http.data(URLRequest(url: ChatGPTIDTokenVerifier.jwksURL))
-            guard status == 200 else { throw ChatGPTAuthError.invalidIdentity }
+            if (500...599).contains(status) { throw ChatGPTAuthError.serviceUnavailable(status) }
+            guard status == 200 else { throw ChatGPTAuthError.serviceRejected(status) }
             identity = try ChatGPTIDTokenVerifier.verify(idToken, jwks: jwks, clientID: clientID, nonce: nonce, accessToken: access)
         } else if let previous, nonce == nil { identity = previous.identity }
         else { throw ChatGPTAuthError.invalidIdentity }
@@ -300,7 +334,16 @@ actor ChatGPTAccountManager {
                 guard latest.accounts[key]?.generation == original.generation, statuses[key] != .disconnected else { throw ChatGPTAuthError.disconnected }
                 if case ChatGPTAuthError.persistence = error { unusable.insert(key) }
                 if case ChatGPTAuthError.revoked = error { try disconnectAccount(key); throw ChatGPTAuthError.revoked }
-                statuses[key] = .refreshFailed; throw ChatGPTAuthError.refreshFailed
+                if error is CancellationError { throw error }
+                if let auth = error as? ChatGPTAuthError {
+                    switch auth {
+                    case .transport, .network, .serviceUnavailable, .serviceRejected, .invalidClient:
+                        throw auth
+                    default: break
+                    }
+                }
+                statuses[key] = .refreshFailed
+                throw ChatGPTAuthError.refreshFailed
             }
         }
         try Task.checkCancellation()
@@ -360,9 +403,14 @@ actor ChatGPTAccountManager {
         request.setValue("Bearer " + grant.token, forHTTPHeaderField: "Authorization")
         let (data, status) = try await http.data(request)
         try requireCurrent(grant, profileID: profile.id)
-        if status == 401 { try report(.expired, account: grant.account); throw ChatGPTAuthError.revoked }
-        if status == 429 { try report(.usageLimited, account: grant.account); throw ChatGPTAuthError.usageLimited }
-        guard status == 200, let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ChatGPTAuthError.network }
+        if status != 200 {
+            let failure = ChatGPTAdmissionFailure(status: status, body: data)
+            if failure.serviceCode == .usageLimited { try report(.usageLimited, account: grant.account) }
+            throw failure
+        }
+        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AppError.invalid(String(localized: "The model list format does not match the selected protocol"))
+        }
         let rows = try ModelDiscoveryClient.parseList(o, providerKind: .chatGPTSubscription)
         if rows.isEmpty { try report(.noModels, account: grant.account); throw ChatGPTAuthError.noModels }
         return .init(endpoint: try profile.catalogEndpoint(), fetchedAt: Date(), models: rows)
