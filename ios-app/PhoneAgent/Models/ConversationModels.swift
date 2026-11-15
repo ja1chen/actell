@@ -93,12 +93,6 @@ struct ToolStep: Codable, Sendable, Equatable {
         return name.isEmpty ? nil : name
     }
     var symbol: String {
-        switch name {
-        case "bash": return "apple.terminal"
-        case "read": return "text.page"
-        case "write", "edit": return "long.text.page.and.pencil"
-        default: break
-        }
         let operation = AgentActivityAttributes.Operation.tool(name)
         return operation == .processing ? "wrench.and.screwdriver" : operation.symbol
     }

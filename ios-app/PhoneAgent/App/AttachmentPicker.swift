@@ -29,7 +29,9 @@ struct AttachmentImportModifier: ViewModifier {
     @ObservedObject var presentation: AgentPresentationAdapter
     @Binding var busy: Bool
     @Binding var failure: String?
-    @Binding var cancellation: Int
+    /// Names of the items currently being imported; `nil` entries have no
+    /// known name yet (photos). Rendered as pending cards in the draft strip.
+    @Binding var pending: [String?]
     @Binding var photos: Bool
     @Binding var files: Bool
     @State private var selection: [PhotosPickerItem] = []
@@ -43,33 +45,37 @@ struct AttachmentImportModifier: ViewModifier {
                 if case .failure(let error) = result { failure = error.localizedDescription }
                 return
             }
-            start {
+            start(names: urls.map(\.lastPathComponent)) {
                 for url in urls {
                     try Task.checkCancellation()
                     try await presentation.importAttachment(file: url)
+                    pending.removeFirst()
                 }
             }
         }
         .onChange(of: selection) { _, items in
             guard !items.isEmpty else { return }
-            start {
+            start(names: items.map { _ in nil }) {
                 defer { selection = [] }
                 for item in items {
                     try Task.checkCancellation()
                     guard let bytes = try await item.loadTransferable(type: Data.self) else { throw AppError.unavailable(String(localized: "The photo could not be loaded. Select it again.")) }
                     try Task.checkCancellation()
                     try await presentation.importAttachment(data: bytes, name: String(localized: "Photo.") + (item.supportedContentTypes.first?.preferredFilenameExtension ?? "png"))
+                    pending.removeFirst()
                 }
             }
         }
         .onDisappear { importing?.cancel() }
-        .onChange(of: cancellation) { _, _ in importing?.cancel() }
     }
-    private func start(_ action: @escaping @MainActor () async throws -> Void) {
+    private func start(names: [String?], _ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
-        busy = true; failure = nil
+        busy = true; failure = nil; pending = names
         importing = Task { @MainActor in
-            defer { busy = false }
+            defer {
+                busy = false
+                pending = []
+            }
             do { try await action() }
             catch { if !Task.isCancelled { failure = error.localizedDescription } }
         }

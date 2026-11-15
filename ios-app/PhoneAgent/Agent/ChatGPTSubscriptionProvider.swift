@@ -54,6 +54,7 @@ final class ChatGPTSubscriptionProvider: CancellableModelProvider, @unchecked Se
         let instructions = request.instructions ?? request.messages.filter { $0.role == .system }.map(\.content).joined(separator: "\n")
         if !instructions.isEmpty { body["instructions"] = instructions }
         if !request.tools.isEmpty {
+            body["parallel_tool_calls"] = false
             // Namespace schema is serialized in our adapter; SDK source is untouched.
             body["tools"] = [["type": "namespace", "name": "actell", "description": "Actell local device tools", "tools": request.tools.map { ["type": "function", "name": $0.name, "description": $0.description, "parameters": $0.parameters, "strict": false] as [String: Any] }]]
         }

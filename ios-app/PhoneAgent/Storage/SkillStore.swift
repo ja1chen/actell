@@ -106,7 +106,17 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
         refresh()
         return builtinPackages + packages.filter(\.enabled)
     }
-    /// Scan before each run and while viewing the library. Running catalogs remain immutable.
+    func skill(named name: String) throws -> (package: SkillPackage, directory: URL?) {
+        refresh()
+        if let builtin = builtinPackages.first(where: { $0.name == name }) {
+            let directory = Bundle.main.url(forResource: "SKILL", withExtension: "md", subdirectory: "BuiltinSkills/\(builtin.name)")?.deletingLastPathComponent()
+            return (builtin, directory)
+        }
+        let matches = packages.filter { $0.name == name }
+        guard let package = matches.first(where: \.enabled) ?? matches.first else { throw AppError.invalid(String(localized: "Skill not found")) }
+        return (package, locations[package.id])
+    }
+    /// Refresh discovery metadata and resolve loads against the current files.
     func refresh() {
         guard let directory, writable else { return }
         reloadDisabledIDs()

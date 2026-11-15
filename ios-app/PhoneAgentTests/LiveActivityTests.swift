@@ -354,6 +354,10 @@ import ActivityKit
         controller.submit(progress())
         await controller.waitForPendingUpdates()
         XCTAssertEqual(handle.updates.count, count + 1, "unchanged processing still refreshes stale deadline")
+        controller.setForeground(true)
+        await controller.waitForPendingUpdates()
+        XCTAssertEqual(handle.updates.count, count + 2, "returning to the app re-publishes the live status")
+        controller.setForeground(false)
         state.completedTools += 1
         controller.submit(progress())
         await controller.waitForPendingUpdates()
@@ -586,7 +590,8 @@ import ActivityKit
         return model
     }
     func testOperationIconsMatchConversationAndTerminalPhaseOverridesOldTool() throws {
-        for name in ["screenshot", "list_apps", "tap", "drag", "home", "launch_app", "type_text", "load_skill"] {
+        for name in ["screenshot", "list_apps", "tap", "drag", "home", "launch_app", "type_text", "load_skill",
+                     "bash", "read", "write", "edit", "wait", "finish"] {
             let tool = ToolStep(callID: "test", name: name, state: .running, detail: "")
             var state = AgentActivityAttributes.ContentState(phase: .working, completedTools: 0, updatedAt: Date(), operation: .tool(name))
             XCTAssertEqual(state.symbol, tool.symbol)

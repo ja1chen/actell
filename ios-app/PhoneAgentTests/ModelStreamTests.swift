@@ -78,18 +78,23 @@ final class ModelStreamTests: XCTestCase {
         XCTAssertThrowsError(try truncated.consume(line: "data: [DONE]", request: request))
         XCTAssertThrowsError(try truncated.finish())
     }
-    func testStreamingRequestUsesActualStreamFlag() throws {
-        let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic-test-only", limits: AgentLimits(), sessionID: UUID())
-        defer { provider.cancel() }
-        let body = try XCTUnwrap(provider.prepareRequest(request, stream: true).httpBody)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(json["stream"] as? Bool, true)
-        XCTAssertNil(json["parallel_tool_calls"])
+    func testRequestsUseActualStreamFlagAndDisableParallelToolCalls() throws {
         var withTools = request
         withTools.tools = [.init(name: "wait", description: "Wait", parameters: ["type": "object", "properties": [:]])]
-        let toolBody = try XCTUnwrap(provider.prepareRequest(withTools, stream: true).httpBody)
-        let toolJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: toolBody) as? [String: Any])
-        XCTAssertEqual(toolJSON["parallel_tool_calls"] as? Bool, true)
+        for api in [InferenceAPI.chatCompletions, .responses] {
+            let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic-test-only", limits: AgentLimits(), inferenceAPI: api, sessionID: UUID())
+            defer { provider.cancel() }
+            for stream in [false, true] {
+                let body = try XCTUnwrap(provider.prepareRequest(request, stream: stream).httpBody)
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["stream"] as? Bool, stream)
+                XCTAssertNil(json["parallel_tool_calls"])
+                let toolBody = try XCTUnwrap(provider.prepareRequest(withTools, stream: stream).httpBody)
+                let toolJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: toolBody) as? [String: Any])
+                XCTAssertEqual(toolJSON["stream"] as? Bool, stream)
+                XCTAssertEqual(toolJSON["parallel_tool_calls"] as? Bool, false)
+            }
+        }
     }
     func testNonStreamingBatchPreservesIDsAndRejectsMissingOrRepeatedIdentity() throws {
         let provider = try PrivateVisionProvider(settings: ProviderSettings(baseURL: "https://invalid.invalid/v1", model: "fixture"), apiKey: "synthetic", limits: AgentLimits(), sessionID: UUID())

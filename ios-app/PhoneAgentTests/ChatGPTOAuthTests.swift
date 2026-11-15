@@ -393,6 +393,7 @@ extension ChatGPTOAuthTests {
             request.input = [.replay(.functionCall(call)), .functionResult(callID: call.id, output: "historical skill body")]
             let outgoing = try provider.prepareRequest(request, token: "synthetic")
             let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(outgoing.httpBody)) as? [String: Any])
+            XCTAssertEqual(body["parallel_tool_calls"] as? Bool, tools.isEmpty ? nil : false)
             let input = try XCTUnwrap(body["input"] as? [[String: Any]])
             XCTAssertEqual(input.first?["name"] as? String, "load_skill")
             XCTAssertEqual(input.first?["namespace"] as? String, "actell")

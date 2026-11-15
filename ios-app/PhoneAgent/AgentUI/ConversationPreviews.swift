@@ -260,6 +260,15 @@ private struct ConversationPreviewPage: View {
     })
 }
 
+#Preview("输入框 · 附件导入占位") {
+    HStack(spacing: 8) {
+        PendingAttachmentCard(name: nil)
+        PendingAttachmentCard(name: "report.md")
+    }
+    .padding(16)
+    .background(Color(uiColor: .systemBackground))
+}
+
 #Preview("工具卡片 · 全部状态") {
     ToolCardGallery()
 }

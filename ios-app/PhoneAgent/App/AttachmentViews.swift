@@ -334,6 +334,33 @@ struct WorkspaceFilePreview: View {
     }
 }
 
+/// Placeholder card in the draft strip for an attachment still being copied
+/// into local storage; real cards replace it as each import finishes.
+struct PendingAttachmentCard: View {
+    private static let side: CGFloat = 88
+    let name: String?
+    var body: some View {
+        Group {
+            if let name {
+                VStack(alignment: .leading, spacing: 0) {
+                    ProgressView()
+                    Spacer(minLength: 0)
+                    Text(name).font(.caption2).foregroundStyle(.primary)
+                        .lineLimit(2).truncationMode(.middle).multilineTextAlignment(.leading)
+                }
+                .padding(10).frame(width: Self.side, height: Self.side, alignment: .topLeading)
+            } else {
+                ProgressView().frame(width: Self.side, height: Self.side)
+            }
+        }
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Copying attachments to this device…"))
+    }
+}
+
 struct MessageAttachmentsView: View {
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter

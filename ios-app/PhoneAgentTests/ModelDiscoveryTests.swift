@@ -237,9 +237,16 @@ final class ModelDiscoveryTests: XCTestCase {
         XCTAssertEqual(body["temperature"] as? Double, 0.4); XCTAssertEqual(body["max_tokens"] as? Int, 150)
         XCTAssertNil(body["seed"]); XCTAssertNil(body["top_p"]); XCTAssertNil(body["unknown"])
         XCTAssertNil(body["parallel_tool_calls"])
+        let withTools = ModelRequest(model: "a", messages: [.user("test")], tools: [.init(name: "wait", description: "Wait", parameters: ["type": "object", "properties": [:]])])
+        let toolRequest = try provider.prepareRequest(withTools, stream: false)
+        let toolBody = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(toolRequest.httpBody)) as? [String: Any])
+        XCTAssertEqual(toolBody["parallel_tool_calls"] as? Bool, false)
         let ollama = try PrivateVisionProvider(settings: .init(baseURL: "https://fixture.invalid/proxy/api", model: "a"), apiKey: "", limits: .init(), providerKind: .ollama, sessionID: UUID())
-        let o = try ollama.prepareRequest(.init(model: "a", messages: [.user("test")]), stream: false)
+        let o = try ollama.prepareRequest(withTools, stream: false)
         XCTAssertEqual(o.url?.path, "/proxy/v1/chat/completions"); XCTAssertNil(o.value(forHTTPHeaderField: "Authorization"))
+        let ollamaBody = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(o.httpBody)) as? [String: Any])
+        XCTAssertNotNil(ollamaBody["tools"])
+        XCTAssertNil(ollamaBody["parallel_tool_calls"])
     }
     func testNativeProtocolsNeverFallBackToOpenAIInferenceAndUnknownIsNotFalse() throws {
         for kind in [ProviderKind.anthropic, .gemini] {

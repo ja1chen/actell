@@ -25,7 +25,7 @@ struct ConversationView: View {
     @State private var sendingAttachments = false
     @State private var attachmentFailure: String?
     @State private var sendingTask: Task<Void, Never>?
-    @State private var importCancellation = 0
+    @State private var pendingImports: [String?] = []
     @State private var messageSelection: MessageSelection?
     @State private var workspacePreview: WorkspacePreviewTarget?
     private var session: AgentConversation? { presentation.session }
@@ -405,20 +405,25 @@ struct ConversationView: View {
             }
 
             if let attachmentFailure { Text(attachmentFailure).font(.caption).foregroundStyle(.orange).accessibilityIdentifier("attachmentFailure") }
-            if importingAttachments || sendingAttachments {
+            if sendingAttachments {
                 HStack {
-                    ProgressView(importingAttachments ? String(localized: "Copying attachments to this device…") : String(localized: "Preparing attachments…"))
-                    Button(String(localized: "Cancel")) { importCancellation += 1; sendingTask?.cancel() }
+                    ProgressView(String(localized: "Preparing attachments…"))
+                    Button(String(localized: "Cancel")) { sendingTask?.cancel() }
                 }.font(.caption)
             }
             VStack(spacing: 0) {
-                if let assets = session?.draftAttachments, !assets.isEmpty {
+                if session?.draftAttachments?.isEmpty == false || !pendingImports.isEmpty {
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 8) {
-                            ForEach(assets) { asset in
-                                AttachmentCard(attachment: asset, store: presentation.attachments,
-                                    conversationID: presentation.sessionID, showsRemove: true,
-                                    removeDisabled: running || sendingAttachments) { presentation.removeAttachment(asset.id) }
+                            ForEach(pendingImports.indices, id: \.self) { index in
+                                PendingAttachmentCard(name: pendingImports[index])
+                            }
+                            if let assets = session?.draftAttachments {
+                                ForEach(assets) { asset in
+                                    AttachmentCard(attachment: asset, store: presentation.attachments,
+                                        conversationID: presentation.sessionID, showsRemove: true,
+                                        removeDisabled: running || sendingAttachments) { presentation.removeAttachment(asset.id) }
+                                }
                             }
                         }
                         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
@@ -446,7 +451,7 @@ struct ConversationView: View {
                 }
         }.padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 8)
             .modifier(AttachmentImportModifier(presentation: presentation, busy: $importingAttachments,
-                failure: $attachmentFailure, cancellation: $importCancellation,
+                failure: $attachmentFailure, pending: $pendingImports,
                 photos: $pickingPhotos, files: $pickingFiles))
     }
     private var attachmentButton: some View {

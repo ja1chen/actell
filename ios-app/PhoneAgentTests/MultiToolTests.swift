@@ -55,17 +55,19 @@ private struct BatchProvider: ModelProvider {
     }
 }
 
-final class MultiToolTests: XCTestCase {
+@MainActor final class MultiToolTests: XCTestCase {
     private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> ModelToolCall { .init(id: id, name: name, arguments: arguments) }
     private let tap = "{\"x\":10,\"y\":20,\"description\":\"synthetic tap\"}"
     private let skill: SkillPackage = try! SkillPackage.make(documents: ["SKILL.md": "---\nname: batch-guide\ndescription: Synthetic batch reference\n---\nBATCH_REFERENCE"])
     private func skillCall() -> ModelToolCall {
-        call("skills", "load_skill", String(decoding: try! JSONEncoder().encode(["id": skill.id.uuidString, "revision": skill.revision]), as: UTF8.self))
+        call("skills", "load_skill", String(decoding: try! JSONEncoder().encode(["name": skill.name]), as: UTF8.self))
     }
     private func runner(_ batches: [[ModelToolCall]], bridge: BatchBridge, errors: Set<String> = [], approval: (@Sendable (Approval) async -> Bool)? = nil) -> AgentKitAppTestRun {
         let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: approval ?? { _ in await bridge.granted(); return true }, onImage: { _, _ in }, onReceipt: { _ in })
         let devices: [any AgentTool] = ["screenshot", "tap", "drag", "wait", "finish"].map { DeviceTool(name: $0, coordinator: coordinator) }
-        let tools = devices + [SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [skill]), canRead: { true })]
+        let store = SkillStore(inMemory: true)
+        _ = try! store.add(documents: skill.documents)
+        let tools = devices + [SkillTool(name: "load_skill", catalog: SkillCatalog(store: store), canRead: { true })]
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("multi-tool-" + UUID().uuidString)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         return AgentKitAppTestRun(provider: BatchProvider(batches: batches, expectedErrors: errors), tools: tools, directory: root, stopHost: { await coordinator.stop() })

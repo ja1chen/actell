@@ -42,15 +42,17 @@ struct PhoneAgentLiveActivity: Widget {
                         Label {
                             Text((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName)
                         } icon: {
-                            IslandSymbol(name: "sparkles")
+                            IslandSymbol(name: identitySymbol(context.state.awaitingReply))
                         }.font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    IslandStatus(title: stale ? String(localized: "View") : context.state.compactTitle,
-                                 symbol: stale ? "exclamationmark.circle" : context.state.symbol,
-                                 expanded: true)
-                        .foregroundStyle(activityTint(context))
+                    if context.state.presentsStatus {
+                        IslandStatus(title: stale ? String(localized: "View") : context.state.compactTitle,
+                                     symbol: stale ? "exclamationmark.circle" : context.state.symbol,
+                                     expanded: true)
+                            .foregroundStyle(activityTint(context))
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if !standby {
@@ -68,9 +70,9 @@ struct PhoneAgentLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                IslandSymbol(name: "sparkles").foregroundStyle(.cyan)
+                IslandSymbol(name: identitySymbol(context.state.awaitingReply)).foregroundStyle(.cyan)
             } compactTrailing: {
-                if !standby {
+                if !standby, context.state.presentsStatus {
                     IslandStatus(title: stale ? String(localized: "View") : context.state.compactTitle,
                                  symbol: stale ? "exclamationmark.circle" : context.state.symbol)
                         .foregroundStyle(activityTint(context))
@@ -79,9 +81,11 @@ struct PhoneAgentLiveActivity: Widget {
                 // Coexisting activities use this whole presentation, including
                 // the attached leading slot. Suppress updates at its root, not
                 // just when the symbol name changes inside IslandSymbol.
-                IslandSymbol(name: standby ? "sparkles" : (stale ? "exclamationmark.circle" : context.state.symbol))
+                let showsStatus = !standby && context.state.presentsStatus
+                IslandSymbol(name: showsStatus ? (stale ? "exclamationmark.circle" : context.state.symbol)
+                             : identitySymbol(context.state.awaitingReply))
                     .foregroundStyle(activityTint(context))
-                    .accessibilityLabel(stale ? String(localized: "View") : context.state.compactTitle)
+                    .accessibilityLabel(showsStatus ? (stale ? String(localized: "View") : context.state.compactTitle) : AppIdentity.displayName)
                     .contentTransition(.identity)
                     .transition(.identity)
                     .animation(nil, value: context.state)
@@ -101,6 +105,12 @@ private struct IslandSymbol: View {
             .resizable().scaledToFit()
             .frame(width: 16, height: 16)
     }
+}
+
+/// The app identity slot: sparkles at rest, hourglass while a model request
+/// is in flight, so the island distinguishes waiting-on-model from executing.
+private func identitySymbol(_ awaitingReply: Bool?) -> String {
+    awaitingReply == true ? "hourglass" : "sparkles"
 }
 
 private struct IslandStatus: View {
@@ -130,13 +140,15 @@ private struct ActivityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName, systemImage: "sparkles")
+                Label((context.state.isDemo ?? context.attributes.isDemo) ? String(localized: "\(AppIdentity.displayName) · Offline demo") : AppIdentity.displayName, systemImage: identitySymbol(context.state.awaitingReply))
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                 Spacer()
             }
-            Label(stale ? String(localized: "Return to the app") : context.state.title,
-                  systemImage: stale ? "exclamationmark.circle" : context.state.symbol)
-                .font(.headline).foregroundStyle(activityTint(context))
+            if context.state.presentsStatus {
+                Label(stale ? String(localized: "Return to the app") : context.state.title,
+                      systemImage: stale ? "exclamationmark.circle" : context.state.symbol)
+                    .font(.headline).foregroundStyle(activityTint(context))
+            }
             if stale || !context.state.phase.detail.isEmpty {
                 Text(stale ? String(localized: "This status is out of date. Check execution in the app.") : context.state.phase.detail)
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -149,3 +161,60 @@ private struct ActivityCard: View {
         }.foregroundStyle(.white).padding(16)
     }
 }
+
+#if DEBUG
+private let previewAttributes = AgentActivityAttributes(sessionID: UUID(), runID: UUID(), isDemo: false)
+
+private func previewState(_ phase: AgentActivityAttributes.Phase,
+                          operation: AgentActivityAttributes.Operation? = nil,
+                          completedTools: Int = 3,
+                          awaitingReply: Bool = false) -> AgentActivityAttributes.ContentState {
+    .init(phase: phase, completedTools: completedTools, updatedAt: Date(), operation: operation,
+          awaitingReply: awaitingReply ? true : nil)
+}
+
+#Preview("Island compact · tool sweep", as: .dynamicIsland(.compact), using: previewAttributes) {
+    PhoneAgentLiveActivity()
+} contentStates: {
+    previewState(.thinking)
+    previewState(.working, operation: .command)
+    previewState(.working, operation: .read)
+    previewState(.working, operation: .write)
+    previewState(.working, operation: .edit)
+    previewState(.working, operation: .wait)
+    previewState(.working, operation: .finish)
+    previewState(.working, operation: .tap)
+    previewState(.awaitingApproval)
+    previewState(.working)
+    previewState(.working, awaitingReply: true)
+}
+
+#Preview("Island expanded · tool sweep", as: .dynamicIsland(.expanded), using: previewAttributes) {
+    PhoneAgentLiveActivity()
+} contentStates: {
+    previewState(.thinking)
+    previewState(.working, operation: .command)
+    previewState(.working, operation: .read)
+    previewState(.working, operation: .write)
+    previewState(.working, operation: .edit)
+    previewState(.working, operation: .wait)
+    previewState(.working, operation: .finish)
+    previewState(.working, operation: .tap)
+    previewState(.awaitingApproval)
+    previewState(.working)
+    previewState(.working, awaitingReply: true)
+}
+
+#Preview("Island minimal · working", as: .dynamicIsland(.minimal), using: previewAttributes) {
+    PhoneAgentLiveActivity()
+} contentStates: {
+    previewState(.working, operation: .command)
+}
+
+#Preview("Lock screen card · working", as: .content, using: previewAttributes) {
+    PhoneAgentLiveActivity()
+} contentStates: {
+    previewState(.working, operation: .command)
+    previewState(.working, awaitingReply: true)
+}
+#endif

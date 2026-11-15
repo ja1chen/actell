@@ -292,8 +292,8 @@ struct SkillFixtureProvider: ModelProvider {
             guard let metadata = system.components(separatedBy: "\n").first(where: { $0.hasPrefix("[{") }),
                   let skills = try JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [[String: String]],
                   let skill = skills.first(where: { $0["name"] == "Synthetic Guide" }) ?? skills.first,
-                  let id = skill["id"], let revision = skill["revision"] else { throw AppError.invalid("合成夹具未找到已启用技能") }
-            call = .init(id: "fixture-skill-load", name: "load_skill", arguments: String(decoding: try JSONEncoder().encode(["id": id, "revision": revision]), as: UTF8.self))
+                  let name = skill["name"] else { throw AppError.invalid("合成夹具未找到已启用技能") }
+            call = .init(id: "fixture-skill-load", name: "load_skill", arguments: String(decoding: try JSONEncoder().encode(["name": name]), as: UTF8.self))
         } else {
             guard results.last?.content.contains("SYNTHETIC_SKILL_BODY") == true else { throw AppError.invalid("合成夹具没有收到技能正文") }
             return ModelResponse(text: "合成技能已读取。", finishReason: .stop, request: request, providerName: Self.name)

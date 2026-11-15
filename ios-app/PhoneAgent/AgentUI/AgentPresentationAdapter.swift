@@ -139,7 +139,9 @@ struct ToolPresentation {
     static func record(_ event: AgentRuntimeEvent, run: RunIdentity, frame: PresentedFrame?, in store: ConversationStore, skillNames: [String: String] = [:]) {
         guard store.accepts(run) else { return }
         func skillName(_ call: ToolInvocation) -> String? {
-            guard call.name == "load_skill", let values = call.arguments.foundation as? [String: Any], let id = values["id"] as? String else { return nil }
+            guard call.name == "load_skill", let values = call.arguments.foundation as? [String: Any] else { return nil }
+            if let name = values["name"] as? String { return name }
+            guard let id = values["id"] as? String else { return nil }
             return skillNames[id.uppercased()]
         }
         switch event {

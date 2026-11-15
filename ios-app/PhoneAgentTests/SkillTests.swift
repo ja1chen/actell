@@ -16,7 +16,7 @@ import ProviderCore
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }; return root
     }
-    func testBuiltinIsAvailableByMetadataAndExactRevisionWithoutPersistingIt() throws {
+    func testBuiltinIsAvailableByNameWithoutPersistingIt() throws {
         let store = SkillStore(inMemory: true)
         let builtin = try XCTUnwrap(store.builtinPackages.first)
         XCTAssertEqual(builtin.id, SkillStore.builtinID)
@@ -26,13 +26,13 @@ import ProviderCore
         XCTAssertEqual(creator.version, try SkillPackage.make(documents: creator.documents).version)
         XCTAssertThrowsError(try store.remove(creator.id))
         XCTAssertTrue(store.packages.isEmpty)
-        let catalog = SkillCatalog(packages: store.enabledSnapshot)
-        let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot)
+        let catalog = SkillCatalog(store: store)
+        let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot, language: "en")
         XCTAssertTrue(metadata.contains("ios-operation"))
-        let body = try catalog.result(name: "load_skill", parameters: ["id": builtin.id.uuidString, "revision": builtin.revision])
+        let body = try catalog.load(named: builtin.name)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
         XCTAssertEqual(object["content"] as? String, builtin.documents["SKILL.md"])
-        XCTAssertTrue(object["next_offset"] is NSNull)
+        XCTAssertNil(object["next_offset"])
         XCTAssertThrowsError(try store.remove(builtin.id))
     }
     func testVersionComesFromEntrypointMetadataAndRemainsOptional() throws {
@@ -55,13 +55,16 @@ import ProviderCore
         XCTAssertNotEqual(first.id, next.id); XCTAssertNotEqual(first.revision, next.revision)
         try store.setEnabled(false, id: first.id)
         XCTAssertEqual(store.enabledSnapshot.filter { ![SkillStore.builtinID, SkillStore.creatorID].contains($0.id) }.map(\.id), [next.id])
+        XCTAssertTrue(try SkillCatalog(store: store).load(named: first.name).contains("Updated"))
         let restored = SkillStore(directory: root, defaults: defaults)
         XCTAssertEqual(restored.packages, store.packages)
         try restored.remove(next.id); XCTAssertEqual(restored.packages.count, 1)
         XCTAssertTrue(restored.enabledSnapshot.filter { ![SkillStore.builtinID, SkillStore.creatorID].contains($0.id) }.isEmpty)
+        XCTAssertTrue(try SkillCatalog(store: restored).load(named: first.name).contains("BODY_NOT_A_SUMMARY"))
     }
-    func testDirectoryScanDiscoversEditsDeletionAndKeepsFrozenRun() async throws {
+    func testDirectoryScanLoadsNewAndEditedSkillsByNameIncludingDisabledSkills() async throws {
         let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
+        let catalog = SkillCatalog(store: store)
         let work = try FileWorkspace(root: root.appendingPathComponent("../work-" + UUID().uuidString))
         addTeardownBlock { try? FileManager.default.removeItem(at: work.root) }
         let folder = root.appendingPathComponent("conversation-guide")
@@ -69,22 +72,23 @@ import ProviderCore
         let first = try XCTUnwrap(store.enabledSnapshot.first { $0.name == "Synthetic Guide" })
         XCTAssertEqual(store.packages.count, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("skills-v1.json").path))
-        let frozen = SkillCatalog(packages: store.enabledSnapshot)
+        XCTAssertTrue(try catalog.load(named: first.name).contains("BODY_NOT_A_SUMMARY"))
         _ = try await work.edit(filePath: folder.appendingPathComponent("SKILL.md").path, oldString: "BODY_NOT_A_SUMMARY", newString: "EDITED_BODY")
         let next = try XCTUnwrap(store.enabledSnapshot.first { $0.id == first.id })
         XCTAssertNotEqual(next.revision, first.revision)
         XCTAssertEqual(next.id, first.id)
         XCTAssertEqual(SkillStore(directory: root, defaults: defaults).packages.first?.id, first.id)
-        XCTAssertTrue(try frozen.result(name: "load_skill", parameters: ["id": first.id.uuidString, "revision": first.revision]).contains("BODY_NOT_A_SUMMARY"))
+        XCTAssertTrue(try catalog.load(named: first.name).contains("EDITED_BODY"))
         try store.setEnabled(false, id: first.id)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent(".disabled").path))
         XCTAssertEqual(defaults.stringArray(forKey: SkillStore.disabledIDsKey), [first.id.uuidString])
         XCTAssertFalse(store.enabledSnapshot.contains { $0.id == first.id })
+        XCTAssertTrue(try catalog.load(named: first.name).contains("EDITED_BODY"))
         try store.setEnabled(true, id: first.id)
         XCTAssertNil(defaults.object(forKey: SkillStore.disabledIDsKey))
         XCTAssertTrue(store.enabledSnapshot.contains { $0.id == first.id })
         try FileManager.default.removeItem(at: folder)
-        store.refresh()
+        XCTAssertThrowsError(try catalog.load(named: first.name))
         XCTAssertTrue(store.packages.isEmpty)
     }
     func testDisabledMarkerMigratesToDefaultsAndIsRemoved() throws {
@@ -222,40 +226,61 @@ import ProviderCore
         XCTAssertNotNil(broken.warning); XCTAssertThrowsError(try broken.add(documents: ["SKILL.md": document]))
         XCTAssertEqual(try Data(contentsOf: file), bytes)
     }
-    func testCatalogOnlyLoadsChosenVersionAndResourceWithoutDumpingBodyInListing() throws {
-        let store = SkillStore(inMemory: true)
+    func testCatalogLoadsByNameAndExposesReferencePathsWithoutDumpingBodyInListing() async throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
         let item = try store.add(documents: ["SKILL.md": document, "references/guide.md": "REFERENCE_BODY"])
-        let catalog = SkillCatalog(packages: store.enabledSnapshot)
-        let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot)
+        let catalog = SkillCatalog(store: store)
+        let metadata = AgentViewModel.systemPrompt(skills: store.enabledSnapshot, language: "en")
         XCTAssertTrue(metadata.contains(item.name))
         XCTAssertFalse(metadata.contains("BODY_NOT_A_SUMMARY"))
         XCTAssertFalse(metadata.contains("REFERENCE_BODY"))
-        let arguments = ["id": item.id.uuidString, "revision": item.revision]
-        XCTAssertTrue(try catalog.result(name: "load_skill", parameters: arguments).contains("BODY_NOT_A_SUMMARY"))
-        XCTAssertFalse(try catalog.result(name: "load_skill", parameters: arguments).contains("REFERENCE_BODY"))
-        XCTAssertTrue(try catalog.result(name: "load_skill", parameters: arguments.merging(["resource": "references/guide.md"]) { _, b in b }).contains("REFERENCE_BODY"))
-        for extra in [["revision": "wrong"], ["id": UUID().uuidString], ["resource": "../private.md"], ["resource": "missing.md"]] {
-            XCTAssertThrowsError(try catalog.result(name: "load_skill", parameters: arguments.merging(extra) { _, b in b }))
-        }
-        try store.setEnabled(false, id: item.id)
-        XCTAssertThrowsError(try SkillCatalog(packages: store.enabledSnapshot).result(name: "load_skill", parameters: arguments))
-        XCTAssertTrue(try catalog.result(name: "load_skill", parameters: arguments).contains("BODY_NOT_A_SUMMARY")) // frozen old run
+        let result = try catalog.load(named: item.name)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])
+        XCTAssertEqual(object["content"] as? String, document)
+        XCTAssertFalse(result.contains("REFERENCE_BODY"))
+        let directory = try XCTUnwrap(object["directory"] as? String)
+        XCTAssertEqual(object["file_path"] as? String, directory + "/SKILL.md")
+        let workspace = try FileWorkspace(root: root)
+        let reference = try await workspace.read(filePath: directory + "/references/guide.md", offset: 1, limit: 20)
+        XCTAssertTrue(reference.contains("REFERENCE_BODY"))
+        XCTAssertThrowsError(try catalog.load(named: "Missing Guide"))
+        let tool = SkillTool(name: "load_skill", catalog: catalog, canRead: { true })
+        let schema = try XCTUnwrap(tool.descriptor.parameters.foundation as? [String: Any])
+        XCTAssertEqual(schema["required"] as? [String], ["name"])
+        XCTAssertEqual(Set((schema["properties"] as? [String: Any] ?? [:]).keys), ["name"])
     }
-    func testPromptOnlyIncludesEnabledMetadataAndDiscoveryToolsAreRejected() throws {
+    func testPromptOnlyIncludesEnabledNamesAndDescriptions() throws {
         let store = SkillStore(inMemory: true)
         let item = try store.add(documents: ["SKILL.md": document])
         var disabled = item
         disabled.enabled = false
-        let prompt = AgentViewModel.systemPrompt(skills: [disabled])
+        let prompt = AgentViewModel.systemPrompt(skills: [disabled], language: "zh-Hans")
         XCTAssertFalse(prompt.contains(item.name))
         XCTAssertFalse(prompt.contains(item.summary))
-        let enabledPrompt = AgentViewModel.systemPrompt(skills: [item])
-        XCTAssertTrue(enabledPrompt.contains(item.id.uuidString))
-        XCTAssertTrue(enabledPrompt.contains(item.revision))
+        XCTAssertEqual(prompt, AgentViewModel.systemPrompt(skills: [], language: "zh-Hans"))
+        XCTAssertTrue(prompt.hasSuffix("\nDefault response language: zh-Hans."))
+        let enabledPrompt = AgentViewModel.systemPrompt(skills: [item], language: "en")
+        XCTAssertFalse(enabledPrompt.contains(item.id.uuidString))
+        XCTAssertFalse(enabledPrompt.contains(item.revision))
+        let catalogLine = try XCTUnwrap(enabledPrompt.components(separatedBy: "\n").first { $0.hasPrefix("[{") })
+        let metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(catalogLine.utf8)) as? [[String: String]])
+        XCTAssertEqual(metadata, [["name": item.name, "description": item.summary]])
         XCTAssertFalse(enabledPrompt.contains("BODY_NOT_A_SUMMARY"))
-        XCTAssertFalse(enabledPrompt.contains("Tap/drag need"))
-        XCTAssertThrowsError(try SkillCatalog(packages: [item]).result(name: "list_skills", parameters: [:]))
-        XCTAssertThrowsError(try SkillCatalog(packages: [item]).result(name: "search_skills", parameters: ["query": "synthetic"]))
+        let chinesePrompt = AgentViewModel.systemPrompt(skills: [item], language: "zh-Hans")
+        XCTAssertTrue(enabledPrompt.contains("\n" + AgentViewModel.systemPrompt))
+        XCTAssertEqual(enabledPrompt.split(separator: "\n").dropFirst().dropLast(),
+                       chinesePrompt.split(separator: "\n").dropFirst().dropLast())
+        for (language, name) in [("en", "Actell"), ("en-US", "Actell"), ("zh-Hans", "执言"), ("zh-Hans-CN", "执言")] {
+            let localized = AgentViewModel.systemPrompt(skills: [item], language: language)
+            XCTAssertTrue(try XCTUnwrap(localized.components(separatedBy: "\n").first).contains(name))
+            XCTAssertTrue(localized.hasSuffix("\nDefault response language: \(language)."))
+        }
+        let catalogEnd = try XCTUnwrap(enabledPrompt.range(of: "}]", options: .backwards)).upperBound
+        let languageStart = try XCTUnwrap(enabledPrompt.range(of: "Follow the user's explicit language preference")).lowerBound
+        XCTAssertLessThan(catalogEnd, languageStart)
+        let other = try store.add(documents: ["SKILL.md": document.replacingOccurrences(of: "Synthetic Guide", with: "Another Guide")])
+        XCTAssertEqual(AgentViewModel.systemPrompt(skills: [item, other], language: "en"),
+                       AgentViewModel.systemPrompt(skills: [other, item], language: "en"))
     }
     func testCancelledImportAndStaleToolContextNeverRead() async throws {
         let store = SkillStore(inMemory: true), body = document
@@ -263,36 +288,22 @@ import ProviderCore
         do { _ = try await task.value; XCTFail() } catch {}
         XCTAssertTrue(store.packages.isEmpty)
         let item = try store.add(documents: ["SKILL.md": body])
-        let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [item]), canRead: { false })
+        let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(store: store), canRead: { false })
         let sessionID = UUID(), turnID = UUID()
-        let arguments = String(decoding: try JSONEncoder().encode(["id": item.id.uuidString, "revision": item.revision]), as: UTF8.self)
+        let arguments = String(decoding: try JSONEncoder().encode(["name": item.name]), as: UTF8.self)
         let invocation = ToolInvocation(sessionID: sessionID, turnID: turnID, call: .init(id: "stale", name: "load_skill", arguments: arguments))
         let context = ToolExecutionContext(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence())
         do { _ = try await tool.execute(invocation, context: context); XCTFail() } catch { XCTAssertTrue(error is CancellationError) }
     }
-    func testLargeSkillLoadsWholeDocumentAndAcceptsLegacyOffsets() throws {
+    func testLargeSkillLoadsWholeDocumentByName() throws {
         let body = document + String(repeating: "a", count: 49_999 - document.unicodeScalars.count)
             + "🙂" + String(repeating: "b", count: 10_000)
-        let item = try SkillPackage.make(documents: ["SKILL.md": body]), catalog = SkillCatalog(packages: [item])
-        var offset = 0, restored = "", pages = 0
-        while true {
-            let response = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": offset])
-            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-            let page = try XCTUnwrap(object["content"] as? String)
-            XCTAssertEqual(page.unicodeScalars.count, 60_000)
-            restored += page; pages += 1
-            guard let next = object["next_offset"] as? Int else { break }
-            XCTAssertGreaterThan(next, offset); offset = next
-        }
-        XCTAssertEqual(restored, body)
-        XCTAssertEqual(pages, 1)
-        let resumed = try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": 50_000])
-        let resumedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(resumed.utf8)) as? [String: Any])
-        XCTAssertEqual(resumedObject["content"] as? String, String(repeating: "b", count: 10_000))
-        XCTAssertTrue(resumedObject["next_offset"] is NSNull)
-        for invalid in [-1, true, 0.5, body.unicodeScalars.count + 1] as [Any] {
-            XCTAssertThrowsError(try catalog.result(name: "load_skill", parameters: ["id": item.id.uuidString, "revision": item.revision, "offset": invalid]))
-        }
+        let store = SkillStore(inMemory: true)
+        let item = try store.add(documents: ["SKILL.md": body])
+        let response = try SkillCatalog(store: store).load(named: item.name)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        XCTAssertEqual(object["content"] as? String, body)
+        XCTAssertEqual((object["content"] as? String)?.unicodeScalars.count, 60_000)
     }
     func testFullSkillAndMaximumResourceMetadataReachModelUnchanged() async throws {
         let body = document + String(repeating: "\u{0001}", count: 50_001 - document.unicodeScalars.count)
@@ -300,17 +311,18 @@ import ProviderCore
         for index in 0..<31 {
             documents[String(repeating: "r", count: 228) + "/\(index).md"] = "reference"
         }
-        let item = try SkillPackage.make(documents: documents)
-        let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [item]), canRead: { true })
+        let store = SkillStore(inMemory: true)
+        let item = try store.add(documents: documents)
+        let tool = SkillTool(name: "load_skill", catalog: SkillCatalog(store: store), canRead: { true })
         let sessionID = UUID(), turnID = UUID()
-        let arguments = String(decoding: try JSONEncoder().encode(["id": item.id.uuidString, "revision": item.revision]), as: UTF8.self)
+        let arguments = String(decoding: try JSONEncoder().encode(["name": item.name]), as: UTF8.self)
         let invocation = ToolInvocation(sessionID: sessionID, turnID: turnID, call: .init(id: "page", name: "load_skill", arguments: arguments))
         let context = ToolExecutionContext(sessionID: sessionID, turnID: turnID, generation: UUID(), fence: ExecutionFence())
         let result = try await tool.execute(invocation, context: context)
         XCTAssertEqual(result.kind, .returned)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.modelContent.utf8)) as? [String: Any])
         XCTAssertEqual(object["content"] as? String, body)
-        XCTAssertTrue(object["next_offset"] is NSNull)
+        XCTAssertNil(object["next_offset"])
         XCTAssertEqual((object["available_resources"] as? [String])?.count, 32)
         XCTAssertNil(object["artifactReference"])
     }
@@ -331,24 +343,22 @@ import ProviderCore
         try assertWholeDocument(package, expected: body)
     }
     private func assertWholeDocument(_ package: SkillPackage, expected: String) throws {
-        let catalog = SkillCatalog(packages: [package])
-        let response = try catalog.result(name: "load_skill", parameters: ["id": package.id.uuidString, "revision": package.revision])
+        let store = SkillStore(inMemory: true)
+        _ = try store.add(documents: package.documents)
+        let response = try SkillCatalog(store: store).load(named: package.name)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let content = try XCTUnwrap(object["content"] as? String)
-        XCTAssertEqual(object["offset_unit"] as? String, "unicode_scalar")
-        XCTAssertEqual(object["total_scalars"] as? Int, expected.unicodeScalars.count)
-        XCTAssertEqual(object["offset"] as? Int, 0)
         XCTAssertEqual(object["skill_name"] as? String, package.name)
         XCTAssertEqual(object["available_resources"] as? [String], package.resources)
-        XCTAssertTrue(object["next_offset"] is NSNull)
+        XCTAssertNil(object["next_offset"])
         XCTAssertEqual(Array(content.utf8), Array(expected.utf8))
     }
-    func testActualAgentDiscoversAndLoadsSkillReferenceAndProjectsNamedIcon() async throws {
-        let store = SkillStore(inMemory: true)
+    func testActualAgentLoadsReferencesAndReloadsEditedAndNewSkillsByName() async throws {
+        let root = try directory(), store = SkillStore(directory: root, defaults: defaults)
         let ending = "\nEND_OF_COMPLETE_SKILL"
         let body = document + String(repeating: "a", count: 50_000 - document.unicodeScalars.count - ending.unicodeScalars.count) + ending
         _ = try store.add(documents: ["SKILL.md": body, "references/guide.md": "REFERENCE_BODY"])
-        let provider = SkillRoundTripProvider(expectedSkill: body)
+        let provider = SkillRoundTripProvider(expectedSkill: body, skillsDirectory: root)
         let profiles = ProviderStore(defaults: nil)
         var profile = ProviderProfile(settings: .init(baseURL: "https://skill-fixture.invalid", model: "fixture"))
         profile.catalog = ModelCatalog(endpoint: try profile.catalogEndpoint(), fetchedAt: Date(),
@@ -358,15 +368,17 @@ import ProviderCore
             runServices: AgentRunServices(provider: provider, bridge: UnavailableBridge()), skills: store, providers: profiles)
         let id = model.createConversation(mode: .live)
         defer { model.stop() }
-        XCTAssertTrue(model.send("Use the synthetic guide", in: id, cloudConsent: true))
+        XCTAssertTrue(model.send("Use the synthetic guide, update it and create a new guide", in: id, cloudConsent: true))
         for _ in 0..<150 where model.running { try await Task.sleep(for: .milliseconds(30)) }
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.sessions.conversation(id)?.phase, .completed)
         let tools = model.sessions.conversation(id)?.messages.compactMap(\.tool) ?? []
-        XCTAssertEqual(tools.map(\.name), ["load_skill", "load_skill"])
+        XCTAssertEqual(tools.map(\.name), ["load_skill", "read", "edit", "load_skill", "write", "load_skill"])
         XCTAssertTrue(tools.allSatisfy { $0.state == .succeeded })
-        XCTAssertEqual(tools.last?.skillName, "Synthetic Guide")
-        XCTAssertEqual(tools.last?.symbol, "book.closed")
+        XCTAssertEqual(tools.first?.skillName, "Synthetic Guide")
+        XCTAssertEqual(tools.first?.symbol, "book.closed")
+        XCTAssertEqual(tools.last?.skillName, "New Guide")
+        XCTAssertTrue(tools.last?.result.contains("NEW_SKILL_BODY") == true)
         XCTAssertTrue(tools.contains { $0.result.contains("BODY_NOT_A_SUMMARY") })
         XCTAssertTrue(tools.contains { $0.result.contains("REFERENCE_BODY") })
     }
@@ -375,6 +387,7 @@ import ProviderCore
 private struct SkillRoundTripProvider: ModelProvider {
     static let name = "skill-roundtrip-fixture"
     let expectedSkill: String
+    let skillsDirectory: URL
     let configuration = ProviderConfiguration(name: name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -400,12 +413,12 @@ private struct SkillRoundTripProvider: ModelProvider {
         if let first = results.first {
             let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(first.content.utf8)) as? [String: Any])
             XCTAssertEqual(object["content"] as? String, expectedSkill)
-            XCTAssertTrue(object["next_offset"] is NSNull)
+            XCTAssertNil(object["next_offset"])
             XCTAssertNil(object["artifactReference"])
             XCTAssertFalse(first.content.contains("REFERENCE_BODY"))
         }
         let name: String, arguments: [String: String]
-        if stage < 2 {
+        if stage == 0 {
             // The SDK may append system instructions after the catalog. Read
             // the complete JSON array rather than requiring an otherwise empty line.
             let start = try XCTUnwrap(system.range(of: "[{")) .lowerBound
@@ -426,8 +439,30 @@ private struct SkillRoundTripProvider: ModelProvider {
             let metadata = system[start..<((try XCTUnwrap(end)))]
             let skills = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [[String: String]])
             let skill = try XCTUnwrap(skills.first(where: { $0["name"] == "Synthetic Guide" }))
-            name = "load_skill"; arguments = ["id": skill["id"]!, "revision": skill["revision"]!, "resource": stage == 0 ? "SKILL.md" : "references/guide.md"]
+            XCTAssertEqual(Set(skill.keys), ["name", "description"])
+            name = "load_skill"; arguments = ["name": skill["name"]!]
+        } else if stage == 1 || stage == 2 {
+            let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(results[0].content.utf8)) as? [String: Any])
+            let directory = try XCTUnwrap(first["directory"] as? String)
+            if stage == 1 {
+                name = "read"; arguments = ["file_path": directory + "/references/guide.md"]
+            } else {
+                name = "edit"; arguments = ["file_path": directory + "/SKILL.md", "old_string": "BODY_NOT_A_SUMMARY", "new_string": "EDITED_SKILL_BODY"]
+            }
+        } else if stage == 3 {
+            name = "load_skill"; arguments = ["name": "Synthetic Guide"]
+        } else if stage == 4 {
+            let edited = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(results[3].content.utf8)) as? [String: Any])
+            XCTAssertEqual(edited["content"] as? String, expectedSkill.replacingOccurrences(of: "BODY_NOT_A_SUMMARY", with: "EDITED_SKILL_BODY"))
+            name = "write"; arguments = ["file_path": skillsDirectory.appendingPathComponent("new-guide/SKILL.md").path,
+                "content": "---\nname: New Guide\ndescription: Created during this run\n---\nNEW_SKILL_BODY"]
+        } else if stage == 5 {
+            XCTAssertFalse(system.contains("New Guide"))
+            name = "load_skill"; arguments = ["name": "New Guide"]
         } else {
+            let created = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(results[5].content.utf8)) as? [String: Any])
+            XCTAssertEqual(created["skill_name"] as? String, "New Guide")
+            XCTAssertTrue((created["content"] as? String)?.contains("NEW_SKILL_BODY") == true)
             XCTAssertTrue(results.contains { $0.content.contains("BODY_NOT_A_SUMMARY") })
             XCTAssertTrue(results.contains { $0.content.contains("REFERENCE_BODY") })
             return ModelResponse(text: "合成技能与参考已读取。", finishReason: .stop, request: request, providerName: Self.name)

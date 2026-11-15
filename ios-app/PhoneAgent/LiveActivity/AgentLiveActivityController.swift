@@ -18,9 +18,11 @@ struct AgentActivitySnapshot: Equatable {
     let attributes: AgentActivityAttributes
     let state: AgentActivityAttributes.ContentState
     let staleDate: Date
+    var refreshOnForeground = false
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.attributes.sessionID == rhs.attributes.sessionID && lhs.attributes.runID == rhs.attributes.runID &&
-        lhs.attributes.isDemo == rhs.attributes.isDemo && lhs.state == rhs.state && lhs.staleDate == rhs.staleDate
+        lhs.attributes.isDemo == rhs.attributes.isDemo && lhs.state == rhs.state && lhs.staleDate == rhs.staleDate &&
+        lhs.refreshOnForeground == rhs.refreshOnForeground
     }
 }
 
@@ -109,7 +111,7 @@ struct AgentActivitySnapshot: Equatable {
             for orphan in orphans {
                 var state = orphan.state
                 if !state.phase.isTerminal { state.phase = .interrupted }
-                state.approvalID = nil; state.operation = nil; state.updatedAt = Date()
+                state.approvalID = nil; state.operation = nil; state.awaitingReply = nil; state.updatedAt = Date()
                 await orphan.handle.end(ActivityContent(state: state, staleDate: nil), dismissAt: nil)
                 BackgroundExecutionTrace.record("activity.recovered phase=\(state.phase)")
             }
@@ -123,11 +125,25 @@ struct AgentActivitySnapshot: Equatable {
     #endif
 
     func setForeground(_ active: Bool) {
-        if foreground != active { AgentActivityTrace.record("activity.scene foreground=\(active)") }
+        let changed = foreground != active
+        if changed { AgentActivityTrace.record("activity.scene foreground=\(active)") }
         foreground = active
+        guard active else { return }
         // Returning to the App acknowledges the terminal presentation.
-        if active { for snapshot in latest.values where snapshot.state.phase.isTerminal { submit(snapshot) } }
-        if active, backgroundResident || residentActivity != nil { enqueueResidentReconciliation() }
+        for snapshot in latest.values where snapshot.state.phase.isTerminal { submit(snapshot) }
+        // The system can delay or drop background updates. Refresh every live
+        // run's presentation so the island catches up as soon as the user
+        // opens the App instead of waiting for the next event.
+        let now = Date()
+        for snapshot in latest.values where changed && !snapshot.state.phase.isTerminal {
+            guard snapshot.state.phase != .awaitingApproval else { continue }
+            var state = snapshot.state
+            state.updatedAt = now
+            let staleDate = snapshot.staleDate == .distantFuture ? snapshot.staleDate : now.addingTimeInterval(30)
+            submit(AgentActivitySnapshot(attributes: snapshot.attributes, state: state,
+                staleDate: staleDate, refreshOnForeground: true))
+        }
+        if backgroundResident || residentActivity != nil { enqueueResidentReconciliation() }
     }
 
     func setBackgroundResident(_ enabled: Bool) {
@@ -183,9 +199,10 @@ struct AgentActivitySnapshot: Equatable {
     }
 
     private func update(_ activity: any AgentActivityHandle,
-                        content: ActivityContent<AgentActivityAttributes.ContentState>, alert: AlertConfiguration?) async {
+                        content: ActivityContent<AgentActivityAttributes.ContentState>, alert: AlertConfiguration?,
+                        force: Bool = false) async {
         let key = ObjectIdentifier(activity)
-        if alert == nil, !content.state.phase.isTerminal, let previous = writtenContent[key] {
+        if !force, alert == nil, !content.state.phase.isTerminal, let previous = writtenContent[key] {
             var previousState = previous.state
             previousState.updatedAt = content.state.updatedAt
             let sameExpiry = previous.staleDate == content.staleDate
@@ -232,7 +249,10 @@ struct AgentActivitySnapshot: Equatable {
         guard let activity = residentActivity else { return }
         if let candidate {
             residentRunID = candidate.attributes.runID
-            await update(activity, content: ActivityContent(state: projectedState(candidate), staleDate: candidate.staleDate, relevanceScore: 100), alert: executionAlert(candidate))
+            let needsRefresh = candidate.refreshOnForeground &&
+                writtenContent[ObjectIdentifier(activity)]?.state.updatedAt != candidate.state.updatedAt
+            await update(activity, content: ActivityContent(state: projectedState(candidate), staleDate: candidate.staleDate, relevanceScore: 100),
+                         alert: executionAlert(candidate), force: needsRefresh)
         } else if !backgroundResident {
             let state = residentRunID.flatMap { latest[$0] }.map(projectedState)
                 ?? .init(phase: .stopped, completedTools: 0, updatedAt: Date())
@@ -304,7 +324,9 @@ struct AgentActivitySnapshot: Equatable {
             if snapshot.state.phase != .awaitingApproval,
                activities[run] != nil || residentRunID == run {
                 // Tool and stream events often alternate within milliseconds.
-                // Coalesce obsolete progress without delaying an approval gate.
+                // Superseded snapshots exit immediately; only the newest one
+                // waits out the coalescing window, so an event burst cannot
+                // back up the serial write queue and freeze presentations.
                 try? await Task.sleep(for: .milliseconds(300))
                 guard latest[run] == snapshot else { return }
             }
@@ -356,7 +378,7 @@ struct AgentActivitySnapshot: Equatable {
                 BackgroundExecutionTrace.record("activity.skipped inactive=true")
                 return
             }
-            await update(activity, content: content, alert: executionAlert(snapshot))
+            await update(activity, content: content, alert: executionAlert(snapshot), force: snapshot.refreshOnForeground)
             BackgroundExecutionTrace.record("activity.updated phase=\(snapshot.state.phase) tools=\(snapshot.state.completedTools) active=\(activity.isActive)")
         } else {
             guard createActivity != nil || ActivityAuthorizationInfo().areActivitiesEnabled else {

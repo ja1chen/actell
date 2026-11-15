@@ -15,6 +15,9 @@ struct AgentActivityAttributes: ActivityAttributes {
         var updatedAt: Date
         // Optional preserves decoding of activities created before operation icons.
         var operation: Operation? = nil
+        // True while a model request is in flight and no reply content has
+        // arrived yet. Optional preserves decoding of older activities.
+        var awaitingReply: Bool? = nil
         // Mutable identity lets a foreground-created standby activity follow new runs.
         var sessionID: UUID? = nil
         var runID: UUID? = nil
@@ -25,6 +28,9 @@ struct AgentActivityAttributes: ActivityAttributes {
                                       runID: runID ?? attributes.runID, approvalID: approvalID)
         }
         var symbol: String { phase.isTerminal ? phase.symbol : (operation?.symbol ?? phase.symbol) }
+        /// Working without an operation is the cleared state: the activity stays
+        /// alive but presents no status row until the next meaningful event.
+        var presentsStatus: Bool { !(phase == .working && operation == nil) }
         var title: String {
             [.working, .executing].contains(phase) ? (operation?.title ?? phase.title) : phase.title
         }
@@ -46,6 +52,7 @@ struct AgentActivityAttributes: ActivityAttributes {
 
     enum Operation: String, Codable, Hashable {
         case screenshot, apps, tap, drag, home, launch, text, skill, processing
+        case command, read, write, edit, wait, finish
         static func tool(_ name: String) -> Self {
             switch name {
             case "screenshot": return .screenshot
@@ -56,6 +63,12 @@ struct AgentActivityAttributes: ActivityAttributes {
             case "launch_app": return .launch
             case "type_text": return .text
             case "load_skill": return .skill
+            case "bash": return .command
+            case "read": return .read
+            case "write": return .write
+            case "edit": return .edit
+            case "wait": return .wait
+            case "finish": return .finish
             default: return .processing
             }
         }
@@ -64,6 +77,11 @@ struct AgentActivityAttributes: ActivityAttributes {
             case .screenshot, .apps: return "inset.filled.rectangle.and.person"
             case .tap, .drag, .home, .launch, .text: return "pointer.arrow.ipad"
             case .skill: return "book.closed"
+            case .command: return "apple.terminal"
+            case .read: return "text.page"
+            case .write, .edit: return "long.text.page.and.pencil"
+            case .wait: return "timer"
+            case .finish: return "flag.checkered"
             case .processing: return "gearshape"
             }
         }
@@ -77,6 +95,12 @@ struct AgentActivityAttributes: ActivityAttributes {
             case .launch: return String(localized: "Launch")
             case .text: return String(localized: "Type")
             case .skill: return String(localized: "Skill")
+            case .command: return String(localized: "Command")
+            case .read: return String(localized: "Read")
+            case .write: return String(localized: "Write")
+            case .edit: return String(localized: "Edit")
+            case .wait: return String(localized: "Wait")
+            case .finish: return String(localized: "Finish")
             case .processing: return String(localized: "Processing (Dynamic Island)", defaultValue: "Processing")
             }
         }
@@ -90,6 +114,12 @@ struct AgentActivityAttributes: ActivityAttributes {
             case .launch: return String(localized: "Launching app")
             case .text: return String(localized: "Typing text")
             case .skill: return String(localized: "Reading skill")
+            case .command: return String(localized: "Running command")
+            case .read: return String(localized: "Reading file")
+            case .write: return String(localized: "Writing file")
+            case .edit: return String(localized: "Editing file")
+            case .wait: return String(localized: "Waiting")
+            case .finish: return String(localized: "Finishing run")
             case .processing: return String(localized: "Processing")
             }
         }

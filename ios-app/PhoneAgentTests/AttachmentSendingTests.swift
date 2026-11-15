@@ -55,7 +55,11 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         let workspace = try model.sessions.workspaceDirectory(id)
         var imagePath = ""
         for request in provider.requests {
+            XCTAssertEqual(request.instructions, AgentViewModel.systemPrompt(skills: model.skills.enabledSnapshot,
+                language: Locale.preferredLanguages.first ?? "en"))
             let user = try XCTUnwrap(fixtureMessages(request).first { $0.role == .user && $0.content.contains("SYNTHETIC_FILE_CONTENT") })
+            XCTAssertTrue(user.content.contains("initial working directory"))
+            XCTAssertFalse(try XCTUnwrap(request.instructions).contains("attachment_files"))
             XCTAssertEqual(user.images.count, 1)
             XCTAssertEqual(user.images.first?.mimeType, "image/jpeg")
             XCTAssertTrue(user.images.first?.data.starts(with: [0xff, 0xd8, 0xff]) == true)
