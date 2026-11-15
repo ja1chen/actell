@@ -16,7 +16,10 @@ import ProviderCore
         XCTAssertEqual(tool.symbol, "apple.terminal")
         XCTAssertNotNil(UIImage(systemName: tool.symbol))
         XCTAssertEqual(ToolDetailStyle.registered(for: "bash"), .terminal)
-        XCTAssertEqual(ToolDetailStyle.registered(for: "read"), .standard)
+        XCTAssertEqual(ToolDetailStyle.registered(for: "read"), .document)
+        XCTAssertEqual(ToolDetailStyle.registered(for: "write"), .document)
+        XCTAssertEqual(ToolDetailStyle.registered(for: "edit"), .document)
+        XCTAssertEqual(ToolDetailStyle.registered(for: "load_skill"), .document)
         XCTAssertEqual(content.command, command)
         XCTAssertEqual(content.result?.stdout, "hello\n")
         XCTAssertEqual(content.result?.stderr, "missing")
@@ -218,6 +221,17 @@ import ProviderCore
         for name in ["screenshot", "list_apps"] {
             XCTAssertNil(AgentEventProjection.arguments(for: ToolInvocation(sessionID: UUID(), turnID: UUID(), call: .init(id: "empty", name: name, arguments: "{}"))))
         }
+    }
+    func testFileToolArgumentsKeepContentUntruncated() throws {
+        let content = String(repeating: "行内容\n", count: 200)
+        let data = try JSONSerialization.data(withJSONObject: ["file_path": "todo.md", "content": content])
+        let call = ToolInvocation(sessionID: UUID(), turnID: UUID(), call: .init(id: "write", name: "write", arguments: String(decoding: data, as: UTF8.self)))
+        let arguments = try XCTUnwrap(AgentEventProjection.arguments(for: call))
+        let stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any])
+        XCTAssertEqual(stored["content"] as? String, content, "File tool content must survive in the stored arguments for the detail panel")
+        let other = ToolInvocation(sessionID: UUID(), turnID: UUID(), call: .init(id: "t", name: "tap", arguments: "{\"x\":1,\"description\":\"\(String(repeating: "述", count: 300))\"}"))
+        let truncated = try XCTUnwrap(AgentEventProjection.arguments(for: other))
+        XCTAssertLessThanOrEqual((truncated as NSString).length, 1_024 + 1_024, "Non-file tool strings keep the display budget")
     }
     func testApprovalUsesSessionRunStepAndRequestIdentityAndConsumesOnce() async throws {
         let (model, ui, item) = try await pendingDemo()

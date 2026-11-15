@@ -3,9 +3,10 @@ import CommandKit
 
 /// Tool-specific details opt in here; all other tools keep the standard renderer.
 enum ToolDetailStyle {
-    case standard, terminal
+    case standard, terminal, document
 
-    private static let registered: [String: ToolDetailStyle] = ["bash": .terminal]
+    private static let registered: [String: ToolDetailStyle] =
+        ["bash": .terminal, "read": .document, "write": .document, "edit": .document, "load_skill": .document]
 
     static func registered(for name: String) -> ToolDetailStyle {
         registered[name] ?? .standard

@@ -37,7 +37,9 @@ struct ToolApprovalCard<Preview: View>: View {
                             .font(.footnote)
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
-                        if let arguments = configuration.tool.displayArguments {
+                        if ToolDetailStyle.registered(for: configuration.tool.name) == .document {
+                            FileToolDetailContent(tool: configuration.tool)
+                        } else if let arguments = configuration.tool.displayArguments {
                             ToolArgumentsSection(arguments)
                         }
                         preview

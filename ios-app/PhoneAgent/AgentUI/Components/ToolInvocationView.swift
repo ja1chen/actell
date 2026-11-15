@@ -81,6 +81,8 @@ struct ToolInvocationView<Preview: View>: View {
     @ViewBuilder private var resultArea: some View {
         if ToolDetailStyle.registered(for: configuration.tool.name) == .terminal {
             TerminalToolDetail(tool: configuration.tool).padding(.top, 8)
+        } else if ToolDetailStyle.registered(for: configuration.tool.name) == .document {
+            FileToolDetail(tool: configuration.tool)
         } else if hasTextContent {
             ResultScrollRegion(maxHeight: 320, identifier: "toolResultScroll") {
                 VStack(alignment: .leading, spacing: 10) {

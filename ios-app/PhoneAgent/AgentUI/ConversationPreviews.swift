@@ -130,8 +130,41 @@ private struct ToolCardGallery: View {
                     Image(uiImage: ConversationPreviewSeed.syntheticImage()).resizable().scaledToFit()
                         .frame(maxHeight: 280).clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                card(.preview("skill-s", "load_skill", .succeeded, "读取技能文档",
-                    result: "已读取技能文档并按其步骤执行。", skillName: "Synthetic Guide"))
+                card(.preview("skill-s", "load_skill", .succeeded, "",
+                    result: """
+                        {"skill_name":"Synthetic Guide","content":"# 使用步骤\\n1. 读取当前屏幕内容\\n2. 按文档顺序执行操作\\n3. 每步完成后再核对结果","resource":"SKILL.md","offset":0,"total_scalars":64,"next_offset":null}
+                        """,
+                    arguments: #"{"id": "C1F2A4D9-0000-4000-8000-000000000001", "revision": "r2", "resource": "SKILL.md"}"#,
+                    skillName: "Synthetic Guide"))
+                card(.preview("read-s", "read", .succeeded, "",
+                    result: #"{"file_path":"notes.md","content":"1: # 运行记录\n2: 第 1 步 截取屏幕：成功\n3: 第 2 步 打开设置：成功\n4: 第 3 步 切换深色外观：成功","offset":1,"total_lines":4,"returned_lines":4,"next_offset":null,"truncated":false,"line_truncated":false}"#,
+                    arguments: #"{"file_path": "notes.md", "limit": 2000, "offset": 1}"#))
+                card(.preview("write-s", "write", .succeeded, "",
+                    result: #"{"file_path":"todo.md","bytes_written":48,"written":true}"#,
+                    arguments: """
+                        {
+                          "content" : "# 待办\\n- [x] 重构存储层\\n- [ ] 补充测试\\n- [ ] 清理历史日志",
+                          "file_path" : "todo.md"
+                        }
+                        """))
+                card(.preview("edit-a", "edit", .awaitingApproval, "",
+                    arguments: """
+                        {
+                          "file_path" : "todo.md",
+                          "old_string" : "- [ ] 补充测试",
+                          "new_string" : "- [x] 补充测试\\n- [ ] 校验 diff 展示",
+                          "replace_all" : false
+                        }
+                        """))
+                card(.preview("edit-s", "edit", .succeeded, "",
+                    result: #"{"file_path":"todo.md","bytes_written":52,"replacements":1,"edited":true}"#,
+                    arguments: """
+                        {
+                          "file_path" : "todo.md",
+                          "old_string" : "第 1 步 截取屏幕：成功\\n第 2 步 打开设置：成功",
+                          "new_string" : "第 1 步 截取屏幕：成功\\n第 2 步 打开设置：已由用户手动完成"
+                        }
+                        """))
                 card(.preview("shot-l", "screenshot", .succeeded, "截取当前屏幕",
                     result: #"{"screen_information_mode":"screenshot","image_width":1179,"image_height":2556}"#))
                 card(.preview("tap-f", "tap", .failed, "轻点“显示与亮度”",

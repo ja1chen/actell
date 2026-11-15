@@ -428,6 +428,10 @@ import ProviderCore
         }
         touch(index); saveNow()
     }
+    /// File tool details render the mutation content, so arguments survive at
+    /// full fidelity. The bound is the worst-case JSON escape expansion (6x)
+    /// of the workspace's 2 MiB file limit, so valid content is never clipped.
+    private static let maximumArgumentBytes = 12 * 1024 * 1024
     func updateTool(callID: String, name: String, state: ToolStepState, detail: String = "", result: String = "", arguments: String? = nil, skillName: String? = nil, identity: RunIdentity) {
         guard accepts(identity), let index = index(identity.conversationID) else { return }
         if let message = records[index].messages.firstIndex(where: { $0.runID == identity.runID && $0.tool?.callID == callID }) {
@@ -441,10 +445,10 @@ import ProviderCore
             }
             if !detail.isEmpty { records[index].messages[message].tool?.detail = String(detail.prefix(500)) }
             if !result.isEmpty { records[index].messages[message].tool?.result = result }
-            if let arguments { records[index].messages[message].tool?.arguments = String(arguments.prefix(4_000)) }
+            if let arguments { records[index].messages[message].tool?.arguments = String(arguments.prefix(Self.maximumArgumentBytes)) }
             if let skillName { records[index].messages[message].tool?.skillName = String(skillName.prefix(80)) }
         } else {
-            let tool = ToolStep(callID: callID, name: name, state: state, detail: String(detail.prefix(500)), result: result, arguments: arguments.map { String($0.prefix(4_000)) }, skillName: skillName.map { String($0.prefix(80)) })
+            let tool = ToolStep(callID: callID, name: name, state: state, detail: String(detail.prefix(500)), result: result, arguments: arguments.map { String($0.prefix(Self.maximumArgumentBytes)) }, skillName: skillName.map { String($0.prefix(80)) })
             let itemID = ToolInvocation(sessionID: identity.conversationID, turnID: identity.runID,
                 call: ModelToolCall(id: callID, name: name, arguments: "{}")).displayItemID
             records[index].messages.append(ChatMessage(id: itemID, runID: identity.runID, role: .tool, text: "", tool: tool))

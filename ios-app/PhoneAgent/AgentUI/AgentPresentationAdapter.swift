@@ -172,12 +172,15 @@ struct ToolPresentation {
 
     static func arguments(for call: ToolInvocation) -> String? {
         guard let parameters = call.arguments.foundation as? [String: Any], !parameters.isEmpty else { return nil }
+        // File tool details render the content itself, so the string values
+        // must survive untruncated; the store bounds them by the file limit.
+        let keepRaw = ["read", "write", "edit"].contains(call.name)
         var values: [String: Any] = [:]
         for (key, value) in parameters {
             if let string = value as? String {
                 let limit: Int
-                if call.name == "bash" && key == "command" { limit = 8_192 }
-                else if ["read", "write", "edit"].contains(call.name) && key == "file_path" { limit = 4_096 }
+                if keepRaw { limit = Int.max }
+                else if call.name == "bash" && key == "command" { limit = 8_192 }
                 else if key == "summary" { limit = 1_000 }
                 else if key == "description" { limit = 1_024 }
                 else { limit = 160 }
