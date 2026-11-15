@@ -22,10 +22,12 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
         ["md", "txt", "markdown"].contains((path as NSString).pathExtension.lowercased())
     }
     static func make(documents: [String: String]) throws -> SkillPackage {
-        guard !documents.isEmpty, documents.count <= 32, documents.keys.allSatisfy(validResource),
-              documents.values.allSatisfy({ !$0.contains("\0") && $0.utf8.count <= 64 * 1_024 }),
-              documents.values.reduce(0, { $0 + $1.utf8.count }) <= 512 * 1_024,
-              let main = documents["SKILL.md"] else { throw AppError.invalid(String(localized: "A skill needs SKILL.md at its root. Supports up to 32 UTF-8 Markdown/TXT files, 64 KiB per file and 512 KiB total.")) }
+        guard let main = documents["SKILL.md"] else {
+            throw AppError.invalid(String(localized: "A skill needs SKILL.md at its root."))
+        }
+        guard documents.keys.allSatisfy(validResource) else {
+            throw AppError.invalid(String(localized: "The skill package contains an invalid path or symbolic link"))
+        }
         let lines = main.components(separatedBy: .newlines)
         guard lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") else { throw AppError.invalid(String(localized: "SKILL.md needs a metadata section between --- lines with name and description")) }
         var metadata: [String: String] = [:], index = 1
@@ -124,7 +126,7 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
             }
             if packages != next { packages = next }
             locations = paths
-            warning = invalid ? String(localized: "Some skills could not be loaded. Check their SKILL.md and reference files.") : nil
+            warning = invalid ? String(localized: "Some skills could not be loaded. Check their SKILL.md files.") : nil
         } catch {
             packages = []; locations = [:]
             warning = String(localized: "Skills could not be read. Existing files were kept. Check the skills folder and try again.")
@@ -153,35 +155,61 @@ struct SkillPackage: Codable, Identifiable, Equatable, Sendable {
     @discardableResult func importPackage(_ url: URL) throws -> SkillPackage {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        return try add(documents: Self.readDocuments(url))
+        try requireWritable()
+        let info = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard info.isSymbolicLink != true else { throw AppError.invalid(String(localized: "Symbolic links are not supported for skills")) }
+        guard info.isDirectory == true else {
+            guard url.lastPathComponent == "SKILL.md" else {
+                throw AppError.invalid(String(localized: "Select SKILL.md or a skill folder containing it"))
+            }
+            return try add(documents: ["SKILL.md": Self.readEntrypoint(url)])
+        }
+        guard let directory else { return try add(documents: Self.readDocuments(url)) }
+
+        refresh()
+        let files = FileManager.default
+        let staging = directory.appendingPathComponent(".import-" + UUID().uuidString)
+        defer { try? files.removeItem(at: staging) }
+        try files.copyItem(at: url, to: staging)
+        let candidate = try SkillPackage.make(documents: Self.readDocuments(staging))
+        if let existing = packages.first(where: { package in
+            guard package.revision == candidate.revision, let location = locations[package.id] else { return false }
+            return files.contentsEqual(atPath: location.path, andPath: staging.path)
+        }) { return existing }
+
+        try Task.checkCancellation()
+        try files.moveItem(at: staging, to: directory.appendingPathComponent(candidate.id.uuidString))
+        refresh()
+        return candidate
+    }
+    private static func readEntrypoint(_ file: URL) throws -> String {
+        let info = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard info.isRegularFile == true, info.isSymbolicLink != true,
+              let text = String(data: try Data(contentsOf: file), encoding: .utf8) else {
+            throw AppError.invalid(String(localized: "SKILL.md must be a regular UTF-8 text file."))
+        }
+        return text
     }
     private static func readDocuments(_ url: URL) throws -> [String: String] {
-        let rootInfo = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let rootInfo = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard rootInfo.isSymbolicLink != true else { throw AppError.invalid(String(localized: "Symbolic links are not supported for skills")) }
-        var documents: [String: String] = [:]
-        func read(_ file: URL, resource: String) throws {
-            try Task.checkCancellation()
-            guard SkillPackage.validResource(resource), documents.count < 32 else { throw AppError.invalid(String(localized: "Skill packages can contain Markdown/TXT documents only, without scripts, images, or archives")) }
-            let info = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-            guard info.isRegularFile == true, info.isSymbolicLink != true, (info.fileSize ?? Int.max) <= 64 * 1_024,
-                  let text = String(data: try Data(contentsOf: file), encoding: .utf8) else { throw AppError.invalid(String(localized: "The skill document is not a regular UTF-8 file or is larger than 64 KiB")) }
-            documents[resource] = text
+        let entrypoint = url.appendingPathComponent("SKILL.md")
+        guard FileManager.default.fileExists(atPath: entrypoint.path) else {
+            throw AppError.invalid(String(localized: "A skill needs SKILL.md at its root."))
         }
-        if rootInfo.isDirectory == true {
-            let root = url.standardizedFileURL.path + "/"
-            guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { throw AppError.invalid(String(localized: "Could not read the skill folder")) }
-            var visited = 0
-            for case let file as URL in enumerator {
-                try Task.checkCancellation(); visited += 1
-                guard visited <= 128 else { throw AppError.invalid(String(localized: "The skill package has too many folders. Select a folder containing only skill text.")) }
-                let info = try file.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-                guard info.isSymbolicLink != true, file.standardizedFileURL.path.hasPrefix(root) else { throw AppError.invalid(String(localized: "The skill package contains an invalid path or symbolic link")) }
-                if info.isDirectory == true { continue }
-                try read(file, resource: String(file.standardizedFileURL.path.dropFirst(root.count)))
-            }
-        } else {
-            guard url.lastPathComponent == "SKILL.md" else { throw AppError.invalid(String(localized: "Select SKILL.md or a text skill folder containing it")) }
-            try read(url, resource: "SKILL.md")
+        var documents = ["SKILL.md": try readEntrypoint(entrypoint)]
+        let root = url.standardizedFileURL.path + "/"
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]) else { return documents }
+        for case let file as URL in enumerator {
+            try Task.checkCancellation()
+            let path = file.standardizedFileURL.path
+            guard path.hasPrefix(root) else { continue }
+            let resource = String(path.dropFirst(root.count))
+            guard resource != "SKILL.md", SkillPackage.validResource(resource),
+                  let info = try? file.resourceValues(forKeys: keys), info.isRegularFile == true, info.isSymbolicLink != true,
+                  let data = try? Data(contentsOf: file), let text = String(data: data, encoding: .utf8) else { continue }
+            documents[resource] = text
         }
         return documents
     }

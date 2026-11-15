@@ -168,26 +168,50 @@ import ProviderCore
         XCTAssertNil(store.warning)
         XCTAssertEqual(store.packages.count, 2)
     }
-    func testNativePackageCopyRetainsReferencesAndRejectsScriptsSymlinksAndBadPaths() throws {
+    func testFolderImportPreservesExtraFilesAndLoadsTextWithoutPackageLimits() throws {
         let root = try directory(), bundle = root.appendingPathComponent("bundle")
         try FileManager.default.createDirectory(at: bundle.appendingPathComponent("references"), withIntermediateDirectories: true)
-        try Data(document.utf8).write(to: bundle.appendingPathComponent("SKILL.md"))
-        try Data("REFERENCE_BODY".utf8).write(to: bundle.appendingPathComponent("references/guide.md"))
-        let store = SkillStore(inMemory: true), imported = try store.importPackage(bundle)
-        XCTAssertEqual(imported.documents["references/guide.md"], "REFERENCE_BODY")
-        try Data("echo must-not-run".utf8).write(to: bundle.appendingPathComponent("run.sh"))
-        XCTAssertThrowsError(try store.importPackage(bundle))
-        try FileManager.default.removeItem(at: bundle.appendingPathComponent("run.sh"))
-        try FileManager.default.createSymbolicLink(at: bundle.appendingPathComponent("outside.md"), withDestinationURL: root.appendingPathComponent("private.md"))
-        XCTAssertThrowsError(try store.importPackage(bundle))
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        let body = document + String(repeating: "a", count: 64 * 1024)
+        try Data(body.utf8).write(to: bundle.appendingPathComponent("SKILL.md"))
+        let reference = "REFERENCE\0" + String(repeating: "a", count: 16 * 1024)
+        for index in 0..<33 {
+            try Data(reference.utf8).write(to: bundle.appendingPathComponent("references/\(index).md"))
+        }
+        let scriptPath = "scripts/run.sh"
+        let script = Data("echo sample".utf8)
+        try script.write(to: bundle.appendingPathComponent(scriptPath))
+        let invalidUTF8 = Data([0xff])
+        try invalidUTF8.write(to: bundle.appendingPathComponent("binary.md"))
+        let privateFile = root.appendingPathComponent("private.md")
+        try Data("Outside the skill".utf8).write(to: privateFile)
+        try FileManager.default.createSymbolicLink(at: bundle.appendingPathComponent("outside.md"), withDestinationURL: privateFile)
+        let store = SkillStore(directory: root.appendingPathComponent("library"), defaults: defaults)
+        let imported = try store.importPackage(bundle)
+        XCTAssertEqual(try store.importPackage(bundle).id, imported.id)
+        XCTAssertEqual(store.enabledSnapshot.first(where: { $0.id == imported.id }), imported)
+        XCTAssertNil(store.warning)
+        XCTAssertEqual(imported.documents["references/32.md"], reference)
+        XCTAssertEqual(imported.documents.count, 34)
+        XCTAssertNil(imported.documents[scriptPath])
+        XCTAssertNil(imported.documents["binary.md"])
+        XCTAssertNil(imported.documents["outside.md"])
+        let copied = try XCTUnwrap(store.directory).appendingPathComponent(imported.id.uuidString)
+        XCTAssertEqual(try Data(contentsOf: copied.appendingPathComponent(scriptPath)), script)
+        XCTAssertEqual(try Data(contentsOf: copied.appendingPathComponent("binary.md")), invalidUTF8)
+        try assertWholeDocument(imported, expected: body)
+
+        try Data("echo updated".utf8).write(to: bundle.appendingPathComponent(scriptPath))
+        XCTAssertNotEqual(try store.importPackage(bundle).id, imported.id)
+
         for path in ["../escape.md", "/tmp/private.md", "refs/../../secret.md", "refs\\private.md", "https://x/file.md", "refs//x.md"] {
             XCTAssertThrowsError(try store.add(documents: ["SKILL.md": document, path: "invalid"]))
         }
-        XCTAssertEqual(store.packages.count, 1)
+        XCTAssertEqual(store.packages.count, 2)
     }
     func testMetadataFormatLimitsAndCorruptArchivePreserveOriginal() throws {
         let store = SkillStore(inMemory: true)
-        for body in ["# No metadata", "---\nname: x\n---\nmissing description", "---\nname: x\nname: y\ndescription: d\n---", String(repeating: "a", count: 64 * 1024 + 1)] {
+        for body in ["# No metadata", "---\nname: x\n---\nmissing description", "---\nname: x\nname: y\ndescription: d\n---"] {
             XCTAssertThrowsError(try store.add(documents: ["SKILL.md": body]))
         }
         let multi = try store.add(documents: ["SKILL.md": "---\nname: 'multi'\ndescription: >\n  first line\n  second line\n---\nBody"])

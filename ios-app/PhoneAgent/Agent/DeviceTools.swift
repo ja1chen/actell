@@ -33,10 +33,12 @@ struct DeviceTool: AgentTool {
         .init(name: name, description: description, parameters: Self.parameters(for: name, screenInformationMode: coordinator.screenInformationMode),
               effect: ["tap", "drag", "home", "launch_app", "type_text"].contains(name) ? .deviceMutation : .readOnly)
     }
+    static let actionDescriptionParameter = property("string", "Short action label shown in the UI. Aim for 5–10 words in English, or a similarly short phrase in the user's language. Use an action verb and omit reasoning.")
+
     static func parameters(for name: String, screenInformationMode: ScreenInformationMode = .screenshot) -> ProviderCore.JSONValue {
         let integer = property("integer", "Duration in milliseconds")
         let coordinate = property(screenInformationMode == .accessibility || screenInformationMode == .automatic ? "number" : "integer", coordinateInstruction(for: screenInformationMode))
-        let description = property("string", "Clear, concise description of what this action does in active voice, 5-10 words.no reasoning")
+        let description = actionDescriptionParameter
         switch name {
         case "screenshot" where screenInformationMode == .automatic:
             return schema(["mode": .object(["type": .string("string"), "description": .string("Choose the screen information needed for this observation"),

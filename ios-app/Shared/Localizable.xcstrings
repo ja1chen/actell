@@ -757,19 +757,19 @@
         }
       }
     },
-    "A skill needs SKILL.md at its root. Supports up to 32 UTF-8 Markdown/TXT files, 64 KiB per file and 512 KiB total.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A skill needs SKILL.md at its root. Supports up to 32 UTF-8 Markdown/TXT files, 64 KiB per file and 512 KiB total."
+    "A skill needs SKILL.md at its root." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A skill needs SKILL.md at its root."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "技能包需要根目录 SKILL.md，只支持最多 32 个 UTF-8 Markdown/TXT 文档，单文件 64 KiB、整包 512 KiB"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "技能文件夹的根目录需要有 SKILL.md。"
           }
         }
       }
@@ -3893,23 +3893,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "技能读取失败"
-          }
-        }
-      }
-    },
-    "Could not read the skill folder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not read the skill folder"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法读取技能文件夹"
           }
         }
       }
@@ -10699,19 +10682,19 @@
         }
       }
     },
-    "Select SKILL.md or a text skill folder containing it": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select SKILL.md or a text skill folder containing it"
+    "Select SKILL.md or a skill folder containing it" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select SKILL.md or a skill folder containing it"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请选择 SKILL.md 或包含它的文本技能文件夹"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择 SKILL.md 或包含它的技能文件夹"
           }
         }
       }
@@ -11209,23 +11192,6 @@
         }
       }
     },
-    "Skill packages can contain Markdown/TXT documents only, without scripts, images, or archives": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skill packages can contain Markdown/TXT documents only, without scripts, images, or archives"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "技能包只允许 Markdown/TXT 文档，不包含脚本、图片或压缩包"
-          }
-        }
-      }
-    },
     "Skill storage is full. Delete unwanted versions first.": {
       "extractionState": "manual",
       "localizations": {
@@ -11273,6 +11239,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "技能版本文本过长"
+          }
+        }
+      }
+    },
+    "SKILL.md must be a regular UTF-8 text file." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SKILL.md must be a regular UTF-8 text file."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SKILL.md 必须是普通的 UTF-8 文本文件。"
           }
         }
       }
@@ -13708,23 +13691,6 @@
         }
       }
     },
-    "The skill document is not a regular UTF-8 file or is larger than 64 KiB": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The skill document is not a regular UTF-8 file or is larger than 64 KiB"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "技能文档不是有效 UTF-8 普通文件或超过 64 KiB"
-          }
-        }
-      }
-    },
     "The skill is missing, disabled, or does not belong to this run. Use the skill metadata in this run's system prompt.": {
       "extractionState": "manual",
       "localizations": {
@@ -13755,23 +13721,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "技能包包含非法路径或符号链接"
-          }
-        }
-      }
-    },
-    "The skill package has too many folders. Select a folder containing only skill text.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The skill package has too many folders. Select a folder containing only skill text."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "技能包目录过多；请选择只含技能文本的文件夹"
           }
         }
       }
@@ -21097,18 +21046,18 @@
         }
       }
     },
-    "Some skills could not be loaded. Check their SKILL.md and reference files.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Some skills could not be loaded. Check their SKILL.md and reference files."
+    "Some skills could not be loaded. Check their SKILL.md files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some skills could not be loaded. Check their SKILL.md files."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "部分技能无法加载，请检查其 SKILL.md 和参考文件。"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分技能无法加载，请检查这些技能的 SKILL.md。"
           }
         }
       }
