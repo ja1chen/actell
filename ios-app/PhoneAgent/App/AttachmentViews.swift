@@ -192,7 +192,7 @@ private struct AttachmentPreview: View {
 /// and a double-tap toggle between the fitted and an enlarged scale. All of
 /// this is native UIScrollView behavior; this wrapper only keeps the image
 /// centered in dimensions it does not overflow.
-private struct ZoomableImageView: UIViewRepresentable {
+struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
 
     func makeUIView(context: Context) -> UIScrollView {
@@ -296,13 +296,55 @@ private final class ZoomableScrollView: UIScrollView {
     }
 }
 
+/// Viewer for a workspace file the model linked in a reply. Images open in
+/// the zoomable viewer; UTF-8 text scrolls as selectable monospaced text.
+struct WorkspaceFilePreview: View {
+    let path: String
+    let root: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var data: Data?
+    @State private var failure: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let failure {
+                    ContentUnavailableView(String(localized: "Could not read the file"), systemImage: "exclamationmark.triangle", description: Text(failure))
+                } else if let data {
+                    if let image = UIImage(data: data) {
+                        ZoomableImageView(image: image)
+                    } else if let text = String(data: data, encoding: .utf8) {
+                        ScrollView { Text(text).font(.body.monospaced()).textSelection(.enabled).padding() }
+                    } else {
+                        ContentUnavailableView(String(localized: "Could not display the file"), systemImage: "questionmark.folder")
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Done")) { dismiss() } } }
+            .task {
+                do {
+                    let workspace = try FileWorkspace(root: root)
+                    data = try await workspace.previewData(filePath: path)
+                } catch { failure = error.localizedDescription }
+            }
+        }
+    }
+}
+
 struct MessageAttachmentsView: View {
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter
     var contentAlignment: HorizontalAlignment = .leading
+    // Assistant replies render remote images inline in their Markdown, so the
+    // bottom region must not repeat them; user messages keep it here.
+    var showsRemoteImages = true
     var body: some View {
         let attachments = (message.attachments ?? []).filter { $0.sourceURL == nil }
-        let imageURLs = Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? []
+        let imageURLs = showsRemoteImages
+            ? Array(NSOrderedSet(array: MessageImageSources.urls(in: message.text))) as? [URL] ?? [] : []
         if !attachments.isEmpty || !imageURLs.isEmpty {
             HStack(alignment: .top, spacing: 8) {
                 ForEach(attachments) { attachment in
@@ -317,7 +359,11 @@ struct MessageAttachmentsView: View {
     }
 }
 
-private struct RemoteMessageImage: View {
+/// The download-and-cache flow for one remote image source in a message.
+/// Cached sources render as attachment cards; uncached ones wait for an
+/// explicit user download. Rendered inline by assistant Markdown and at the
+/// bottom of user messages.
+struct RemoteMessageImage: View {
     let url: URL
     let message: ChatMessage
     @ObservedObject var presentation: AgentPresentationAdapter

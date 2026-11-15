@@ -27,6 +27,7 @@ struct ConversationView: View {
     @State private var sendingTask: Task<Void, Never>?
     @State private var importCancellation = 0
     @State private var messageSelection: MessageSelection?
+    @State private var workspacePreview: WorkspacePreviewTarget?
     private var session: AgentConversation? { presentation.session }
     private var running: Bool { presentation.running }
     private var canSend: Bool {
@@ -120,6 +121,13 @@ struct ConversationView: View {
                             .toolbar { ToolbarItem(placement: .confirmationAction) { Button(String(localized: "Done")) { messageSelection = nil }.accessibilityIdentifier("closeMessageSelection") } }
                     }
                     .presentationDetents([.medium, .large])
+                }
+                .sheet(item: $workspacePreview) { target in
+                    if let root = target.root {
+                        WorkspaceFilePreview(path: target.path, root: root)
+                    } else {
+                        NavigationStack { ContentUnavailableView(String(localized: "Could not read the file"), systemImage: "exclamationmark.triangle") }
+                    }
                 }
                 .onAppear { presentation.open(); draft = session.draft }
                 .onDisappear { sendingTask?.cancel(); presentation.close() }
@@ -336,13 +344,29 @@ struct ConversationView: View {
         VStack(alignment: .leading, spacing: 6) {
             if !message.text.isEmpty {
                 Markdown(message.text).markdownTheme(.basic)
-                    .markdownImageProvider(NoRemoteMarkdownImages()).markdownInlineImageProvider(NoRemoteInlineImages())
+                    .markdownImageProvider(RemoteMarkdownImages(message: message, presentation: presentation))
+                    .markdownInlineImageProvider(NoRemoteInlineImages())
                     .textSelection(.enabled)
                     .contextMenu { messageActions(message.text) }
+                    .environment(\.openURL, OpenURLAction { url in
+                        let scheme = url.scheme?.lowercased()
+                        if scheme == "https", url.host?.isEmpty == false { return .systemAction }
+                        // Relative paths and file URLs point at conversation
+                        // workspace files; preview them like message cards.
+                        let path: String?
+                        switch scheme {
+                        case nil: path = url.absoluteString
+                        case "file": path = url.path
+                        default: path = nil
+                        }
+                        guard let path, !path.isEmpty else { return .discarded }
+                        workspacePreview = WorkspacePreviewTarget(path: path, root: presentation.workspaceRoot)
+                        return .handled
+                    })
             }
             if message.state == .interrupted { Text(message.text.isEmpty && message.reasoning != nil ? String(localized: "Reasoning interrupted") : String(localized: "Reply interrupted")).font(.caption).foregroundStyle(.secondary) }
             if message.state == .failed { Text(String(localized: "Reply incomplete")).font(.caption).foregroundStyle(.secondary) }
-            MessageAttachmentsView(message: message, presentation: presentation)
+            MessageAttachmentsView(message: message, presentation: presentation, showsRemoteImages: false)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var composer: some View {
@@ -578,6 +602,13 @@ private struct MessageSelection: Identifiable {
     let id = UUID()
     let text: String
 }
+/// A workspace file linked in a reply, opened by tapping a relative or file
+/// URL that has no web destination.
+private struct WorkspacePreviewTarget: Identifiable {
+    let path: String
+    let root: URL?
+    var id: String { path }
+}
 
 /// Read-only text panel for the message selection sheet. UITextView keeps the
 /// native drag-selection and copy interactions that SwiftUI Text cannot start
@@ -601,8 +632,21 @@ private struct SelectableTextView: UIViewRepresentable {
     }
 }
 
-private struct NoRemoteMarkdownImages: MarkdownUI.ImageProvider {
-    func makeImage(url: URL?) -> some View { Text(String(localized: "See image below")).font(.caption).foregroundStyle(.secondary) }
+/// Renders assistant Markdown images in place: valid HTTPS sources go through
+/// the same download-and-cache flow as message images, so an image appears at
+/// its position once cached instead of being displaced to the message bottom.
+private struct RemoteMarkdownImages: MarkdownUI.ImageProvider {
+    let message: ChatMessage
+    let presentation: AgentPresentationAdapter
+
+    func makeImage(url: URL?) -> some View {
+        if let url, url.scheme?.lowercased() == "https", url.host?.isEmpty == false {
+            RemoteMessageImage(url: url, message: message, presentation: presentation)
+        } else {
+            Text(String(localized: "Image link is unavailable"))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 }
 private struct NoRemoteInlineImages: MarkdownUI.InlineImageProvider {
     func image(with url: URL, label: String) async throws -> Image { Image(systemName: "photo") }

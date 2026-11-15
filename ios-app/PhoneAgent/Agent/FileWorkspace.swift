@@ -10,7 +10,10 @@ actor FileWorkspace {
     }
 
     nonisolated let root: URL
-    static let maximumFileBytes = 2 * 1024 * 1024
+    /// Text size bound shared by write, edit and read inputs. Matches the
+    /// message attachment image limit, so any file the workspace can hold is
+    /// tool-accessible.
+    static let maximumFileBytes = 20 * 1024 * 1024
     static let maximumOutputBytes = 64 * 1024
     private let files = FileManager.default
 
@@ -112,6 +115,28 @@ actor FileWorkspace {
         return try json(["file_path": relative(url), "bytes_written": data.count, "replacements": matches, "edited": true])
     }
 
+    /// Raw bytes for viewer previews. Path rules match the file tools:
+    /// relative paths start in the root; absolute paths, ~, parent paths and
+    /// links follow the App's permissions. The bound keeps an oversized file
+    /// from loading whole into the UI process; it matches the message
+    /// attachment image limit, so anything sentable is previewable.
+    func previewData(filePath: String) throws -> Data {
+        try Task.checkCancellation()
+        let url = try resolve(filePath)
+        guard files.fileExists(atPath: url.path) else {
+            throw fail("not_found", "The file does not exist in this conversation's workspace.")
+        }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw fail("not_regular_file", "Only regular files can be previewed.")
+        }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count <= AttachmentStore.imageLimit else {
+            throw fail("oversized_file", "The file exceeds the preview size limit.")
+        }
+        return data
+    }
+
     func directory(filePath: String = ".") throws -> URL {
         try Task.checkCancellation()
         let url = try resolve(filePath)
@@ -148,12 +173,12 @@ actor FileWorkspace {
         try validateFile(url)
         let attributes = try files.attributesOfItem(atPath: url.path)
         guard ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= Self.maximumFileBytes else {
-            throw fail("file_too_large", "The file exceeds the 2 MiB text limit.")
+            throw fail("file_too_large", "The file exceeds the 20 MiB text limit.")
         }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: Self.maximumFileBytes + 1) ?? Data()
-        guard data.count <= Self.maximumFileBytes else { throw fail("file_too_large", "The file exceeds the 2 MiB text limit.") }
+        guard data.count <= Self.maximumFileBytes else { throw fail("file_too_large", "The file exceeds the 20 MiB text limit.") }
         guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
             throw fail("not_utf8_text", "Only UTF-8 text files without NUL bytes are supported.")
         }
@@ -162,7 +187,7 @@ actor FileWorkspace {
 
     private func textData(_ content: String) throws -> Data {
         guard !content.contains("\0") else { throw fail("not_utf8_text", "Text must not contain NUL bytes.") }
-        guard content.utf8.count <= Self.maximumFileBytes else { throw fail("file_too_large", "Text exceeds the 2 MiB file limit.") }
+        guard content.utf8.count <= Self.maximumFileBytes else { throw fail("file_too_large", "Text exceeds the 20 MiB file limit.") }
         return Data(content.utf8)
     }
 

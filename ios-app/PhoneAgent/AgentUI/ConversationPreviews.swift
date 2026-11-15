@@ -101,6 +101,28 @@ import UIKit
             if userMessages.count > 1 { model.sessions.attach(file, to: userMessages[1].id, in: conversationID) }
         }
     }
+
+    /// Seeds an assistant reply that links to remote screenshots the way the
+    /// model writes them: prose links plus a Markdown image, so the inline
+    /// "See image below" placeholder and the parsed bottom image region render
+    /// together for styling checks. The download stays uncached.
+    @discardableResult
+    static func seedRemoteImage(in model: AgentViewModel) -> UUID {
+        let conversation = model.sessions.create(mode: .live)
+        guard let run = model.sessions.begin(in: conversation, query: "把当前屏幕截图发给我看看") else { return conversation }
+        model.sessions.beginAssistantTurn(run)
+        model.sessions.completeAssistantTurn("""
+            截图完成，图片见下方。
+
+            [下载高清 PNG](https://example.com/shots/screenshot-hd.png) · [查看原图对比](mona-splash-ink/comparison.png)
+
+            ![设备屏幕截图](https://example.com/shots/screenshot-hd.png)
+
+            ![对比图](mona-splash-ink/comparison.png)
+            """, reasoning: "用户想看屏幕内容，直接返回截图链接。", identity: run)
+        model.sessions.finish(run, phase: .completed, summary: "")
+        return conversation
+    }
 }
 
 private extension ToolStep {
@@ -222,6 +244,12 @@ private struct ConversationPreviewPage: View {
 
 #Preview("会话 · 已完成历史") {
     ConversationPreviewPage()
+}
+
+#Preview("消息 · 远程图片") {
+    ConversationPreviewPage(seed: { model in
+        ConversationPreviewSeed.seedRemoteImage(in: model)
+    })
 }
 
 #Preview("输入框 · 草稿与附件") {

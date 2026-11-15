@@ -38,6 +38,9 @@ struct ToolPresentation {
     }
 
     var session: AgentConversation? { model.sessions.conversation(sessionID) }
+    /// Root of this conversation's workspace, for opening files the model
+    /// links in replies.
+    var workspaceRoot: URL? { try? model.sessions.workspaceDirectory(sessionID) }
     var activeTurnID: UUID? { model.sessions.activeRuns[sessionID]?.runID }
     var activeRun: RunIdentity? { model.ownedRun.flatMap { $0.conversationID == sessionID ? $0 : nil } }
     var backgroundStatus: String { model.backgroundStatus }

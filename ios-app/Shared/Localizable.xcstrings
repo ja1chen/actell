@@ -3386,6 +3386,23 @@
         }
       }
     },
+    "Command" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令"
+          }
+        }
+      }
+    },
     "Command timed out; effects may be incomplete." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6139,6 +6156,23 @@
         }
       }
     },
+    "Editing file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editing file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在编辑文件"
+          }
+        }
+      }
+    },
     "Edit provider" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6967,6 +7001,23 @@
         }
       }
     },
+    "Finish" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finish"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "结束"
+          }
+        }
+      }
+    },
     "Finish run" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6997,6 +7048,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已结束"
+          }
+        }
+      }
+    },
+    "Finishing run" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finishing run"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在结束运行"
           }
         }
       }
@@ -11773,6 +11841,23 @@
         }
       }
     },
+    "Read" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取"
+          }
+        }
+      }
+    },
     "Read file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11837,6 +11922,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "只读采集不能授权 USB 输入"
+          }
+        }
+      }
+    },
+    "Reading file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件"
           }
         }
       }
@@ -13106,6 +13208,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在运行"
+          }
+        }
+      }
+    },
+    "Running command" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在运行命令"
           }
         }
       }
@@ -21008,6 +21127,23 @@
         }
       }
     },
+    "Waiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待"
+          }
+        }
+      }
+    },
     "Waiting for a background option to become available. No device action has been sent." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -21348,6 +21484,23 @@
         }
       }
     },
+    "Write" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写入"
+          }
+        }
+      }
+    },
     "Write file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -21361,6 +21514,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "写入文件"
+          }
+        }
+      }
+    },
+    "Writing file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Writing file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在写入文件"
           }
         }
       }
@@ -21463,6 +21633,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "技能文档"
+          }
+        }
+      }
+    },
+    "Image link is unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image link is unavailable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片链接不可用"
+          }
+        }
+      }
+    },
+    "Could not read the file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read the file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取文件"
+          }
+        }
+      }
+    },
+    "Could not display the file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not display the file"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法显示该文件"
           }
         }
       }

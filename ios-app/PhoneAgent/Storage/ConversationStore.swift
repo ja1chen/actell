@@ -429,9 +429,11 @@ import ProviderCore
         touch(index); saveNow()
     }
     /// File tool details render the mutation content, so arguments survive at
-    /// full fidelity. The bound is the worst-case JSON escape expansion (6x)
-    /// of the workspace's 2 MiB file limit, so valid content is never clipped.
-    private static let maximumArgumentBytes = 12 * 1024 * 1024
+    /// full fidelity. The bound covers the workspace's 20 MiB file limit under
+    /// realistic JSON escaping (newlines and quotes double the size); content
+    /// padded with exotic control characters may still clip and the detail
+    /// panel falls back to the standard argument view.
+    private static let maximumArgumentBytes = 40 * 1024 * 1024
     func updateTool(callID: String, name: String, state: ToolStepState, detail: String = "", result: String = "", arguments: String? = nil, skillName: String? = nil, identity: RunIdentity) {
         guard accepts(identity), let index = index(identity.conversationID) else { return }
         if let message = records[index].messages.firstIndex(where: { $0.runID == identity.runID && $0.tool?.callID == callID }) {
