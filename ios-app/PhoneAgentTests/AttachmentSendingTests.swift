@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import ProviderCore
+import CommandKit
 @testable import PhoneAgent
 
 private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendable {
@@ -51,10 +52,39 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         let sent = try await model.sendDraft("read files", in: id, cloudConsent: true); XCTAssertTrue(sent)
         for _ in 0..<100 where model.running { try await Task.sleep(for: .milliseconds(30)) }
         XCTAssertFalse(model.running); XCTAssertEqual(provider.requests.count, 2)
+        let workspace = try model.sessions.workspaceDirectory(id)
+        var imagePath = ""
         for request in provider.requests {
             let user = try XCTUnwrap(fixtureMessages(request).first { $0.role == .user && $0.content.contains("SYNTHETIC_FILE_CONTENT") })
             XCTAssertEqual(user.images.count, 1)
+            XCTAssertEqual(user.images.first?.mimeType, "image/jpeg")
+            XCTAssertTrue(user.images.first?.data.starts(with: [0xff, 0xd8, 0xff]) == true)
+            let manifestText = try XCTUnwrap(user.content.components(separatedBy: "<attachment_files>\n").last?.components(separatedBy: "\n</attachment_files>").first)
+            let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(manifestText.utf8)) as? [String: Any])
+            XCTAssertEqual(manifest["relative_to"] as? String, "conversation_working_directory")
+            let files = try XCTUnwrap(manifest["files"] as? [[String: Any]])
+            XCTAssertEqual(files.count, draft.count)
+            for asset in draft {
+                let file = try XCTUnwrap(files.first { $0["name"] as? String == asset.name })
+                let path = try XCTUnwrap(file["file_path"] as? String)
+                XCTAssertFalse(path.hasPrefix("/")); XCTAssertFalse(path.contains(root.path))
+                let original = try await model.attachments.read(asset, conversationID: id)
+                XCTAssertEqual(try Data(contentsOf: workspace.appendingPathComponent(path)), original)
+                if asset.kind == .image {
+                    imagePath = path
+                    XCTAssertEqual(file["width"] as? Int, asset.width)
+                    XCTAssertEqual(file["height"] as? Int, asset.height)
+                }
+            }
         }
+        let encoder = JSONEncoder(); encoder.outputFormatting = .withoutEscapingSlashes
+        let pathLiteral = String(decoding: try encoder.encode(imagePath), as: UTF8.self)
+        let script = "from PIL import Image\nimage = Image.open(\(pathLiteral))\nprint(image.width, image.height)\n"
+        try Data(script.utf8).write(to: workspace.appendingPathComponent("inspect_attachment.py"))
+        let inspected = try await ShellRuntime.shared.run(command: "python3 inspect_attachment.py", workspace: workspace)
+        let imageAsset = try XCTUnwrap(draft.first { $0.kind == .image })
+        XCTAssertEqual(inspected.exitCode, 0, inspected.stderr)
+        XCTAssertEqual(inspected.stdout, "\(imageAsset.width!) \(imageAsset.height!)\n")
         XCTAssertNil(model.sessions.conversation(id)?.draftAttachments)
         XCTAssertEqual(model.sessions.conversation(id)?.messages.first?.attachments, draft)
         let disk = try Data(contentsOf: SessionStorageLayout(root: root).directory(for: id).appendingPathComponent("history.jsonl"))
@@ -70,6 +100,14 @@ private final class AttachmentReceiptProvider: ModelProvider, @unchecked Sendabl
         let reopenedAttachments = AttachmentStore(directory: root)
         let reloadedBytes = try await reopenedAttachments.read(original, conversationID: id)
         XCTAssertEqual(reloadedBytes, originalBytes)
+        let relocated = root.appendingPathExtension("relocated")
+        addTeardownBlock { try? FileManager.default.removeItem(at: relocated) }
+        try FileManager.default.copyItem(at: root, to: relocated)
+        let relocatedWorkspace = try ConversationStore(directory: relocated).workspaceDirectory(id)
+        let relocatedPath = try await AttachmentStore(directory: relocated).relativePath(imageAsset, conversationID: id, from: relocatedWorkspace)
+        XCTAssertEqual(relocatedPath, imagePath)
+        let sourceImage = try await model.attachments.read(imageAsset, conversationID: id)
+        XCTAssertEqual(try Data(contentsOf: relocatedWorkspace.appendingPathComponent(imagePath)), sourceImage)
     }
     func testRepeatSelectionRemoveAndOtherSessionAreIsolated() async throws {
         let (model, id, provider, _) = fixture(), bytes = image()

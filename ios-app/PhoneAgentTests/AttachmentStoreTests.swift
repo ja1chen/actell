@@ -2,6 +2,8 @@ import XCTest
 import UIKit
 import AgentKit
 import ProviderCore
+import ImageIO
+import UniformTypeIdentifiers
 @testable import PhoneAgent
 
 @MainActor final class AttachmentStoreTests: XCTestCase {
@@ -10,10 +12,10 @@ import ProviderCore
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }; return root
     }
-    private func png() -> Data {
+    private func png(width: Int = 64, height: Int = 40) -> Data {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
-        return UIGraphicsImageRenderer(size: CGSize(width: 64, height: 40), format: format).pngData { context in
-            UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 40))
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).pngData { context in
+            UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
     }
     func testRuntimeImageAndPreviewRemainReadableThroughSandboxDirectoryAlias() async throws {
@@ -29,6 +31,11 @@ import ProviderCore
         let preview = try await reader.preview(attachment, conversationID: id)
         XCTAssertEqual(original, data)
         XCTAssertNotNil(UIImage(data: preview))
+        let workspace = try FileWorkspace.conversationRoot(sessionDirectory: SessionStorageLayout(root: alias).directory(for: id))
+        let path = try await reader.relativePath(attachment, conversationID: id, from: workspace)
+        XCTAssertFalse(path.hasPrefix("/"))
+        XCTAssertTrue(path.hasSuffix("attachments/\(attachment.digest)"))
+        XCTAssertEqual(try Data(contentsOf: workspace.appendingPathComponent(path)), data)
     }
     func testOriginalCanBeSavedThroughSandboxDirectoryAlias() async throws {
         let root = try directory(), actual = root.appendingPathComponent("actual/Documents"), alias = root.appendingPathComponent("alias/Documents")
@@ -36,6 +43,11 @@ import ProviderCore
         try FileManager.default.createSymbolicLink(at: alias.deletingLastPathComponent(), withDestinationURL: actual.deletingLastPathComponent())
         let store = AttachmentStore(directory: alias), id = UUID(), data = png()
         let attachment = try await store.store(data, name: "screen.png", conversationID: id)
+        let workspace = try FileWorkspace.conversationRoot(sessionDirectory: SessionStorageLayout(root: actual).directory(for: id))
+        let path = try await store.relativePath(attachment, conversationID: id, from: workspace)
+        XCTAssertFalse(path.hasPrefix("/"))
+        XCTAssertTrue(path.hasSuffix("attachments/\(attachment.id)/original"))
+        XCTAssertEqual(try Data(contentsOf: workspace.appendingPathComponent(path)), data)
         let original = try await store.read(attachment, conversationID: id)
         XCTAssertEqual(original, data)
     }
@@ -79,6 +91,26 @@ import ProviderCore
         let sent = try await restored.inferenceImage(attachment, conversationID: id)
         XCTAssertEqual(original, data); XCTAssertNotNil(UIImage(data: preview)); XCTAssertNotNil(UIImage(data: sent))
         XCTAssertEqual(attachment.width, 64); XCTAssertEqual(attachment.height, 40)
+        let sentSource = try XCTUnwrap(CGImageSourceCreateWithData(sent as CFData, nil))
+        XCTAssertEqual(CGImageSourceGetType(sentSource) as String?, UTType.jpeg.identifier)
+        XCTAssertEqual(UIImage(data: sent)?.cgImage?.width, 64)
+        XCTAssertEqual(UIImage(data: sent)?.cgImage?.height, 40)
+        let jpeg = try XCTUnwrap(UIImage(data: data)?.jpegData(compressionQuality: 0.9))
+        let jpegAsset = try await store.store(jpeg, name: "small.jpg", conversationID: id)
+        let smallJPEG = try await restored.inferenceImage(jpegAsset, conversationID: id)
+        XCTAssertEqual(smallJPEG, jpeg, "An already-small JPEG needs neither scaling nor recompression")
+        for width in [2_047, 2_048, 2_049] {
+            let bytes = png(width: width)
+            let asset = try await store.store(bytes, name: "boundary.png", conversationID: id)
+            let converted = try await restored.inferenceImage(asset, conversationID: id)
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(converted as CFData, nil))
+            XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.jpeg.identifier)
+            let image = try XCTUnwrap(UIImage(data: converted)?.cgImage)
+            XCTAssertEqual(image.width, min(width, AttachmentStore.inferenceImageMaxPixel))
+            XCTAssertEqual(Double(image.height), 40 * min(1, Double(AttachmentStore.inferenceImageMaxPixel) / Double(width)), accuracy: 1)
+            let unchanged = try await restored.read(asset, conversationID: id)
+            XCTAssertEqual(unchanged, bytes)
+        }
         let encoded = try JSONEncoder().encode(attachment)
         XCTAssertLessThan(encoded.count, 1500)
         XCTAssertFalse(String(data: encoded, encoding: .utf8)!.contains(data.base64EncodedString()))

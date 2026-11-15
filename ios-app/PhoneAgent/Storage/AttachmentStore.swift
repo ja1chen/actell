@@ -33,6 +33,7 @@ struct StoredAttachment: Codable, Equatable, Identifiable, Sendable {
 actor AttachmentStore {
     static let imageLimit = 20 * 1_024 * 1_024
     static let textLimit = 256 * 1_024
+    static let inferenceImageMaxPixel = 2_048
     static let capacity = 1_024 * 1_024 * 1_024
     static let supportedTextExtensions = Set(["txt", "md", "markdown", "json", "csv"])
     private let root: URL
@@ -139,7 +140,7 @@ actor AttachmentStore {
             }
         }
     }
-    func read(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
+    private func originalFile(_ attachment: StoredAttachment, conversationID: UUID) throws -> URL {
         guard attachment.conversationID == conversationID else { throw AppError.invalid(String(localized: "The attachment does not belong to this conversation")) }
         try requireOwnedDirectory(attachment)
         let folder = try directory(attachment)
@@ -156,6 +157,18 @@ actor AttachmentStore {
         guard let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
               info.isRegularFile == true, info.isSymbolicLink != true,
               let size = info.fileSize, size <= Self.imageLimit else { throw AppError.unavailable(String(localized: "The local attachment is unavailable. Retry downloading an existing remote image or select the file again.")) }
+        return file
+    }
+    /// Resolve from the command workspace, without retaining a sandbox container prefix.
+    func relativePath(_ attachment: StoredAttachment, conversationID: UUID, from workspace: URL) throws -> String {
+        let file = try originalFile(attachment, conversationID: conversationID)
+        let base = workspace.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let target = file.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let common = zip(base, target).prefix { $0.0 == $0.1 }.count
+        return (Array(repeating: "..", count: base.count - common) + Array(target.dropFirst(common))).joined(separator: "/")
+    }
+    func read(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
+        let file = try originalFile(attachment, conversationID: conversationID)
         let data = try Data(contentsOf: file, options: .mappedIfSafe)
         guard data.count == attachment.byteCount,
               SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == attachment.digest else {
@@ -167,20 +180,27 @@ actor AttachmentStore {
         let original = try read(attachment, conversationID: conversationID)
         guard attachment.kind == .image else { return original }
         if fullSize { return original }
-        return try Self.render(original, maxPixel: 512, type: UTType.jpeg.identifier)
+        return try Self.renderJPEG(original, maxPixel: 512)
     }
     func inferenceImage(_ attachment: StoredAttachment, conversationID: UUID) throws -> Data {
         guard attachment.kind == .image else { throw AppError.invalid(String(localized: "The attachment is not an image")) }
-        return try Self.render(read(attachment, conversationID: conversationID), maxPixel: 2_048, type: UTType.png.identifier)
+        return try Self.renderJPEG(read(attachment, conversationID: conversationID), maxPixel: Self.inferenceImageMaxPixel)
     }
-    private static func render(_ data: Data, maxPixel: Int, type: String) throws -> Data {
+    private static func renderJPEG(_ data: Data, maxPixel: Int) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: maxPixel] as CFDictionary) else {
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            throw AppError.invalid(String(localized: "The image could not be decoded"))
+        }
+        let longestSide = max(width, height)
+        if longestSide <= maxPixel, CGImageSourceGetType(source) as String? == UTType.jpeg.identifier { return data }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: min(maxPixel, longestSide)] as CFDictionary) else {
             throw AppError.invalid(String(localized: "The image could not be decoded"))
         }
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, type as CFString, 1, nil) else { throw AppError.invalid(String(localized: "Could not create an image preview")) }
-        CGImageDestinationAddImage(destination, image, nil)
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { throw AppError.invalid(String(localized: "Could not create an image preview")) }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw AppError.invalid(String(localized: "Could not save the image preview")) }
         return output as Data
     }
